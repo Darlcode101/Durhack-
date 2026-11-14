@@ -1,6 +1,6 @@
 # YuDuino: hardware approval you can't fake, even under threat
 
-*Project overview by Jonah, 14 November 2026. Built for DurHack on an Arduino UNO Q with a YubiKey 5 NFC. (Formerly "YuPico"; renamed because the build no longer uses a Raspberry Pi Pico.)*
+*Project overview by Jonah, 14 November 2026. Built for DurHack on an Arduino UNO Q with a YubiKey 5 NFC.*
 
 To wire it up, see the step-by-step **[hardware plan](HARDWARE-PLAN.md)**. For the team schedule and software checklist, see **[PLAN.md](PLAN.md)**. For how YuDuino targets each DurHack challenge (RS/Arduino, Tagged, Gemini, Tiger Data and add-ons), see the **[challenge plan](CHALLENGES.md)**. For the build order, wave by wave, see the **[prototype and development plan](DEV-PLAN.md)**.
 
