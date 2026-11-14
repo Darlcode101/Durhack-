@@ -14,7 +14,7 @@ Back to the **[overview](YuDuino-Overview.md)** · **[hardware plan](HARDWARE-PL
 | MLH Best Use of Tiger Data | Target | One record per usage; baselines as continuous aggregates; false-alarm labels; audit log |
 | DEV Writing Challenge | Add-on (free) | Write-up after the weekend |
 | MLH Best Use of ElevenLabs | Add-on (cheap) | Reads the transaction aloud; generates test voices for the demo |
-| MLH Best Use of Vultr | Add-on | The guardian backend: stores incident reports for an admin dashboard; runs the verifier and silent alerts |
+| MLH Best Use of Vultr | Add-on | The guardian backend: incident reports and admin dashboard, verifier, and a response engine that alerts the team and locks funds |
 | MLH Best Use of Solana | Stretch | Devnet wallet program: a valid signature releases funds, a decoy freezes them |
 | MLH Best Use of MongoDB Atlas | Stretch (if time) | Document data: profiles, policies, guardian contacts and incident reports |
 | Entire | Skip | It rewards our AI coding workflow, not the product |
@@ -117,5 +117,12 @@ In priority order:
 - **DEV Writing Challenge: yes.** Publish the build story after the weekend. It costs no hack time and pays $100.
 - **ElevenLabs: yes, cheap.** It reads the transaction aloud for accessibility, and generates calm and scared test voices so the duress demo is reliable (lower priority). **ElevenLabs does not detect fear.** Fear detection stays with Gemini audio or the onboard pitch, shake and speaking-rate features.
 - **Vultr: yes.** Few teams will enter it, so it's worth the small effort. One Vultr server is the **guardian backend**: it **hosts and stores the incident reports** (one report per decoy approval or alert, with the transaction, risk scores and Gemini's explanation) on the server or in Vultr Object Storage, and serves an **admin dashboard** where admins review them and mark each one as real duress or a false alarm. It also runs the signature verifier and the silent-alert service, and reads per-usage scores and baselines from Tiger Data (false-alarm labels are written back there). No GPU training.
+  - **Response engine (runs the security protocol).** When a decoy approval or alert fires, the server carries out the protocol automatically:
+    1. **Alert the on-call team** by SMS, Telegram or email, with the incident report link.
+    2. **Escalate** to the next person (and then the guardian contacts) if nobody acknowledges within a set time.
+    3. **Freeze or hold** the affected funds or account through the wallet API (or the Solana devnet program in the stretch goal).
+    4. **Require a second approver** for that user's next actions until an admin closes the incident.
+  - **It can only make things safer.** The server can lock, hold and alert, but it can never approve or release anything; only a fresh YuDuino signature can.
+  - **Fails safe.** If the Vultr server is down, the device still issues the decoy and the verifier still refuses it, and alerts queue up on the device and are sent when the server is reachable again.
 - **Solana: stretch goal.** A devnet program acts as the wallet: it only releases funds when given a valid YuDuino signature over the exact transaction. A decoy signature freezes the funds and raises the alarm on-chain instead. This ties directly to the Binance story.
 - **Skip Entire**: it rewards our AI coding workflow, not the product.
