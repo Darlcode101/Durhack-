@@ -160,3 +160,16 @@ The first time any of these runs, tell the team and tick it off in [PLAN.md](PLA
 - **Guardian rejects with "no valid tag":** the guardian's tag key doesn't match the one in `secrets.h`. Re-run `provision.py`, reflash, and re-enrol.
 - **Guardian rejects with "unknown or reused nonce" or "expired":** more than 2 minutes passed, or the guardian restarted (its nonces and members are in memory in Wave 1). Re-enrol after a restart.
 - **Duress shows up when it shouldn't:** check the veto first (a sensor may be unplugged), then Gemini's reasons. A false alarm costs a delay, never a loss, so leave the fail-closed rule alone.
+
+## Bring-up sketches
+
+Upload these one at a time in App Lab or the Arduino IDE (folder `app/bringup/`), before the full sketch. Each file's top comment says what PASS looks like.
+
+| Folder | Proves | Answers |
+|---|---|---|
+| `step1_matrix` | LED matrix text | Does `ArduinoGraphics` + `Arduino_LED_Matrix` draw text? |
+| `step2_qwiic` | Thermo, Movement, Buttons | Is the Qwiic port `Wire1` or `Wire`? (`USE_WIRE1` switch) |
+| `step3_dfrobot` | Touch and moisture pins | Are the pins and 3.3 V wiring right? |
+| `step4_buttons` | The trusted PIN core, no Linux | Do press/hold timing and the grip gate work? |
+
+Resolved by reading the docs: `provide_safe` is required (handlers run off the main loop); use `Monitor`, not `Serial`; the Buttons calls (`update`, `isPressed`) are right. Still to confirm on the board: String arguments over Bridge, and whether matrix text flickers at the 120 ms redraw.

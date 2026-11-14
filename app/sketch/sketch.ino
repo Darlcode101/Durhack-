@@ -7,6 +7,8 @@
 // The glue below is UNVERIFIED on hardware — see the "VERIFY" comments and docs/PLAN.md.
 
 #include <Arduino_RouterBridge.h>
+#include <ArduinoGraphics.h>      // must come before Arduino_LED_Matrix.h
+#include <Arduino_LED_Matrix.h>
 #include <Modulino.h>
 #include "yuseal_mcu.h"   // trusted approval core (docs/CRYPTO.md); tested on a laptop
 #include "secrets.h"      // written by tools/provision.py, gitignored: K_MCU-derived PIN tags
@@ -30,11 +32,34 @@ unsigned long lastSample = 0;
 bool   prevPressed[3] = {false, false, false};
 yuseal::Mcu core;
 
-// Scroll text on the 8x13 LED matrix. VERIFY against App Lab's LED matrix example
-// (Arduino_LED_Matrix, scrolling text call). Until then the text goes to Serial so the
-// logic can be tested.
+// --- LED matrix text, scrolled WITHOUT blocking (endText(SCROLL_LEFT) blocks and would starve
+// core.tick and the button reads). We redraw a static frame every 120 ms at a moving x offset.
+// VERIFY on the board: beginText/endText(NO_SCROLL) draws; if it flickers, slow SCROLL_MS.
+ArduinoLED matrix;
+char          shownText[yuseal::MAX_TEXT + 1] = "";
+int           scrollX = 13;
+unsigned long lastScroll = 0;
+const unsigned long SCROLL_MS = 120;
+
 void showText(const char* text) {
-  Monitor.println(text);
+  strncpy(shownText, text, yuseal::MAX_TEXT);
+  shownText[yuseal::MAX_TEXT] = 0;
+  scrollX = 13;
+  Monitor.println(shownText);   // mirror to the serial monitor for debugging
+}
+
+void drawText() {
+  if (!shownText[0] || millis() - lastScroll < SCROLL_MS) return;
+  lastScroll = millis();
+  matrix.beginDraw();
+  matrix.clear();
+  matrix.stroke(0xFFFFFFFF);
+  matrix.textFont(Font_5x7);
+  matrix.beginText(scrollX, 1, 0xFFFFFF);
+  matrix.print(shownText);
+  matrix.endText();             // NO_SCROLL
+  matrix.endDraw();
+  if (--scrollX < -(int)strlen(shownText) * 6) scrollX = 13;   // 5 px glyph + 1 px gap
 }
 
 float shakeRms() {
@@ -108,6 +133,7 @@ String seal_approval(String scoreStr, String vetoStr) {
 void setup() {
   Monitor.begin(115200);
   Bridge.begin();
+  matrix.begin();
   Modulino.begin();          // VERIFY: on UNO Q the Qwiic port may be Wire1; check Modulino docs/examples
   thermo.begin();
   movement.begin();
@@ -146,4 +172,5 @@ void loop() {
     }
   }
   core.tick(millis());
+  drawText();
 }
