@@ -4,6 +4,8 @@
 
 Everything runs on an **Arduino UNO Q**. Every approval is a sealed envelope with three independent proofs: a **YubiKey** signature (who touched it), a tag from the board's **STM32 microcontroller** (the PIN was pressed on the real buttons for exactly the text on the LED matrix), and an **ML-DSA-65** post-quantum signature over everything. A handheld grip (shake, palm humidity and temperature, grip, sweat) and a USB camera feed Gemini, which judges **whether the person is acting freely**. Under duress the screen shows a normal "OK" and the envelope looks identical, but the STM32's tag secretly says "duress", which only the verifier can read, so it can raise a silent alarm. Details: **[crypto design](docs/CRYPTO.md)**.
 
+**Test it:** [docs/TESTING.md](docs/TESTING.md) (laptop tests first, then the board).
+
 ## The vision: a language the attacker can never read
 
 YuDuino is a small device that sits between a person and anything dangerous they can approve: moving money, deploying to production, letting an AI agent act. Nothing happens until a named person physically approves on it, and every approval is a **cryptographic signature, never an "OK" message**.

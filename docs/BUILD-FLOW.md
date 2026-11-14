@@ -161,6 +161,8 @@ The first time any of these runs, tell the team and tick it off in [PLAN.md](PLA
 - **Guardian rejects with "unknown or reused nonce" or "expired":** more than 2 minutes passed, or the guardian restarted (its nonces and members are in memory in Wave 1). Re-enrol after a restart.
 - **Duress shows up when it shouldn't:** check the veto first (a sensor may be unplugged), then Gemini's reasons. A false alarm costs a delay, never a loss, so leave the fail-closed rule alone.
 
+See [TESTING.md](TESTING.md) for the full test steps.
+
 ## Bring-up sketches
 
 Upload these one at a time in App Lab or the Arduino IDE (folder `app/bringup/`), before the full sketch. Each file's top comment says what PASS looks like.
