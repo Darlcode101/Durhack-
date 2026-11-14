@@ -8,6 +8,8 @@ Full plan, schedule and limitations: [docs/PLAN.md](docs/PLAN.md)
 
 Product write-up (post-quantum key release, duress detection, design goals): [docs/YuDuino-Overview.md](docs/YuDuino-Overview.md)
 
+Hardware bring-up (wiring, pins, step-by-step tests, first milestone): [docs/HARDWARE-PLAN.md](docs/HARDWARE-PLAN.md)
+
 ## Hardware
 
 Arduino UNO Q · USB camera · USB-C hub with power passthrough · Modulino Thermo, Movement, Buttons (Qwiic chain) · touch sensor (D2) · moisture probe (A0) · YubiKey
