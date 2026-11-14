@@ -80,3 +80,47 @@ def login(credential_data: bytes, salt: bytes, client: Fido2Client | None = None
     ).get_response(0)
     _server.authenticate_complete(state, creds, result)  # raises on a bad assertion
     return result.client_extension_results.hmac_get_secret.output1
+
+
+# ---------------------------------------------------------------- YuSeal adapter (docs/BUILD-FLOW.md, step 4)
+import base64  # noqa: E402
+
+from cryptography.hazmat.primitives.asymmetric import ec  # noqa: E402
+
+
+def credential_public_key(credential_data: bytes) -> ec.EllipticCurvePublicKey:
+    """The YubiKey credential's P-256 public key, for the guardian. VERIFY the COSE key labels on hardware."""
+    cose = AttestedCredentialData(credential_data).public_key
+    return ec.EllipticCurvePublicNumbers(
+        int.from_bytes(cose[-2], "big"), int.from_bytes(cose[-3], "big"), ec.SECP256R1()).public_key()
+
+
+class RealYubiKey:
+    """Same interface as yuseal.SoftYubiKey, backed by the real key over USB.
+
+    UNVERIFIED on hardware. The YubiKey must sign challenge = SHA-256(core) and return the raw
+    authenticatorData, clientDataJSON and signature, which the guardian re-checks. python-fido2's
+    get_assertion() takes the challenge in the options; the origin must be https://<RP_ID> and
+    RP_ID must equal the guardian's service ID (FIDO_RP_ID in .env, same on both).
+    """
+
+    def __init__(self, credential_data: bytes | None = None):
+        self.credential = credential_data
+
+    def register(self, user: str):
+        cred, _salt, _secret = enrol(user)  # touches twice; the salt and secret here are discarded
+        self.credential = cred
+        return cred, credential_public_key(cred)
+
+    def assert_and_secret(self, rp_id: str, challenge: bytes, salt: bytes):
+        assert rp_id == RP_ID, "FIDO_RP_ID must equal the guardian's service ID"
+        client = _client()
+        creds = [AttestedCredentialData(self.credential)]
+        options, _state = _server.authenticate_begin(creds, user_verification=UV, challenge=challenge)
+        result = client.get_assertion(
+            {**options["publicKey"], "extensions": {"hmacGetSecret": {"salt1": salt}}}).get_response(0)
+        b64 = lambda b: base64.urlsafe_b64encode(bytes(b)).rstrip(b"=").decode()
+        assertion = {"authenticator_data": b64(result.response.authenticator_data),
+                     "client_data_json": b64(result.response.client_data),
+                     "signature": b64(result.response.signature)}
+        return assertion, result.client_extension_results.hmac_get_secret.output1

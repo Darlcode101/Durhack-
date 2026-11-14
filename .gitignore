@@ -22,3 +22,9 @@ venv/
 # OS / editor
 .DS_Store
 .vscode/
+
+# YuSeal provisioning output: device secrets and the guardian's shared tag key
+tools/out/
+app/sketch/secrets.h
+guardian_state.json
+device.json
