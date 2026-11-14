@@ -8,6 +8,10 @@ Everything runs on an **Arduino UNO Q**. Every approval is a sealed envelope wit
 
 **Test it:** [docs/TESTING.md](docs/TESTING.md) (laptop tests first, then the board).
 
+## Who it's for: an institutional trading firm
+
+The main audience is **Marshall Wace** (the hedge fund), alongside the hackathon tracks below. The fit: **trader and treasury authorisation** (wire releases, beneficiary changes, limit overrides, deployments), **insider and coercion risk** (the owner check rejects a borrowed key; duress detection raises a silent alarm), and **audit trails** (a signed, hash-chained log that names who authorised what). Suggestions, likely objections, a demo and questions to ask: **[docs/INSTITUTIONAL-FIT.md](docs/INSTITUTIONAL-FIT.md)**. We haven't seen their brief or the pitch deck yet; this will be checked against them when they arrive.
+
 ## The target design: a mouse you just use
 
 Design change (2026-11-14): the whole device now lives **inside a normal-working mouse**. The user does **nothing extra**: no PIN, no gesture, no screen. They click "Process transaction" like any button, the STM32 sees that **real physical click**, and the check runs silently from sensor data.
@@ -16,6 +20,8 @@ Design change (2026-11-14): the whole device now lives **inside a normal-working
 - **It learns you all day.** A mouse is held for hours, so it builds a rich, per-hour baseline of your grip, tremor, sweat and temperature in Tiger Data, which fixes the "not enough data to know what's irregular" problem. [docs/BASELINE.md](docs/BASELINE.md)
 - **It knows whose hand it is.** The guardian compares aggregated click, movement, grip and body features with the **YubiKey's registered user** and **quietly rejects anyone else**. An impostor sees only ordinary failures, can retry forever, and never passes. [docs/OWNER-CHECK.md](docs/OWNER-CHECK.md)
 - **The approval is invisible.** A physical click is the trigger and everything else is background. [docs/STEALTH-APPROVAL.md](docs/STEALTH-APPROVAL.md)
+
+**Misdirection.** The mouse is so unusual that even the system logs and the transaction breakdown would make an attacker assume a remote key or another ledger. That is misdirection on top of the crypto, not instead of it ([docs/STEALTH-APPROVAL.md](docs/STEALTH-APPROVAL.md#misdirection-what-an-attacker-sees-in-the-logs)).
 
 **Be clear about the trade-off.** This gives up the **trusted display** and the **PIN**. Without a screen, malware on the laptop could show one transaction and send another, and there is no deliberate "I'm being forced" signal; duress is detected purely passively. The guardian's limits, step-up, Gemini's check of the request and a cancel window are what cover that. The owner check is statistical and will sometimes turn away the real owner (handled by a second approver). Details and the full list of weak spots are in [STEALTH-APPROVAL.md](docs/STEALTH-APPROVAL.md#what-we-lose-read-this).
 
@@ -102,6 +108,7 @@ Wiring and step-by-step bring-up: **[hardware plan](docs/HARDWARE-PLAN.md)**.
 - **[Development plan](docs/DEV-PLAN.md):** build waves, each advancing hardware, cryptography and extensions together, with a demo at the end of every wave.
 - **[Hardware plan](docs/HARDWARE-PLAN.md):** wiring, pins and the bring-up order.
 - **[All-day baseline](docs/BASELINE.md):** how the mouse learns each person's normal all day, the privacy limits, filtering out mouse movement, and time-of-day drift.
+- **[Institutional fit](docs/INSTITUTIONAL-FIT.md):** how YuDuino fits a trading firm like Marshall Wace: treasury and trader authorisation, insider and coercion risk, audit trails, objections and a demo.
 - **[Invisible approval](docs/STEALTH-APPROVAL.md):** no screen, no PIN, no extra input: the flow, what we lose and how we cover it.
 - **[Owner check](docs/OWNER-CHECK.md):** how the mouse tells the registered user from anyone else, and what happens on a false reject.
 - **[Mouse design](docs/MOUSE-DESIGN.md):** the device hidden inside a computer mouse: layout, sensor map, display, 3D-printed shell, and the security trade-offs.

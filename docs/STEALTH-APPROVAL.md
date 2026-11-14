@@ -74,6 +74,20 @@ Same small trusted core ([`yuseal_mcu.h`](../app/sketch/yuseal_mcu.h) today, cha
 | Hand is **clearly not the owner** | Nothing; the requester sees an ordinary failure | The impostor can retry forever and never pass; repeats lock and alert the owner |
 | Duress score high, or Gemini or the sensors can't give a verdict | **Held for review**; the requester is told "accepted" | Fail closed, quietly |
 
+## Misdirection: what an attacker sees in the logs
+
+Jonah's point: the mouse is such an unusual place to put an authenticator that **even in the system logs and the breakdown of a transaction, an attacker would assume the key is remote or that another ledger is being used.** An approval looks like an ordinary signature from a named signer, which suggests an HSM, an MPC service or a remote key. They go looking in the wrong place. This is misdirection **on top of** the crypto, never instead of it.
+
+To keep it true:
+
+- **Opaque signer names.** Anything outside the guardian's security boundary (dashboards, exports, ledger entries) shows a generic signer ID, not "mouse", "unoq-1", "grip" or anything else about the device.
+- **Keep sensor and click fields inside.** The click age, the feature hash and the sensor summary stay in the guardian's internal record. External logs carry the signature, the signer ID, the request and the time only.
+- **Uniform behaviour.** Decoys and ordinary failures use the same fields and timing as real ones ([OWNER-CHECK.md](OWNER-CHECK.md)).
+- **Mind the timing.** An approval arrives about a second after a human click. Don't expose enough timing detail in outside logs to show the pattern.
+- **The signature is unusual.** An ML-DSA-65 signature is large (about 3.3 KB) and stands out on a ledger. It looks like "a post-quantum remote signer", which is the intended guess, but a careful analyst could ask why. Don't rely on it.
+
+**Limits.** Anyone who has seen the mouse, or an insider who knows, defeats this. **It must never be the only protection.** And an institution's auditors and regulators need to understand the control, so it should be **secret from attackers but documented for authorised auditors** ([INSTITUTIONAL-FIT.md](INSTITUTIONAL-FIT.md#likely-objections-and-honest-answers)).
+
 ## What we lose (read this)
 
 This is not as strong as v2. In plain words:

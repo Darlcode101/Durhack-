@@ -21,6 +21,10 @@ Back to the **[overview](YuDuino-Overview.md)** · **[hardware plan](HARDWARE-PL
 | MLH Best Use of MongoDB Atlas | Stretch (if time) | Document data: profiles, policies, guardian contacts and incident reports |
 | Entire | Skip | It rewards our AI coding workflow, not the product |
 
+## 0. Marshall Wace (main audience)
+
+The main audience is **Marshall Wace** (the hedge fund), alongside the tracks below. The pitch there is **accountable authorisation for an institutional trading firm**: treasury and trader approvals, insider and coercion risk, and audit trails. Full suggestions, likely objections, a demo and questions to ask: **[INSTITUTIONAL-FIT.md](INSTITUTIONAL-FIT.md)**. We do not have their challenge brief or the pitch deck yet, so this section stays general until they arrive.
+
 ## 1. RS / Arduino (main challenge)
 
 The brief asks for an intelligent system that captures data, analyses sensor inputs, makes a decision and triggers an action. The UNO Q, a camera and USB hubs are mandatory. YuDuino follows those four steps exactly:
