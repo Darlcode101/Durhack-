@@ -1,6 +1,6 @@
 # YuDuino: challenge plan
 
-*How YuDuino targets each DurHack challenge. Written 14 November 2026. Every design choice should serve at least one of the four target challenges below.*
+*How YuDuino targets each DurHack challenge. Written 14 November 2026. Every design choice should serve at least one of the target challenges below.*
 
 Back to the **[overview](YuDuino-Overview.md)** · **[hardware plan](HARDWARE-PLAN.md)**
 
@@ -16,7 +16,8 @@ Back to the **[overview](YuDuino-Overview.md)** · **[hardware plan](HARDWARE-PL
 | MLH Best Use of ElevenLabs | Add-on (cheap) | Reads the transaction aloud; generates test voices for the demo |
 | MLH Best Use of Vultr | Add-on | The guardian backend: dashboard, verifier and silent alerts |
 | MLH Best Use of Solana | Stretch | Devnet wallet program: a valid signature releases funds, a decoy freezes them |
-| MongoDB Atlas, Entire | Skip | Tiger Data covers the database better; Entire is about our workflow, not the product |
+| MLH Best Use of MongoDB Atlas | Target | Document data: profiles, policies, guardian contacts and incident reports |
+| Entire | Skip | It rewards our AI coding workflow, not the product |
 
 ## 1. RS / Arduino (main challenge)
 
@@ -66,7 +67,7 @@ The brief: invent a physical language that encodes digital information.
 
 Tiger Data is PostgreSQL with time-series extensions. **It stores one record per usage**: every approval session, with its sensor feature scores, Gemini's verdict, the decision and (later) a label. Never raw audio or video.
 
-**Why Tiger Data fits (and not MongoDB):** duress detection is all about "is this reading unusual *for this person, right now*?". That is a time-series question, and Tiger Data answers it in plain SQL:
+**Why Tiger Data fits:** duress detection is all about "is this reading unusual *for this person, right now*?". That is a time-series question, and Tiger Data answers it in plain SQL:
 
 - **Hypertable of usages:** one row per approval session, partitioned by time, with a relational `users` table alongside in the same database.
 - **Baselines as continuous aggregates:** per-user and per-time-of-day baselines (for example, your usual tremor at 9 am versus 11 pm) are pre-computed and kept up to date automatically, so the device gets its baseline in one fast query.
@@ -79,15 +80,28 @@ Tiger Data is PostgreSQL with time-series extensions. **It stores one record per
 - **Audit log:** the hash-chained approval log, mirrored from the microSD.
 - **Live dashboard:** real-time charts from the continuous aggregates, which also serve as the RS demo graph. Compression keeps months of usages on the free tier.
 
-## 5. Conflict with "all processing onboard"
+## 5. MLH Best Use of MongoDB Atlas
+
+MongoDB Atlas holds the **document-shaped** data, so it never overlaps with Tiger Data's time-series:
+
+| Collection | What each document holds |
+|---|---|
+| `users` and `devices` | User and device profiles, YubiKey public key and attestation, enrolment config (chosen backup gesture, enrolment date) |
+| `policies` | Spend limits, destination allow-lists, quiet hours, and second-approver rules (who, and above what amount) |
+| `guardians` | Emergency contacts and how to reach them for silent alerts |
+| `incidents` | One document per decoy approval or alert: the transaction, the risk scores, Gemini's explanation, who was alerted, and how it was resolved (real duress or false alarm) |
+
+**How the two databases split:** Tiger Data answers "how does this reading compare to normal over time?"; MongoDB answers "who is this, what are they allowed to do, and what happened in this incident?". The Vultr guardian backend reads both. When an incident is resolved as a false alarm, the label is also written back to the matching usage in Tiger Data.
+
+## 6. Conflict with "all processing onboard"
 
 The design rule is that raw data stays on the UNO Q. Gemini and Tiger Data are cloud services, so:
 
 - **Gemini** only ever receives one frame and the scores (plus an audio clip only if we decide the voice signal needs it). Never PINs. It can only raise the risk, so a failed or manipulated call can never cause an approval.
-- **Tiger Data** only receives derived scores and labels, written **after** the decision. The cloud is never in the approval path.
+- **Tiger Data and MongoDB Atlas** only receive derived scores, labels, settings and incident reports, written **after** the decision. The cloud is never in the approval path. (The device keeps a local copy of its policies so it works offline.)
 - **Later version:** a local model (such as Gemma) on the UNO Q's Linux side, and padded, fixed-interval messages to resist traffic side channels.
 
-## 6. 3D printer (free)
+## 7. 3D printer (free)
 
 In priority order:
 
@@ -96,10 +110,10 @@ In priority order:
 3. **Privacy hood** over the Modulino Buttons PIN pad.
 4. **Camera mount** at face height.
 
-## 7. Other MLH prizes
+## 8. Other MLH prizes
 
 - **DEV Writing Challenge: yes.** Publish the build story after the weekend. It costs no hack time and pays $100.
 - **ElevenLabs: yes, cheap.** It reads the transaction aloud for accessibility, and generates calm and scared test voices so the duress demo is reliable (lower priority). **ElevenLabs does not detect fear.** Fear detection stays with Gemini audio or the onboard pitch, shake and speaking-rate features.
-- **Vultr: yes.** Few teams will enter it, so it's worth the small effort. One Vultr server is the **guardian backend**: the live dashboard, the signature verifier and the silent-alert service. No GPU training.
+- **Vultr: yes.** Few teams will enter it, so it's worth the small effort. One Vultr server is the **guardian backend**: the live dashboard, the signature verifier and the silent-alert service. It reads usages and baselines from Tiger Data and profiles, policies and guardian contacts from MongoDB Atlas, and writes incidents to MongoDB. No GPU training.
 - **Solana: stretch goal.** A devnet program acts as the wallet: it only releases funds when given a valid YuDuino signature over the exact transaction. A decoy signature freezes the funds and raises the alarm on-chain instead. This ties directly to the Binance story.
-- **Skip MongoDB Atlas**: Tiger Data does the database work better for this, because baselines are time-series. **Skip Entire**: it rewards our AI coding workflow, not the product.
+- **Skip Entire**: it rewards our AI coding workflow, not the product.
