@@ -123,7 +123,7 @@ Ledger Enterprise offers approval devices with trusted screens, and Fireblocks o
 ## 12. Hackathon goals
 
 - **Demo:** replay the Binance attack. An "attack script" on the laptop requests a transfer; the LED matrix shows it; nothing moves without a real tap. Then a forced approval: the duress check fires, the attacker sees "OK", and the verifier silently freezes the funds.
-- **Target challenges** (details in the [challenge plan](CHALLENGES.md)): RS/Arduino (main), Tagged "Information Hidden in Plain Sight" (optional), MLH Best Use of Gemini API, MLH Best Use of Tiger Data, MLH Best Use of MongoDB Atlas. Cheap add-ons: DEV, ElevenLabs, Vultr; Solana as a stretch.
+- **Target challenges** (details in the [challenge plan](CHALLENGES.md)): RS/Arduino (main), Tagged "Information Hidden in Plain Sight" (optional), MLH Best Use of Gemini API, MLH Best Use of Tiger Data. Cheap add-ons: DEV, ElevenLabs, Vultr; Stretch goals if time: Solana and MongoDB Atlas.
 - Use the free 3D printer for the grip, enclosure and YubiKey dock.
 
 ## 13. Open decisions
@@ -132,5 +132,5 @@ Ledger Enterprise offers approval devices with trusted screens, and Fireblocks o
 - [ ] YubiKey on the laptop (WebAuthn) or directly on the UNO Q (USB)
 - [ ] Gemini in the cloud with scores only, or a local model
 - [x] Verifier: the guardian backend on a Vultr server (dashboard, verifier, silent alerts); a Solana devnet wallet program as a stretch goal
-- [x] Databases: Tiger Data for per-usage scores and baselines; MongoDB Atlas for profiles, policies, guardian contacts and incident reports. Both written after the decision
+- [x] Database: Tiger Data for per-usage scores and baselines, written after the decision. MongoDB Atlas (profiles, policies, guardians, incidents) is a stretch goal if time
 - [x] Tagged framing: the body's duress signals are the hidden language, Gemini translates (secret gesture optional)

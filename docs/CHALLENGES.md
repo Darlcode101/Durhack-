@@ -16,7 +16,7 @@ Back to the **[overview](YuDuino-Overview.md)** · **[hardware plan](HARDWARE-PL
 | MLH Best Use of ElevenLabs | Add-on (cheap) | Reads the transaction aloud; generates test voices for the demo |
 | MLH Best Use of Vultr | Add-on | The guardian backend: dashboard, verifier and silent alerts |
 | MLH Best Use of Solana | Stretch | Devnet wallet program: a valid signature releases funds, a decoy freezes them |
-| MLH Best Use of MongoDB Atlas | Target | Document data: profiles, policies, guardian contacts and incident reports |
+| MLH Best Use of MongoDB Atlas | Stretch (if time) | Document data: profiles, policies, guardian contacts and incident reports |
 | Entire | Skip | It rewards our AI coding workflow, not the product |
 
 ## 1. RS / Arduino (main challenge)
@@ -80,9 +80,11 @@ Tiger Data is PostgreSQL with time-series extensions. **It stores one record per
 - **Audit log:** the hash-chained approval log, mirrored from the microSD.
 - **Live dashboard:** real-time charts from the continuous aggregates, which also serve as the RS demo graph. Compression keeps months of usages on the free tier.
 
-## 5. MLH Best Use of MongoDB Atlas
+## 5. MLH Best Use of MongoDB Atlas (stretch, if time)
 
-MongoDB Atlas holds the **document-shaped** data, so it never overlaps with Tiger Data's time-series:
+**Benched for now; we only build this if there's time left.** The core plan works without it: until then, policies and guardian contacts live in a config file on the device and the guardian backend, and incidents are recorded as usages in Tiger Data.
+
+If we build it, MongoDB Atlas holds the **document-shaped** data, so it never overlaps with Tiger Data's time-series:
 
 | Collection | What each document holds |
 |---|---|
@@ -98,7 +100,7 @@ MongoDB Atlas holds the **document-shaped** data, so it never overlaps with Tige
 The design rule is that raw data stays on the UNO Q. Gemini and Tiger Data are cloud services, so:
 
 - **Gemini** only ever receives one frame and the scores (plus an audio clip only if we decide the voice signal needs it). Never PINs. It can only raise the risk, so a failed or manipulated call can never cause an approval.
-- **Tiger Data and MongoDB Atlas** only receive derived scores, labels, settings and incident reports, written **after** the decision. The cloud is never in the approval path. (The device keeps a local copy of its policies so it works offline.)
+- **Tiger Data** (and MongoDB Atlas, if added) only receive derived scores, labels, settings and incident reports, written **after** the decision. The cloud is never in the approval path. (The device keeps a local copy of its policies so it works offline.)
 - **Later version:** a local model (such as Gemma) on the UNO Q's Linux side, and padded, fixed-interval messages to resist traffic side channels.
 
 ## 7. 3D printer (free)
@@ -114,6 +116,6 @@ In priority order:
 
 - **DEV Writing Challenge: yes.** Publish the build story after the weekend. It costs no hack time and pays $100.
 - **ElevenLabs: yes, cheap.** It reads the transaction aloud for accessibility, and generates calm and scared test voices so the duress demo is reliable (lower priority). **ElevenLabs does not detect fear.** Fear detection stays with Gemini audio or the onboard pitch, shake and speaking-rate features.
-- **Vultr: yes.** Few teams will enter it, so it's worth the small effort. One Vultr server is the **guardian backend**: the live dashboard, the signature verifier and the silent-alert service. It reads usages and baselines from Tiger Data and profiles, policies and guardian contacts from MongoDB Atlas, and writes incidents to MongoDB. No GPU training.
+- **Vultr: yes.** Few teams will enter it, so it's worth the small effort. One Vultr server is the **guardian backend**: the live dashboard, the signature verifier and the silent-alert service. It reads usages and baselines from Tiger Data (and, if we add the MongoDB stretch, profiles, policies, contacts and incidents from MongoDB Atlas). No GPU training.
 - **Solana: stretch goal.** A devnet program acts as the wallet: it only releases funds when given a valid YuDuino signature over the exact transaction. A decoy signature freezes the funds and raises the alarm on-chain instead. This ties directly to the Binance story.
 - **Skip Entire**: it rewards our AI coding workflow, not the product.
