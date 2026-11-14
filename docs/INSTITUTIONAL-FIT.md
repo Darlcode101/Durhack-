@@ -1,12 +1,44 @@
-# YuDuino for an institutional trading firm (Marshall Wace and similar)
+# Marshall Wace: answering "New Worlds"
 
-**Main audience (Jonah, 2026-11-14): Marshall Wace**, the hedge fund, alongside the tracks in [CHALLENGES.md](CHALLENGES.md). This page suggests how YuDuino fits a firm like that, what to say, what to demo, and what a firm like that would push back on.
+**Main audience (Jonah, 2026-11-14): Marshall Wace**, the hedge fund. Their DurHack challenge, from the opening ceremony slides:
 
-> **Not in the repo yet:** Marshall Wace's own challenge brief and the pitch deck Jonah mentioned. Nothing below is taken from them. Once they are shared, check this page against them and change what doesn't match. Statements about how a hedge fund works are general knowledge, not facts about Marshall Wace; **validate them with their team on the day.**
+> **New Worlds.** Make a project that explores the idea of New Worlds. Build something that opens a door to the unexplored, whether that's new data, ideas or something novel no one has seen before. Interpret the theme however you think best captures the spirit of this idea. They want to see **creativity, technical complexity and good presentation**.
 
-## The one-line pitch
+Their other signals (from the same slides): they say technology and data are at the core of what they do, they invest in minimising **operational risk**, and they say they *don't* look for finance knowledge or a computer science degree. So **lead with the idea and the engineering, not with finance jargon.** (We don't copy their figures into this repo; see their slides.)
 
-**An authorisation device that can't be phished, can't be forced without raising a silent alarm, can't be lent to someone else, and that an attacker doesn't even know is there.** Every approval names a person and is signed in a way a quantum computer can't forge.
+> **Not verified:** statements below about how a hedge fund works are general knowledge, not facts about Marshall Wace. Validate them with their team.
+
+## How YuDuino opens three doors
+
+| Door | What is new | Why it is unexplored |
+|---|---|---|
+| **New data** | A continuous, passive stream from **the human hand at the moment of authority**: grip, tremor, sweat, click style, movement style, in aggregate. Nobody collects this at the point where money moves or code ships | Market data and system logs are everywhere; **operator state** is almost never a risk input |
+| **New idea** | **Authentication that is invisible**: no PIN, no screen, no extra action. The authenticator is a normal mouse and the check runs in the background | Security usually asks the person to do something; here the person does nothing and the **attacker doesn't know a check exists** |
+| **Something novel** | A hand's **signature as a language**: meaningless readings composed into one signal that identifies the person and reads their state, and is even **audible** as music ([COMPOSITION.md](COMPOSITION.md)) | A new combination: mouse + YubiKey + post-quantum crypto + AI + a time-series database |
+
+**One-sentence pitch for this brief:** *We opened a door to a new world of data: the human hand at the moment of authority, turned into an authenticator nobody can see, and a language nobody can read.*
+
+**Technical complexity to point at (they asked for it):** an STM32 trusted core with a C++/Python equivalence test; three independent proofs including a post-quantum ML-DSA-65 seal; a hash-chained signed audit log; passive behavioural identification with a quiet-rejection design; a Tiger Data time-series pipeline (hypertable, continuous aggregates, compression, retention); Gemini as the duress judge.
+
+**Good presentation to plan:** a working mouse handed to a judge, the dashboard that plays the session as music, a recorded backup, and the honest trade-offs said out loud.
+
+## Overlaps worth using
+
+These sponsors' challenges are close to ours. Recommended effort in [CHALLENGES.md](CHALLENGES.md#overlapping-sponsor-challenges); the short version:
+
+- **SGX FX: "Protect your assets from a trading market storm"** (stay safe, early warning). Fits well: see below.
+- **Neptune North: actors that stay resilient when comms fail.** Fits our fail-closed, independent-decision design; mention it, don't build for it.
+
+## Tilt guard: operator state meets market state (an idea for SGX FX and this brief)
+
+SGX FX asks for ways to **keep traders' money safe when things get rocky** and to **give an early warning**; they supply historical pricing data and say any data may be used. Combine their data with ours:
+
+- From their pricing data, compute a simple **market regime** (for example rolling volatility) and mark "storm" periods.
+- From the mouse, we have the **operator's state** (stress, fatigue, an unfamiliar hand).
+- **Rule:** during a market storm, a large or limit-changing action from an operator whose state is off (stressed, or not the owner) goes to **step-up** (a second approver) and alerts the risk manager. Quiet markets and calm operators are untouched.
+- **Demo:** replay a storm day from their data on the dashboard next to a live operator-state trace. When both spike, the guardian steps up.
+
+**Caveats:** stress from the hand is noisy, so this is an *early warning to a human*, not a prediction or an automatic block. Monitoring staff has privacy and trust costs ([BASELINE.md](BASELINE.md#privacy)). Don't claim it predicts markets.
 
 ## Where a firm like this feels the pain
 
@@ -66,4 +98,4 @@ Say the trade-offs out loud (no screen, no PIN, passive duress, statistical owne
 - Lead with the **Binance heist** (a signing service driven with no human approving) as the proof that approvals matter, then bring it to a **fund's treasury and deployment** risk.
 - Make **accountability** the headline for this audience ("who authorised this, provably"), with **coercion and credential-sharing** as the memorable twist.
 - Show **real numbers** from the owner check test ([OWNER-CHECK.md](OWNER-CHECK.md#how-we-will-find-out-if-it-works-hackathon-test)), not claims.
-- **Ask for the brief and the deck** and map each criterion to a page here.
+- Map each of their criteria (creativity, technical complexity, presentation) to a page here; see the table at the top.

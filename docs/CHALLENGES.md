@@ -10,10 +10,15 @@ Back to the **[overview](YuDuino-Overview.md)** · **[hardware plan](HARDWARE-PL
 
 | Track | Priority | YuDuino's angle |
 |---|---|---|
+| **Overall theme: Composition** (art, music, tech, idea mixing) | **Main** | Many meaningless signals composed into one; a mouse + YubiKey + AI; the hand's signal rendered as music. See [COMPOSITION.md](COMPOSITION.md) |
+| **Marshall Wace: New Worlds** | **Main** | A new world of data (the hand at the moment of authority) and an invisible authenticator. See [INSTITUTIONAL-FIT.md](INSTITUTIONAL-FIT.md) |
 | RS / Arduino: sense, analyse and respond to the real world | **Main** | Duress-aware approval device: sensors and camera in, a real, escalated or decoy approval out |
-| Tagged: Information Hidden in Plain Sight | Optional | The readings are a language: meaningless alone, a signal when aggregated; Gemini translates; the attacker can't read it |
+| Tagged: Information Hidden in Plain Sight (QRT) | Optional | The readings are a language: meaningless alone, a signal when aggregated; Gemini translates; the attacker can't read it |
 | MLH Best Use of Gemini API | Target | Multimodal duress judge and plain-English transaction explainer |
-| MLH Best Use of Tiger Data | Target | One record per usage; baselines as continuous aggregates; false-alarm labels; audit log |
+| MLH Best Use of Tiger Data | Target | The mouse's rolling per-minute stream in a hypertable; hourly continuous aggregates for per-user baselines; compression and retention; approvals and labels |
+| SGX FX: protect assets in a trading market storm | Overlap (small) | "Tilt guard": market storm from their data × operator state from the mouse → step-up and early warning |
+| Neptune North: actors that stay resilient when comms fail | Overlap (mention only) | Each mouse decides locally and fails closed offline; approvals from several people compose |
+| Accenture: redesign a frustrating accepted process with AI | Optional framing | "Everyone accepts PINs and pop-ups as how security works": we remove them |
 | DEV Writing Challenge | Add-on (free) | Write-up after the weekend |
 | MLH Best Use of ElevenLabs | Add-on (cheap) | Reads the transaction aloud; generates test voices for the demo |
 | MLH Best Use of Vultr | Add-on | The guardian backend: incident reports and admin dashboard, verifier, and a response engine that alerts the team and locks funds |
@@ -21,9 +26,11 @@ Back to the **[overview](YuDuino-Overview.md)** · **[hardware plan](HARDWARE-PL
 | MLH Best Use of MongoDB Atlas | Stretch (if time) | Document data: profiles, policies, guardian contacts and incident reports |
 | Entire | Skip | It rewards our AI coding workflow, not the product |
 
-## 0. Marshall Wace (main audience)
+## 0. The overall theme and the main audience
 
-The main audience is **Marshall Wace** (the hedge fund), alongside the tracks below. The pitch there is **accountable authorisation for an institutional trading firm**: treasury and trader approvals, insider and coercion risk, and audit trails. Full suggestions, likely objections, a demo and questions to ask: **[INSTITUTIONAL-FIT.md](INSTITUTIONAL-FIT.md)**. We do not have their challenge brief or the pitch deck yet, so this section stays general until they arrive.
+**Overall theme: Composition** ("explore art, music and tech; idea mixing; new combinations"). Judged on **Creativity & Innovation, Technical Competence & Execution, Research & Learning, Polish & Completion**. YuDuino is a composition at every level (signals, proofs, an everyday object plus a YubiKey plus AI) and we suggest a **music angle**: the hand's sensor stream played as a score. Full framing, a judging-criteria map and the demo: **[COMPOSITION.md](COMPOSITION.md)**.
+
+**Main audience: Marshall Wace**, whose challenge is **"New Worlds"**: open a door to the unexplored (new data, ideas or something novel). They judge creativity, technical complexity and good presentation. Our answer is three doors: **new data** (the human hand at the moment of authority), a **new idea** (authentication that is invisible) and **something novel** (a hand's signature as a language, even audible as music). Also the institutional fit: treasury and trader authorisation, insider and coercion risk, audit trails. Details, objections and a demo: **[INSTITUTIONAL-FIT.md](INSTITUTIONAL-FIT.md)**.
 
 ## 1. RS / Arduino (main challenge)
 
@@ -145,6 +152,20 @@ If `base.n` is too small, the guardian widens to the whole day and then the popu
 - **Real time-series features:** hypertable, continuous aggregates, compression, retention and `time_bucket` all used for a reason, not for show.
 - **A privacy story built from database settings:** raw rows expire, aggregates remain.
 - **Same database as before:** the audit log mirror, false-alarm labels (thresholds are tuned from them), and the live dashboard are unchanged.
+
+## Overlapping sponsor challenges
+
+Seen in the opening ceremony slides. We have a limited team and a lot of tracks, so the **recommended effort** is small for each.
+
+| Sponsor and challenge | Fit | Effort | What to do |
+|---|---|---|---|
+| **SGX FX:** "Protect your assets from a trading market storm": stay safe, early warning, predict, spot opportunities. They provide historical pricing data; any data may be used | **Good.** "Keep traders' money safe when things get rocky" and "early warning" match the operator-state idea | Small, only if the pricing data is easy to get | The **tilt guard**: a market-storm regime from their data combined with the operator's state from the mouse, raising step-up and alerting a risk manager ([INSTITUTIONAL-FIT.md](INSTITUTIONAL-FIT.md#tilt-guard-operator-state-meets-market-state-an-idea-for-sgx-fx-and-this-brief)). Keep it an early warning to a human, not a prediction |
+| **Neptune North:** "Actors work better together": several actors with a common goal, independent decisions, and **resilience when communications fail** | **Partial.** Each mouse's STM32 decides locally and **fails closed** when it can't reach the guardian; several people's approvals compose (second approver) | Mention only | Say it in the pitch. A real **offline mode** is an open design problem: no trusted clock for nonces, no Gemini offline, so only onboard rules; pre-issued nonces or queued signed envelopes would be needed. Don't build it tonight |
+| **Accenture:** "Identify a frustrating process people accept as 'just the way things work' and redesign it with AI and LLMs" | **Framing only** | None | One sentence: people accept PINs, codes and pop-ups as how security works; we remove them and let AI do the checking |
+| **QRT: Tagged** | **Direct**, already a target | As planned | The aggregated hand is the language |
+| **RS Group: sense, analyse, respond** | **Direct**, already the hardware main | As planned | See section 1 |
+
+**Recommended order of effort:** (1) the working mouse flow, the owner check and the dashboard, which serve Composition, RS, Marshall Wace and Tagged at once; (2) Tiger Data and Gemini, already in the plan; (3) the music angle (about two hours); (4) Vultr and ElevenLabs; (5) the tilt guard only if SGX's data is quick to use; (6) everything else is a sentence in the pitch. Don't spread thinner than that.
 
 ## 5. MLH Best Use of MongoDB Atlas (stretch, if time)
 

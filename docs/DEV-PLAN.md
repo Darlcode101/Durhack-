@@ -12,7 +12,7 @@ We build in **waves**. Every wave moves **all three tracks forward together**: h
 
 **Keep it simple.** Gemini alone does the duress calculation. The device fails closed: no reply, a late reply or a malformed reply means the decoy, over pinned HTTPS to Google. There is no second onboard calculation.
 
-**Timing assumption:** about 16 hours of building left (19:15 Saturday to roughly 11:00 Sunday, before judging). If the deadline is different, shrink or stretch Wave 3 and Wave 4, never Waves 1 and 2.
+**Timing assumption:** about 16 hours of building left (19:15 Saturday to roughly 11:00 Sunday, before judging). If the deadline is different, shrink or stretch Wave 3 and Wave 4, never Waves 1 and 2. The opening ceremony slides say hacking begins at **12:00 Saturday** for **24 hours**, which points to about **12:00 Sunday**; the judging time is not on the slides, so **confirm the submission deadline with the organisers**.
 
 ## The waves at a glance
 
@@ -56,7 +56,7 @@ We build in **waves**. Every wave moves **all three tracks forward together**: h
 |---|---|
 | **Hardware** | A **donor mouse** with a read-only switch tap and a 3D-printed base plate ([MOUSE-DESIGN.md](MOUSE-DESIGN.md)); no screen and no PIN ([STEALTH-APPROVAL.md](STEALTH-APPROVAL.md)); the **owner check** ([OWNER-CHECK.md](OWNER-CHECK.md)), with the YubiKey moved from the laptop into the dock (the hub the mouse's cable plugs into) (stretch: if USB access is blocked, keep it on the laptop). Camera on a printed mount. Tidy the wiring. |
 | **Cryptography** | The verifier on Vultr becomes the only route to "execute" (no back door). Show the audit log chain on the dashboard and check it on load. YubiKey **attestation** check at enrolment, so only genuine YubiKeys can register. |
-| **Extensions** | **Vultr response engine:** on a decoy, alert the on-call team via Telegram or email, escalate if nobody acknowledges, freeze funds, and require a second approver. **Gemini** writes the incident report and the plain-English explanation of the transaction. **Admin dashboard** with live charts from Tiger Data and the incident reports. **ElevenLabs** reads the transaction aloud. |
+| **Extensions** | **Composition angle:** play the live sensor stream as music on the dashboard (Web Audio, about two hours; [COMPOSITION.md](COMPOSITION.md)). **Vultr response engine:** on a decoy, alert the on-call team via Telegram or email, escalate if nobody acknowledges, freeze funds, and require a second approver. **Gemini** writes the incident report and the plain-English explanation of the transaction. **Admin dashboard** with live charts from Tiger Data and the incident reports. **ElevenLabs** reads the transaction aloud. |
 
 **Done when:** a coerced approval looks normal on the device, while within seconds a phone receives a Telegram alert and the dashboard shows a Gemini-written incident report and frozen funds.
 
