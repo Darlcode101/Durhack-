@@ -6,6 +6,8 @@ Everything runs on an **Arduino UNO Q**. A YubiKey plugged into the board only c
 
 Full plan, schedule and limitations: [docs/PLAN.md](docs/PLAN.md)
 
+Product write-up (post-quantum key release, duress detection, design goals): [docs/YuPico-Overview.md](docs/YuPico-Overview.md)
+
 ## Hardware
 
 Arduino UNO Q · USB-C hub with power passthrough (camera + YubiKey + power) · USB camera · YubiKey with FIDO2 · Modulino Thermo, Movement, Buttons (Qwiic chain) · touch sensor (D2) · moisture probe (A0)
