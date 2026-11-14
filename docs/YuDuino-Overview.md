@@ -2,7 +2,7 @@
 
 *Project overview by Jonah, 14 November 2026. Built for DurHack on an Arduino UNO Q with a YubiKey 5 NFC.*
 
-To wire it up, see the step-by-step **[hardware plan](HARDWARE-PLAN.md)**. For the team schedule and software checklist, see **[PLAN.md](PLAN.md)**. For how YuDuino targets each DurHack challenge (RS/Arduino, Tagged, Gemini, Tiger Data and add-ons), see the **[challenge plan](CHALLENGES.md)**. For the build order, wave by wave, see the **[prototype and development plan](DEV-PLAN.md)**.
+To wire it up, see the step-by-step **[hardware plan](HARDWARE-PLAN.md)**. For the team schedule and software checklist, see **[PLAN.md](PLAN.md)**. For how YuDuino targets each DurHack challenge (RS/Arduino, Tagged, Gemini, Tiger Data and add-ons), see the **[challenge plan](CHALLENGES.md)**. For the build order, wave by wave, see the **[prototype and development plan](DEV-PLAN.md)**. For the cryptography (keys, the hidden duress status, login and audit trail), see the **[YuSeal crypto design](CRYPTO.md)**.
 
 ## 1. The pitch: selling peace of mind
 
@@ -76,12 +76,12 @@ There is **no "approve = true" message anywhere**, because anyone who controls t
 
 A large quantum computer running Shor's algorithm would break the elliptic-curve and RSA signatures a YubiKey 5 uses. YuDuino plans for that:
 
-- **Two signatures per approval.** The YubiKey's P-256 signature plus an **ML-DSA** (NIST FIPS 204) signature from the UNO Q's STM32U585. The verifier requires both, so a forger must break both kinds of maths and steal from both devices.
+- **Three proofs per approval.** The YubiKey's P-256 signature, a **tag** from the STM32U585 (HMAC-SHA-256, so quantum-safe), and an **ML-DSA** (NIST FIPS 204) signature over everything. The verifier requires all three. Full design: [CRYPTO.md](CRYPTO.md).
 - **The UNO Q key earns its place.** The YubiKey can't do post-quantum signing, and it can't see the duress result. The UNO Q key does both: it only signs after the duress check, and under duress it signs with the decoy marker.
-- **Keep it on the microcontroller side**, never on the Linux side where camera and Gemini code run.
+- **The PIN, the display text and the duress status stay on the microcontroller side**, never on the Linux side where camera and Gemini code run. Moving the ML-DSA key there too is future work.
 - **Crypto-agility:** every message names its algorithm, so algorithms can be swapped later.
 
-For the hackathon, ML-DSA is a stretch goal; the YubiKey signature and the duress flow come first.
+ML-DSA is built into Python's `cryptography` library (version 48 or newer), so it is part of Wave 1, not a stretch goal.
 
 ## 7. Onboard processing
 
@@ -135,7 +135,7 @@ Ledger Enterprise offers approval devices with trusted screens, and Fireblocks o
 
 ## 13. Open decisions
 
-- [ ] Fake approval design details
+- [x] Fake approval design details: one signing key plus a status hidden inside the STM32's tag, which only the guardian can read (see [CRYPTO.md](CRYPTO.md))
 - [ ] YubiKey on the laptop (WebAuthn) or directly on the UNO Q (USB)
 - [x] Gemini does the duress calculation in the cloud (features and one frame), with fail-closed and pinned HTTPS; local model later
 - [x] Verifier: the guardian backend on a Vultr server (incident reports and admin dashboard, verifier, silent alerts); a Solana devnet wallet program as a stretch goal
