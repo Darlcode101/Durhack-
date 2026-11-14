@@ -6,7 +6,7 @@ A YubiKey and button PIN prove **who** is logging in. An Arduino UNO Q reads a h
 
 Full plan, schedule and limitations: [docs/PLAN.md](docs/PLAN.md)
 
-Product write-up (post-quantum key release, duress detection, design goals): [docs/YuPico-Overview.md](docs/YuPico-Overview.md)
+Product write-up (post-quantum key release, duress detection, design goals): [docs/YuDuino-Overview.md](docs/YuDuino-Overview.md)
 
 ## Hardware
 
