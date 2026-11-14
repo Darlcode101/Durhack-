@@ -11,12 +11,12 @@ Back to the **[overview](YuDuino-Overview.md)** · **[hardware plan](HARDWARE-PL
 | RS / Arduino: sense, analyse and respond to the real world | **Main** | Duress-aware approval device: sensors and camera in, a real, escalated or decoy approval out |
 | Tagged: Information Hidden in Plain Sight | Optional | The body's involuntary signals are a hidden language for "under duress"; Gemini translates; the attacker can't read it |
 | MLH Best Use of Gemini API | Target | Multimodal duress judge and plain-English transaction explainer |
-| MLH Best Use of Tiger Data | Target | Time-series of capture windows, per-user baselines, false-alarm labels and the audit log |
+| MLH Best Use of Tiger Data | Target | One record per usage; baselines as continuous aggregates; false-alarm labels; audit log |
 | DEV Writing Challenge | Add-on (free) | Write-up after the weekend |
 | MLH Best Use of ElevenLabs | Add-on (cheap) | Reads the transaction aloud; generates test voices for the demo |
-| MLH Best Use of Vultr | Add-on (cheap) | Hosts the verifier and dashboard |
-| MLH Best Use of Solana | Stretch | Devnet program that only moves funds with a valid YuDuino signature |
-| MongoDB Atlas, Entire | Skip | MongoDB overlaps with Tiger Data; Entire is about our workflow, not the product |
+| MLH Best Use of Vultr | Add-on | The guardian backend: dashboard, verifier and silent alerts |
+| MLH Best Use of Solana | Stretch | Devnet wallet program: a valid signature releases funds, a decoy freezes them |
+| MongoDB Atlas, Entire | Skip | Tiger Data covers the database better; Entire is about our workflow, not the product |
 
 ## 1. RS / Arduino (main challenge)
 
@@ -64,13 +64,20 @@ The brief: invent a physical language that encodes digital information.
 
 ## 4. MLH Best Use of Tiger Data
 
-Tiger Data is PostgreSQL with time-series extensions:
+Tiger Data is PostgreSQL with time-series extensions. **It stores one record per usage**: every approval session, with its sensor feature scores, Gemini's verdict, the decision and (later) a label. Never raw audio or video.
 
-- **Hypertable of capture windows:** one row per sensor reading per approval attempt (derived scores, not raw camera or audio).
-- **Per-user baselines as continuous aggregates:** each user's resting tremor, humidity and PIN rhythm, kept up to date automatically.
-- **False-alarm labels:** when a duress flag turns out to be wrong, it is labelled so thresholds can be tuned (this is how YuDuino "learns from false alarms").
+**Why Tiger Data fits (and not MongoDB):** duress detection is all about "is this reading unusual *for this person, right now*?". That is a time-series question, and Tiger Data answers it in plain SQL:
+
+- **Hypertable of usages:** one row per approval session, partitioned by time, with a relational `users` table alongside in the same database.
+- **Baselines as continuous aggregates:** per-user and per-time-of-day baselines (for example, your usual tremor at 9 am versus 11 pm) are pre-computed and kept up to date automatically, so the device gets its baseline in one fast query.
+- **Where a baseline comes from:**
+  1. A **one-minute enrolment** at setup, recorded calm.
+  2. **Every usage** after that.
+  3. A **population prior** for brand-new users, which shifts toward the user's own baseline as their usages accumulate.
+  4. A **within-session check**: readings when the grip is picked up versus at confirmation, so a sudden change mid-approval stands out even without history.
+- **False-alarm labels:** when a duress flag turns out to be wrong, the usage is labelled, and thresholds are tuned from those labels (this is how YuDuino "learns from false alarms").
 - **Audit log:** the hash-chained approval log, mirrored from the microSD.
-- **Live dashboard:** real-time charts from the continuous aggregates, which also serves as the RS demo graph. Compression keeps months of readings on the free tier.
+- **Live dashboard:** real-time charts from the continuous aggregates, which also serve as the RS demo graph. Compression keeps months of usages on the free tier.
 
 ## 5. Conflict with "all processing onboard"
 
@@ -93,6 +100,6 @@ In priority order:
 
 - **DEV Writing Challenge: yes.** Publish the build story after the weekend. It costs no hack time and pays $100.
 - **ElevenLabs: yes, cheap.** It reads the transaction aloud for accessibility, and generates calm and scared test voices so the duress demo is reliable (lower priority). **ElevenLabs does not detect fear.** Fear detection stays with Gemini audio or the onboard pitch, shake and speaking-rate features.
-- **Vultr: yes, cheap.** Host the verifier and the dashboard on a Vultr instance using the free credits.
-- **Solana: stretch, but on-pitch.** A devnet program acts as the verifier: it only moves funds when given a valid YuDuino signature over the exact transaction. Decoy approvals never move funds. This ties directly to the Binance story.
-- **Skip MongoDB Atlas** (it overlaps with Tiger Data) **and Entire** (it rewards our AI coding workflow, not the product).
+- **Vultr: yes.** Few teams will enter it, so it's worth the small effort. One Vultr server is the **guardian backend**: the live dashboard, the signature verifier and the silent-alert service. No GPU training.
+- **Solana: stretch goal.** A devnet program acts as the wallet: it only releases funds when given a valid YuDuino signature over the exact transaction. A decoy signature freezes the funds and raises the alarm on-chain instead. This ties directly to the Binance story.
+- **Skip MongoDB Atlas**: Tiger Data does the database work better for this, because baselines are time-series. **Skip Entire**: it rewards our AI coding workflow, not the product.
