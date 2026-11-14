@@ -1,5 +1,5 @@
 fido2>=2.0
-cryptography
+cryptography>=48  # ML-DSA and ML-KEM built in (yuseal.py)
 # Needs the liboqs C library built on the board first (see README)
 liboqs-python @ git+https://github.com/open-quantum-safe/liboqs-python.git
 google-genai

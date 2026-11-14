@@ -2,7 +2,7 @@
 
 *Project overview by Jonah, 14 November 2026. Built for DurHack on an Arduino UNO Q with a YubiKey 5 NFC.*
 
-To wire it up, see the step-by-step **[hardware plan](HARDWARE-PLAN.md)**. For the team schedule and software checklist, see **[PLAN.md](PLAN.md)**. For how YuDuino targets each DurHack challenge (RS/Arduino, Tagged, Gemini, Tiger Data and add-ons), see the **[challenge plan](CHALLENGES.md)**. For the build order, wave by wave, see the **[prototype and development plan](DEV-PLAN.md)**.
+To wire it up, see the step-by-step **[hardware plan](HARDWARE-PLAN.md)**. For the team schedule and software checklist, see **[PLAN.md](PLAN.md)**. For how YuDuino targets each DurHack challenge (RS/Arduino, Tagged, Gemini, Tiger Data and add-ons), see the **[challenge plan](CHALLENGES.md)**. For the build order, wave by wave, see the **[prototype and development plan](DEV-PLAN.md)**. For the cryptography (keys, the hidden duress status, login and audit trail), see the **[YuSeal crypto design](CRYPTO.md)**.
 
 ## 1. The pitch: selling peace of mind
 
@@ -135,7 +135,7 @@ Ledger Enterprise offers approval devices with trusted screens, and Fireblocks o
 
 ## 13. Open decisions
 
-- [ ] Fake approval design details
+- [x] Fake approval design details: one signing key plus a sealed, same-size status box only the guardian can open (see [CRYPTO.md](CRYPTO.md))
 - [ ] YubiKey on the laptop (WebAuthn) or directly on the UNO Q (USB)
 - [x] Gemini does the duress calculation in the cloud (features and one frame), with fail-closed and pinned HTTPS; local model later
 - [x] Verifier: the guardian backend on a Vultr server (incident reports and admin dashboard, verifier, silent alerts); a Solana devnet wallet program as a stretch goal
