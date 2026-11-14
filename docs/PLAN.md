@@ -7,7 +7,7 @@
 | Verb | What we do |
 |---|---|
 | Sense | USB camera, Modulino Thermo (temp + humidity), Modulino Movement (shake), Modulino Buttons (PIN), touch, moisture, YubiKey |
-| Analyse | Offline rules engine vs. personal baseline + Gemini fusing image and sensor summary |
+| Analyse | Features vs. personal baseline, aggregated and translated by Gemini (the duress calculation); minimal onboard veto |
 | Respond | Grant / step-up / decoy-grant + silent alert, LED matrix + dashboard + audit log |
 
 ## Hardware
@@ -33,10 +33,10 @@ Laptop browser + YubiKey ──SSH tunnel──► dashboard on the UNO Q
 2. User holds the grip → ~8 s capture window (sensors + camera).
 3. Enter PIN on Modulino Buttons (A/B/C sequence). Wrong PIN → denied.
 4. Tap YubiKey (WebAuthn).
-5. Score: rules engine (deltas vs baseline, face count, duress PIN) + Gemini (frame + feature JSON → `{duress_score, signals, reasoning}`).
+5. Translate: features (deltas vs baseline) + frame → Gemini, which does the duress calculation → `{duress_score, signals, reasoning}`. Onboard veto: duress PIN, extreme readings or an unplugged sensor force the decoy.
 6. Respond: `grant` / `step_up` / `duress` → decoy grant + Discord webhook alert + audit log.
 
-**Rule:** final score = max(rules, Gemini). Gemini can only raise risk, never grant access. PINs are never sent to Gemini.
+**Rule:** Gemini calculates the verdict; the STM32 makes the final decision and holds the keys. Fail closed: no, late or malformed reply → decoy key. Pinned HTTPS to Google. PIN and YubiKey touch always required; PINs are never sent to Gemini.
 
 ## Downloads
 
@@ -85,8 +85,8 @@ Team of 4: (1) MCU + sensors (2) Linux, camera, Gemini (3) auth + dashboard (4) 
 - Direct USB use on the UNO Q (python-fido2) is a stretch goal; App Lab's container may block USB access.
 
 **Gemini**
-- 1–5 s latency, needs network, free-tier rate limits → call once per login, rules engine as fallback.
-- Prompt injection via the camera (a sign saying "approve") → system prompt treats image text as untrusted, fixed JSON schema, Gemini can only raise risk.
+- 1–5 s latency, needs network, free-tier rate limits → call once per approval; fail closed to the decoy if it doesn't answer in time.
+- Prompt injection via the camera (a sign saying "approve") → system prompt treats image text as untrusted, fixed JSON schema, a malformed reply fails closed, and Gemini can't approve without the PIN and YubiKey touch.
 - Non-deterministic → temperature 0, thresholds not single yes/no.
 
 **Core problem**

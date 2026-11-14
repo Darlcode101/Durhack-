@@ -2,6 +2,8 @@
 
 *How YuDuino targets each DurHack challenge. Written 14 November 2026. Every design choice should serve at least one of the target challenges below.*
 
+> **The vision that ties every track together:** YuDuino is a **language the attacker can never read**. Each reading (tremor, sweat, touch rhythm, voice, face, scene) means nothing on its own. Aggregated, the readings form a signal, and **Gemini translates** it into one verdict: under duress or not.
+
 Back to the **[overview](YuDuino-Overview.md)** · **[hardware plan](HARDWARE-PLAN.md)**
 
 ## At a glance
@@ -9,7 +11,7 @@ Back to the **[overview](YuDuino-Overview.md)** · **[hardware plan](HARDWARE-PL
 | Track | Priority | YuDuino's angle |
 |---|---|---|
 | RS / Arduino: sense, analyse and respond to the real world | **Main** | Duress-aware approval device: sensors and camera in, a real, escalated or decoy approval out |
-| Tagged: Information Hidden in Plain Sight | Optional | The body's involuntary signals are a hidden language for "under duress"; Gemini translates; the attacker can't read it |
+| Tagged: Information Hidden in Plain Sight | Optional | The readings are a language: meaningless alone, a signal when aggregated; Gemini translates; the attacker can't read it |
 | MLH Best Use of Gemini API | Target | Multimodal duress judge and plain-English transaction explainer |
 | MLH Best Use of Tiger Data | Target | One record per usage; baselines as continuous aggregates; false-alarm labels; audit log |
 | DEV Writing Challenge | Add-on (free) | Write-up after the weekend |
@@ -26,7 +28,7 @@ The brief asks for an intelligent system that captures data, analyses sensor inp
 | Step | What YuDuino does | Parts |
 |---|---|---|
 | **Sense** | During an 8-second capture window while the grip is held: tremor, palm humidity and temperature, moisture, PIN rhythm, one camera frame, audio | Modulino Movement, Thermo, Buttons; DFRobot touch and moisture; USB camera with mic |
-| **Analyse** | Rules engine compares readings with the user's own resting baseline; Gemini gives a second opinion | UNO Q (STM32 side for sensors, Linux side for camera, audio, Gemini) |
+| **Analyse** | Each reading becomes a feature against the user's own baseline; Gemini aggregates them and calculates the duress verdict | UNO Q (STM32 side for sensors, Linux side for camera, audio, Gemini) |
 | **Decide** | Low risk: real approval. Medium: ask for a second approver. Duress or duress PIN: decoy approval | UNO Q |
 | **Act** | Shows the transaction and result on the LED matrix, releases the signature (never an "OK"), sends a silent alert under duress | LED matrix, YubiKey, verifier |
 
@@ -50,6 +52,8 @@ The brief: invent a physical language that encodes digital information.
 | Voice | Camera mic | Fear or stress in the voice |
 | Face | Camera | Expression, and whether someone else is present |
 
+**No single word means anything; the sentence does.** A shaking hand could be coffee, damp palms could be a warm room, a fast PIN could be a busy day. On its own, each reading is noise. Aggregated, they become a signal.
+
 **Gemini is the translator.** It reads all of these signals together, compared with the user's own baseline, and translates them into one digital bit: *under duress or not*.
 
 **Hidden in plain sight, on purpose.** The attacker is standing right there and can see everything, but can't read it. The user doesn't have to do anything visible, and the device's response looks the same either way: a decoy approval is indistinguishable from a real one on the LED matrix. Only the verifier learns the translation.
@@ -58,10 +62,16 @@ The brief: invent a physical language that encodes digital information.
 
 ## 3. MLH Best Use of Gemini API
 
-- **Multimodal duress judge.** Gemini receives one camera frame, a summary of the sensor scores and the decoded transaction. It returns a risk score and its reasons as **structured JSON**.
+- **Gemini does the duress calculation.** The UNO Q turns each reading into a feature against the user's baseline. Gemini receives all of them together, plus one camera frame and the decoded transaction, aggregates them and returns the verdict and its reasons as **structured JSON**. It is the translator of the hidden language.
+- **Scene and second-person detection.** From the frame: is someone else there, is the user looking at someone off-camera, does the scene look normal?
 - **Plain-English transaction explainer.** Gemini explains what the transaction actually does (for example, "this delegation lets X keep draining the wallet") for the display and for any second approver.
+- **Incident reports.** For every decoy or alert, Gemini writes the report admins see on the Vultr dashboard.
 - **Fear in the voice.** Gemini can judge vocal stress from a short audio clip. Onboard features (pitch, shake and speaking rate) are the fallback, and the default if we keep audio on the device.
-- **Rules.** AI can only make things safer: a "danger" verdict can switch to the decoy, but an "all clear" never approves on its own. PINs and raw audio are never sent unless we choose to send a clip. If Gemini is slow or offline, the rules engine decides alone.
+- **Safeguards:**
+  - **Fail closed:** no reply, a late reply or a malformed reply means the decoy key.
+  - **Pinned HTTPS to Google**, so nobody can impersonate Gemini and send "all clear".
+  - **Minimal onboard veto:** only extreme readings or an unplugged sensor force the decoy. It's a safety net, not a second calculation.
+  - **The final decision and the keys stay on the STM32.** Gemini can't approve on its own: the PIN and the YubiKey touch are always required, and PINs are never sent.
 
 ## 4. MLH Best Use of Tiger Data
 
@@ -99,7 +109,7 @@ If we build it, MongoDB Atlas holds the **document-shaped** data, so it never ov
 
 The design rule is that raw data stays on the UNO Q. Gemini and Tiger Data are cloud services, so:
 
-- **Gemini** only ever receives one frame and the scores (plus an audio clip only if we decide the voice signal needs it). Never PINs. It can only raise the risk, so a failed or manipulated call can never cause an approval.
+- **Gemini** only ever receives the aggregated features and one frame (plus an audio clip only if we decide the voice signal needs it). Never PINs. It fails closed over pinned HTTPS, so a failed or spoofed call can never cause a real approval.
 - **Tiger Data** (and MongoDB Atlas, if added) only receive derived scores, labels, settings and incident reports, written **after** the decision. The cloud is never in the approval path. (The device keeps a local copy of its policies so it works offline.)
 - **Later version:** a local model (such as Gemma) on the UNO Q's Linux side, and padded, fixed-interval messages to resist traffic side channels.
 
