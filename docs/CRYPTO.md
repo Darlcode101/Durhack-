@@ -1,302 +1,363 @@
-# YuDuino cryptography: the YuSeal design
+# YuDuino cryptography: the YuSeal design (v2)
 
-*Written 14 November 2026, evening of day one of DurHack.* Back to the **[overview](YuDuino-Overview.md)** · **[dev plan](DEV-PLAN.md)** · **[hardware plan](HARDWARE-PLAN.md)** · **[challenge plan](CHALLENGES.md)**
+*Version 2, written 14 November 2026, evening of day one of DurHack. It replaces the first version, which had seven gaps (listed in the [design brief](DESIGN-BRIEF.md#6-review-of-v1-against-this-brief)).* Back to the **[overview](YuDuino-Overview.md)** · **[build flow](BUILD-FLOW.md)** (what to code where) · **[dev plan](DEV-PLAN.md)** · **[hardware plan](HARDWARE-PLAN.md)**
 
-Working reference code: [`app/python/yuseal.py`](../app/python/yuseal.py), with 14 tests in [`app/python/test_yuseal.py`](../app/python/test_yuseal.py) (`cd app/python && python3 -m unittest test_yuseal -v`). It needs only `cryptography>=48`, which has ML-DSA and ML-KEM built in, so **no liboqs build on the board**.
+Working code, all tested (`cd app/python && python3 -m unittest test_yuseal -v`, 41 tests):
+
+| File | What it is |
+|---|---|
+| [`app/sketch/yuseal_mcu.h`](../app/sketch/yuseal_mcu.h) | The trusted core that runs on the STM32. SHA-256 and HMAC only, about 1 KB of RAM. Compiled and tested on a laptop against the Python model |
+| [`app/python/yuseal.py`](../app/python/yuseal.py) | The envelope, the guardian's checks, key store, audit log. Also `SoftMcu`, a Python twin of the STM32 code |
+| [`app/python/approve.py`](../app/python/approve.py) | The Linux side of one approval, and of enrolment |
+| [`app/python/guardian.py`](../app/python/guardian.py) | The verifier service (FastAPI) for Vultr |
+| [`tools/provision.py`](../tools/provision.py) | One-off tool that makes the STM32's secrets |
+
+It needs only `cryptography>=48`, which has ML-DSA and ML-KEM built in, so **no liboqs build on the board**.
 
 ## In one minute
 
-Every approval YuDuino gives is a sealed envelope called **YuSeal**:
+Every approval is a sealed envelope that carries **three independent proofs**, made by three different things:
 
-1. **What you saw.** The device builds the display text from the raw request itself and hashes exactly that. The laptop never describes the transaction to you.
-2. **Proof you were there.** Your YubiKey signs that hash when you physically touch it. It names *who* approved.
-3. **The hidden status.** A small encrypted box says *normal*, *needs a second approver* or *duress*. Only the guardian (the Vultr verifier) can open it. A duress box looks exactly like a normal one, byte for byte in size and shape.
-4. **A post-quantum seal over everything.** The device signs all of the above with **ML-DSA-65**, so nothing can be swapped, replayed or forged, even by a future quantum computer.
-5. **A permanent record.** Each envelope goes into a hash-chained, signed audit log, so nobody can quietly rewrite who approved what.
+| Proof | Made by | Says | Hard for malware on Linux because |
+|---|---|---|---|
+| **YubiKey signature** | The YubiKey, on a physical touch | "This named person's key signed this exact request" | The private key never leaves the chip |
+| **STM32 tag** | The microcontroller, after a correct PIN on the real buttons | "A person pressed the PIN for exactly the text on the LED matrix", and secretly "normal", "second approver" or "duress" | The PIN never leaves the STM32, and Linux can't make or read a tag |
+| **ML-DSA signature** | The Linux side, with a key unlocked by the YubiKey and the STM32 | "I, this device, seal all of the above, in this place in the log", safe against quantum computers | Needs the YubiKey, the STM32's salt and a touch |
 
-The attacker in the room sees the same screen, the same "accepted" reply and the same kind of envelope whether or not the alarm went off. That is the YuDuino language at the cryptographic level: the meaning is there, but only the guardian can read it.
+The guardian (the Vultr verifier) checks all three. An attacker who gets two of them still can't approve.
+
+The **tag is the new idea in v2.** It is the only thing that proves the buttons were pressed and the display showed this request, and it is made with nothing but SHA-256, so it is small enough to trust, tested line by line, and quantum-safe already.
 
 ## What "unbreakable" honestly means here
 
 Nothing is unbreakable. What we can do is make sure that:
 
-- **No single stolen thing is enough.** An attacker needs your YubiKey *and* your PIN *and* the device *and* your physical touch, and the verifier still checks the transaction itself.
-- **The maths has two independent locks.** Approvals carry a classical signature (YubiKey, P-256) *and* a post-quantum one (ML-DSA-65). A forger must break both. Our long-lived roots use **SLH-DSA**, whose security rests only on hash functions, the most conservative assumption in cryptography.
-- **When something does break, it fails safe and leaves evidence.** Missing, late or strange inputs mean *hold and alert*, never *approve*. Every decision is written to a log that can't be edited without it showing.
+- **No single stolen thing is enough, and no single compromised computer is enough.** Even root on the Linux side can't make an approval, because it can't make the STM32's tag.
+- **The maths has independent locks.** A forger must break the YubiKey's P-256, ML-DSA-65 (lattices) and HMAC-SHA-256 (hashes). Long-lived roots use SLH-DSA, which depends only on SHA-256.
+- **When something breaks, it fails safe and leaves evidence.** Missing, late or strange inputs mean hold and alert, never approve. Every decision goes in a log that can't be edited without it showing.
 
-The weak spots that remain are listed in [Remaining weak spots](#remaining-weak-spots). In practice, attackers go for bugs, people and supply chains long before they attack the maths, so most of this design is about those.
+The remaining weak spots are listed in [Remaining weak spots](#remaining-weak-spots), worst first. Attackers go for bugs, people and supply chains long before they attack the maths, so most of this design is about those.
 
 ## The building blocks
 
 | Block | What it does for us | Why this one | Safe against quantum? |
 |---|---|---|---|
-| **ML-DSA-65** (FIPS 204, 2024) | The device's signature on every envelope and log entry | NIST's main post-quantum signature; fast; fits on the STM32 (about 80 KB of RAM to sign) | Yes |
-| **SLH-DSA-SHA2-128s** (FIPS 205) | Signs the long-lived things: membership certificates, firmware, daily log checkpoints | Security rests only on SHA-256. If lattice maths (ML-DSA) is ever broken, this still stands. Slow and large, so used rarely | Yes |
-| **YubiKey 5 FIDO2, ES256 (P-256)** | Proves a named person touched a genuine YubiKey for *this* request | Key can't leave the chip; touch sensed in the chip; attestation proves it's genuine | No, which is why it never stands alone |
-| **YubiKey hmac-secret** | Turns "YubiKey + PIN" into a key that unlocks the device's signing key | One touch gives a 32-byte secret only that YubiKey can produce | Yes (it's symmetric) |
-| **ML-KEM-768 + X25519** (FIPS 203, hybrid) | Agrees the guardian sealing key at enrolment; protects network traffic (hybrid TLS) | Safe if *either* holds | Yes |
-| **AES-256-GCM** | The sealed status box; wrapping keys at rest | 256-bit keys stay strong even against Grover's algorithm; STM32 has it in hardware | Yes |
-| **HKDF-SHA-256 ratchet** | A new sealing key after every approval; old ones erased | Forward secrecy: seizing the device later doesn't reveal past alarms | Yes |
-| **SHA-256** | Every hash: request, display, log chain, Merkle tree | The STM32U585 has a SHA-2 accelerator; 128-bit security even against quantum search | Yes |
+| **HMAC-SHA-256** | The STM32's PIN check and tag; the guardian re-checks the tag | Needs only SHA-256 (the STM32 has a hardware accelerator); 100 lines of C++; no big numbers | Yes |
+| **ML-DSA-65** (FIPS 204, 2024) | Seals every envelope and log entry | NIST's main post-quantum signature; 3,309-byte signatures | Yes |
+| **SLH-DSA-SHA2-128s** (FIPS 205) | Org root: membership certificates, address book, firmware, daily checkpoints | Security rests only on SHA-256. Slow, so used rarely | Yes |
+| **YubiKey 5 FIDO2, ES256 (P-256)** | Proves a named person touched a genuine YubiKey for *this* request | Key can't leave the chip; attestation proves it's genuine | No, which is why it never stands alone |
+| **YubiKey hmac-secret** | Unlocks the ML-DSA key (together with the STM32's salt) | Only that YubiKey can produce it, only on touch | Yes (symmetric) |
+| **ML-KEM-768 + X25519** (FIPS 203, hybrid) | Agrees the evidence-box key at enrolment; hybrid TLS | Safe if *either* holds | Yes |
+| **AES-256-GCM** | The evidence box; the key wrap | 256-bit keys stay strong against Grover's algorithm | Yes |
+| **HKDF-SHA-256 ratchet** | A new box key after every approval; old ones erased | Forward secrecy | Yes |
+| **SHA-256** | Every hash: request, display, log, Merkle tree | 128-bit security even against quantum search | Yes |
 
-Every envelope names its suite (`YS1`), so we can swap algorithms later (for example to ML-DSA-87 or FN-DSA) without changing the format. That is **crypto-agility**.
+Every envelope names its suite (`YS2`), so we can swap algorithms later without changing the format (**crypto-agility**).
 
 ## Who holds what: the key hierarchy
 
 ```
                  ┌───────────────────────────────────────────┐
                  │ ORG ROOT  (SLH-DSA, hash-based)           │  offline: created once on an
-                 │ signs membership certs, firmware,         │  unplugged laptop, kept on the
-                 │ revocations, daily log checkpoints        │  microSD; backup split 2-of-3
+                 │ signs membership certs, address book,     │  unplugged laptop, kept on the
+                 │ firmware, revocations, checkpoints        │  microSD; backup split 2-of-3
                  └───────────────┬───────────────────────────┘
-          membership certificate │ "Jonah = this YubiKey + this device key, limits £X, valid until Y"
-         ┌───────────────────────┼─────────────────────────────┐
-         ▼                       ▼                             ▼
- ┌───────────────┐   ┌───────────────────────────┐   ┌─────────────────────────────┐
- │ YUBIKEY 5     │   │ DEVICE (UNO Q, STM32 side)│   │ GUARDIAN (Vultr verifier)   │
- │ P-256 FIDO2   │   │ ML-DSA-65 signing key     │   │ public keys + certificates  │
- │ credential    │   │  ◄ unlocked by YubiKey    │   │ seal chain (to open boxes)  │
- │ hmac-secret   │   │    hmac-secret + PIN +    │   │ ML-KEM/X25519 key           │
- │ (one per      │   │    device-unique secret   │   │ transparency-log key        │
- │  person)      │   │ seal chain K_i (ratchets) │   │ CAN'T sign approvals        │
- └───────────────┘   │ counter, lockout counter  │   └─────────────────────────────┘
-                     └───────────────────────────┘
+          membership certificate │ "Jonah = this YubiKey + this device key + this tag key, limits, expiry"
+         ┌───────────────────────┼──────────────────────────────┐
+         ▼                       ▼                              ▼
+ ┌───────────────┐   ┌─────────────────────────────┐   ┌─────────────────────────────┐
+ │ YUBIKEY 5     │   │ DEVICE (UNO Q)              │   │ GUARDIAN (Vultr verifier)   │
+ │ P-256 FIDO2   │   │ ┌─────────────────────────┐ │   │ public keys + certificates  │
+ │ credential    │   │ │ STM32 (trusted core)    │ │   │ tag key (checks STM32 tags) │
+ │ hmac-secret   │   │ │ K_MCU → PIN key, tag key│ │   │ evidence-box chain          │
+ │ (one per      │   │ │ PIN tags, lockout count │ │   │ ML-KEM/X25519 key           │
+ │  person)      │   │ │ LED matrix, buttons     │ │   │ CAN'T sign approvals        │
+ └───────────────┘   │ └─────────────────────────┘ │   └─────────────────────────────┘
+                     │ ┌─────────────────────────┐ │
+                     │ │ Linux                   │ │
+                     │ │ ML-DSA key, wrapped:    │ │
+                     │ │  YubiKey secret(salt)   │ │
+                     │ │  salt = STM32 after PIN │ │
+                     │ │ evidence chain, log     │ │
+                     │ └─────────────────────────┘ │
+                     └─────────────────────────────┘
 ```
 
 **Rules that make this hierarchy safe:**
 
-- **One signing key per device, not a "real" key and a "decoy" key.** See [The decoy nobody can spot](#the-decoy-nobody-can-spot).
-- **The signing key exists only while unlocked.** On disk it is encrypted twice over, and opening it needs three things at once: the YubiKey's hmac-secret (needs a touch), the PIN, and a device secret that never leaves the board (on the STM32 it is wrapped by the chip's own hardware unique key, DHUK, in its side-channel-resistant AES unit).
-- **The guardian can refuse but never approve.** It holds only public keys, so it can't make the person's two signatures. If it is hacked, the worst it can do is block or leak alarms, not move money.
-- **The root is offline and hash-based.** It's used a few times a year, so SLH-DSA's slowness doesn't matter, and its security doesn't depend on any newer maths.
+- **One ML-DSA key per device, not a "real" key and a "decoy" key.** See [The decoy nobody can spot](#the-decoy-nobody-can-spot).
+- **The PIN lives on the STM32 and nowhere else.** The buttons are wired to it, not to Linux. Linux never sees a press, only "state" and "number of presses so far".
+- **The ML-DSA key needs two locks.** It is wrapped under the YubiKey's hmac-secret for a salt that **only the STM32 releases, and only after a correct PIN**. There is no PIN hash on Linux to guess offline, and the wrong-PIN lockout can't be bypassed from Linux.
+- **The guardian can refuse but never approve.** It holds public keys and the tag key, which can't make the YubiKey or ML-DSA signatures.
+- **The root is offline and hash-based.** It's used a few times a year, so SLH-DSA's slowness doesn't matter.
+
+## The STM32's trusted core
+
+The whole security argument depends on this one small piece, so it is built to be checked by hand. It lives in [`yuseal_mcu.h`](../app/sketch/yuseal_mcu.h) and does five things:
+
+1. **`begin(text, digest)`**: Linux hands over the text to show and the approval's digest. The STM32 **hashes the text itself**, checks it is plain printable characters under 97 long, shows it, and starts waiting for a PIN.
+2. **Counts button presses**, but only while the grip sensor says the grip is held. A **short press** is a capital letter (`A`), a press **held 0.8 s or more** is a lowercase letter (`a`).
+3. **After the last press plus 1.5 s**, checks the PIN by computing `HMAC(K_PIN, "pin|" + presses)` and comparing it, in constant time, with **both** stored tags (normal and duress). Wrong: count it, and after 5 wrong the device locks. Either right: the same thing happens, so **Linux can't tell which PIN was used**.
+4. **`unlockSalt()`**: after a correct PIN, releases `HMAC(K_PIN, "unlock-salt")`. This lets Linux unwrap the ML-DSA key with the YubiKey.
+5. **`seal(score, veto)`**: takes Gemini's score as a whole number 0 to 100 (anything else counts as "no verdict"), decides the status, and returns the tag `HMAC(K_TAG, "YS2/tag" + status + SHA256(text) + digest)`. **It works once per `begin()`.**
+
+**The decision rule** (the same in C++ and Python, checked against each other for every case):
+
+| Input | Status |
+|---|---|
+| Duress PIN, or an onboard veto (sensor unplugged, impossible readings) | Duress |
+| Score missing, below 0, above 100, not a whole number | **Duress (fail closed)** |
+| Score 70 to 100 | Duress |
+| Score 40 to 69 | Second approver needed |
+| Score 0 to 39 | Normal |
+
+Gemini can raise the alarm but never lower it. A false alarm costs a short delay, so failing closed is cheap.
+
+**What this buys:** a tag exists only if a person pressed the right PIN, on these buttons, with the grip held, **for the exact text that was on the LED matrix**, and the digest is tied to it. Malware on Linux can't make a tag for anything else, can't reuse one (it covers the display hash and digest), and can't read the status inside it.
 
 ## Enrolment: the one-time ceremony
 
 Done once per person, in person, with a second team member watching.
 
 1. **Create the org root** (once for the team) on a laptop with Wi-Fi off. Save it to the microSD, split a backup into 3 shares (any 2 rebuild it), and give the shares to 3 people.
-2. **Register the YubiKey** with `attestation="direct"`. The device checks the attestation certificate chains to Yubico's root, so a fake "YubiKey" emulated by malware can't enrol. Record its public key and model ID (AAGUID).
-3. **Set two PINs** on the Modulino Buttons: the normal one and the secret duress one. Use at least 8 presses (6,561 combinations with 3 buttons).
-4. **Create the device key.** The STM32's true random number generator makes a 32-byte seed; the ML-DSA-65 key is computed from it. One YubiKey touch returns two hmac-secrets (one per PIN). The seed is wrapped once under each, in random order. **No PIN hash is stored anywhere.**
-5. **Agree the sealing key** with the guardian using hybrid ML-KEM-768 + X25519 (`seal_root_device_side` in the code). Both sides now hold K₀.
-6. **Record a one-minute calm baseline** of sensor readings (stored in Tiger Data, as already planned).
-7. **The org root signs a membership certificate:** person, YubiKey public key, device public key, device ID, spending limits, expiry. The guardian only trusts approvals that chain to the root.
-
-**Why fold the PIN into the YubiKey?** If someone copies the key file, every PIN guess needs a fresh physical touch on the real YubiKey *and* the device secret, which never leaves the board. Guessing offline is impossible; guessing on the device hits the lockout counter.
+2. **Pick two PINs** of 8 to 12 presses over `A B C` (short) and `a b c` (long press). That is 6⁸ = 1.7 million to 6¹² = 2 billion possibilities. The **duress PIN should differ from the normal one by one press's length**: same buttons, one held longer. Someone watching you type can't easily tell which you entered.
+3. **Run `tools/provision.py`** on a laptop. It makes `K_MCU` (32 random bytes), computes the two PIN tags, and writes `secrets.h` for the sketch and a key file for the guardian. Flash the sketch, then delete the files that shouldn't live on.
+4. **Register the YubiKey** (`attestation="direct"`, so a fake "YubiKey" emulated by malware can't enrol).
+5. **Enter the normal PIN once.** The STM32 releases the salt, the YubiKey gives its hmac-secret for it, and the ML-DSA-65 key is made and wrapped under it.
+6. **Agree the evidence-box key** with the guardian using hybrid ML-KEM-768 + X25519.
+7. **Record a one-minute calm baseline** of sensor readings (Tiger Data, as already planned).
+8. **The org root signs a membership certificate** (Wave 3): person, YubiKey public key, ML-DSA public key, tag key, spending limits, expiry.
 
 ## How one approval works
 
 ```
- Requester (laptop / server / AI agent)        YuDuino (UNO Q)                         Guardian (Vultr)
- ──────────────────────────────────────        ───────────────                         ────────────────
- 1. asks guardian for a nonce  ─────────────────────────────────────────────────────►  one-time nonce
- 2. sends raw request + nonce ──────────►  3. STM32 parses the raw request itself,
-                                              builds the display text, refuses
-                                              anything it can't show in full.
-                                              LED matrix: "PAY 10 GBP TO ..A1F3  K7QD"
-                                              (K7QD = check code, also on big screen)
-                                           4. User holds grip, enters PIN on buttons
-                                              (sensors capture the 8-second window)
-                                           5. User touches YubiKey: it signs
-                                              SHA-256(core) ← what was shown
-                                           6. Unlock: PIN → hmac-secret → which wrap
-                                              opens = normal or duress mode
-                                           7. Gemini verdict (fail closed) + onboard veto
-                                              STM32 decides: normal / step-up / duress
-                                           8. Seal status in a fixed-size AES box (K_i),
-                                              ratchet K_i → K_{i+1}, erase K_i
-                                           9. ML-DSA-65 signs core + YubiKey sig +
-                                              box + previous log hash
-                                          10. Append to hash-chained audit log
-                       envelope ◄──────── LED shows "OK" (same in every mode)
- 11. forwards envelope ─────────────────────────────────────────────────────────────►  12. verify everything
-                                                                                       13. open the box
-     "accepted" ◄──────────────────────────────────────────────────────────────────── normal: execute
-     "accepted" ◄──────────────────────────────────────────────────────────────────── duress: HOLD + silent alert
-     "need second approver" ◄──────────────────────────────────────────────────────── step-up
+ Requester                    Linux (UNO Q)               STM32 (UNO Q)         YubiKey       Guardian
+ ─────────                    ─────────────               ─────────────         ───────       ────────
+                              1 ask for nonce ───────────────────────────────────────────────►
+                              ◄─────────────────────────────────────────────────── nonce
+ 2 raw request ─────────────► 3 build core {request hash, display hash, nonce, service, who}
+                                 digest = SHA-256(core)
+                              4 begin(text, digest) ────► 5 hash the text itself, show it:
+                                                            "PAY 10 GBP TO ALICE"
+                                                         6 person presses PIN, grip held
+                                                         7 correct PIN → salt (same for both PINs)
+                              ◄──────────── salt ───────
+                              8 YubiKey: sign digest + hmac-secret(salt) ───────► touch
+                              ◄───────────────────────────────────────── signature + secret
+                              9 unwrap ML-DSA key; Gemini on the sensor window
+                              10 seal(score) ───────────► 11 decide status, make tag, LED: "OK"
+                              ◄──────────── tag ────────
+                              12 evidence box (Gemini's view), ML-DSA seal, log entry
+ ◄──── "accepted" ◄────────── 13 envelope ───────────────────────────────────────────────────►
+                                                                         14 check everything, read the tag
+                                                       normal: execute · duress: hold + silent alert
 ```
 
-### What the guardian checks (step 12), all of them, every time
+### What the guardian checks, all of them, every time
 
 | Check | Stops |
 |---|---|
-| Suite is `YS1`, service ID is ours | Downgrades; relaying an approval to another service |
+| Suite is `YS2`, service ID is ours | Downgrades; relaying an approval to another service |
 | Request hash matches the request it is about to run | Swapping the destination or amount after approval |
-| Display hash matches the guardian's own rendering of that request | The device being tricked into showing something else |
-| Nonce was issued by us and unused; not expired (2 min) | Replays; approvals saved up for later |
-| YubiKey assertion: right key, right challenge, user-present flag set | Approvals without a physical touch by the named person |
+| Display hash matches the guardian's **own** rendering of that request | A device (or Linux) showing something different from what's signed |
+| Nonce was issued by us, unused, and under 2 minutes old (**our** clock) | Replays; approvals saved up for later. The device has no trusted clock, so it can't enforce expiry |
+| YubiKey assertion: right key, right challenge, user-present flag | Approvals without a physical touch by the named person |
 | ML-DSA-65 signature from the device named in the certificate | Forgery (including by quantum computer); mixing parts of envelopes |
-| Sealed box opens at the expected counter | Replays; stale or forged status |
+| **The tag matches exactly one of normal / second approver / duress** | Anything the STM32 didn't produce: no PIN pressed, wrong display, wrong request |
+| Evidence box opens at the expected counter | Replays; stale or forged evidence |
+
+Then the guardian may **only make the outcome stricter**: danger actions (new address, delegation, deploy, policy change, new signer) always need a second approver, and its own second look at Gemini's evidence can turn "normal" into "hold", never the other way round.
 
 ### The envelope
 
 ```json
 {
-  "core":   {"v":1, "suite":"YS1", "type":"transfer", "rp":"guardian.yuduino.local",
+  "core":   {"v":2, "suite":"YS2", "type":"transfer", "rp":"guardian.yuduino.local",
              "who":"jonah", "device":"unoq-1",
              "request":"<SHA-256 of raw request>", "display":"<SHA-256 of text shown>",
-             "nonce":"<from guardian>", "exp":1763150000},
+             "nonce":"<from guardian>"},
   "yk":     {"authenticator_data":"…", "client_data_json":"…", "signature":"…"},
+  "mcu":    "<32-byte HMAC tag from the STM32>",
   "sealed": {"ctr":42, "box":"<12-byte nonce + AES-GCM of 512 padded bytes>"},
   "prev":   "<hash of previous audit log entry>",
-  "pq_sig": "<ML-DSA-65 over core + YubiKey sig + sealed + prev>"
+  "pq_sig": "<ML-DSA-65 over core + YubiKey sig + tag + sealed + prev>"
 }
 ```
 
-**Why the YubiKey signs only `core`:** the touch happens before Gemini's verdict exists, so the YubiKey can't sign the status. The ML-DSA signature then binds the YubiKey's signature, the status box and the log position together. Taking any part out of one envelope and putting it in another breaks the ML-DSA signature (there's a test for exactly this).
+Taking any part out of one envelope and putting it in another breaks the ML-DSA signature, or the tag, or the YubiKey signature (there are tests for each).
+
+## What you see is what you sign
+
+- **The STM32 drives the LED matrix** (the Arduino docs confirm it is managed by the microcontroller) **and hashes the text itself.** The tag covers that hash, and the guardian recomputes the text from the request it is about to execute. A mismatch anywhere is a rejection.
+- **Destinations are shown by name, not by the last few characters.** An attacker can cheaply make an address ending in `A1F3`. The device shows `PAY 10 GBP TO ALICE`, where `ALICE` comes from an **address book** that the org root signs and the guardian and device both hold. Names must be unique, and an unknown address is refused.
+- **A new address is shown in full**, in groups of four, with `!ADD` in front. It needs a second approver, and nothing can be paid to it until it's added.
+- **Every field is shown or the request is refused.** Each action has a fixed list of fields. A request with an extra field (a hidden "memo"), a missing field, an amount like `10 GBP TO BOB`, or text over 96 characters is refused, never cut short.
+- **Different requests never share a display** (there is a test).
+- **A 4-character check code** can be added to the LED text and to any big screen driven by Linux (Wave 3). If they differ, the big screen is lying.
+- **Danger actions get a `!` and a second approver:** EIP-7702 delegations, new addresses, deploys to the signing service, policy changes, new signers. These are exactly what was abused on 29 October.
 
 ## The decoy nobody can spot
 
-This is the open decision "fake approval design details" in the overview.
+The overview's open decision, "fake approval design details", is settled like this.
 
-**The current code has a weakness.** [`pq_keystore.py`](../app/python/pq_keystore.py) makes two key pairs, "normal" and "duress", and [`verifier.py`](../app/python/verifier.py) tries one public key, then the other. Public keys aren't secret. Anyone who has them (a wallet contract, a log, a curious attacker) can check which key verifies and instantly know the alarm went off. On a blockchain the two keys would even be two different addresses.
+**What was wrong:** the original code in `pq_keystore.py` made two key pairs, "normal" and "duress", and `verifier.py` tried one public key, then the other. Public keys aren't secret, so anyone holding them (a wallet contract, a log, a curious attacker) can check which key verified and instantly know the alarm went off.
 
-**YuSeal's fix: one key, a sealed status.** Every approval is signed by the same ML-DSA key. The status lives inside an encrypted box that:
+**YuSeal's answer: one key, and the status is inside the STM32's tag.**
 
-- is **always the same size** (512 bytes, padded with random bytes), whatever it holds;
-- uses **AES-256-GCM**, so without the key, a normal box and a duress box are indistinguishable;
-- is **bound to this approval** (the approval's hash is its associated data) and **covered by the ML-DSA signature**, so it can't be swapped;
-- carries the features and Gemini verdict, so the guardian can **get a second opinion** (see below).
+- Every approval is signed by the same ML-DSA key and the same YubiKey. Nothing visible differs.
+- The status is mixed into the **tag**, which is an HMAC: without the guardian's tag key, a normal tag and a duress tag are indistinguishable 32 random-looking bytes. Only the guardian can try the three statuses and see which matches.
+- **Linux never learns the status.** It never sees the PIN, only a salt that is the same for both PINs. It passes Gemini's number in and gets a tag out. So malware on the board can't tip off an attacker, and can't be made to.
+- **Same behaviour on every path.** The LED matrix shows `OK` for normal and duress alike, the envelope has the same shape and size, and the guardian answers the requester `accepted` for both. A held transfer sits in the same short queue as a normal large one.
+- **The duress PIN looks the same to an observer.** It uses the same buttons as the normal PIN, with one press held longer. (If they know the exact timing pattern of your normal PIN they'd notice. Use a hood over the buttons, [weak spot 6](#remaining-weak-spots).)
 
-**Forward secrecy, which protects the victim afterwards.** The sealing key moves forward after every approval (K_{i+1} = HKDF(K_i)) and the old key is erased. If the attacker takes the device away and breaks into it later, they can't open earlier boxes, so they **can't prove you raised the alarm**. That matters if the attacker might retaliate.
+**Forward secrecy for the victim.** Gemini's view of the approval (the features and score) is stored in an **evidence box** for the guardian's second opinion. Its key moves forward after every approval (K ᵢ₊₁ = HKDF(K ᵢ)) and the old key is erased. If the device is seized later, the earlier boxes can't be opened, so **the attacker can't prove which approvals raised the alarm**. The tag can't be read without the tag key, which is not on the device's Linux side.
 
-**Same behaviour on every path.** The device always tries both PIN wraps, always calls Gemini, always seals, always signs, and the LED matrix shows the same "OK". The guardian's public answer is "accepted" for both. Large normal transfers also sit in a short release queue, so a held duress transfer doesn't stand out by not moving straight away.
-
-**The hidden status is decided only on the STM32**, by one rule (`decide_status` in the code):
-
-| Input | Result |
-|---|---|
-| Duress PIN, or an onboard veto (sensor unplugged, extreme reading) | Duress |
-| Gemini says duress, or score ≥ 0.7 | Duress |
-| Gemini silent, late, malformed, or score out of range | **Duress (fail closed)** |
-| Score 0.4 to 0.7 | Step-up: second approver needed |
-| Otherwise | Normal |
-
-Gemini can raise the alarm but never lower it. A false alarm costs a short delay and a second approver, so failing closed is cheap.
-
-**Guardian second opinion (Wave 3).** Because the box carries the features Gemini saw, the guardian can ask Gemini again on its own. If either says duress, it's duress. This covers a compromised Linux side that lies "all calm" to the STM32.
+**Guardian second opinion (Wave 3).** The guardian can ask Gemini again on the evidence. If either says duress, it's duress. This covers a compromised Linux side that tells the STM32 "all calm". There is a test for exactly that. It can only make things stricter.
 
 ## The login system
 
 Logins use the **same envelope** with `type: "login"`, so there's one thing to build and one thing to verify.
 
 1. A service (the Vultr admin dashboard, an internal tool, the wallet console) shows a login challenge.
-2. YuDuino's LED matrix shows `LOGIN dashboard AS jonah` and the check code; PIN, grip, touch.
-3. The guardian verifies the envelope and issues a **10-minute session that is bound to the laptop's own key** (proof of possession, like DPoP), not a bearer token. Copying the session cookie to another machine does nothing.
+2. The LED matrix shows `LOGIN DASHBOARD AS JONAH`; PIN, grip, touch.
+3. The guardian verifies the envelope and issues a **10-minute session that is bound to the laptop's own key** (proof of possession), not a bearer token. Copying the session cookie to another machine does nothing.
 4. **Sessions can look but not move.** Anything that changes money, permissions, deployments or delegations needs a fresh envelope for that exact action, even inside a session.
 5. **Duress at login opens a honeypot session:** it looks real and shows plausible data, but it is read-only, every click is logged, and the alert goes out.
 
-**This is the Binance lesson.** Attackers there used a stolen container deploy token, a long-lived credential anyone could copy. In YuDuino, nothing long-lived can authorise anything: every dangerous action needs a fresh, touch-bound, transaction-bound signature.
+**This is the Binance lesson.** Attackers there used a stolen container deploy token, a long-lived credential anyone could copy. In YuDuino, nothing long-lived can authorise anything: every dangerous action needs a fresh, touch-bound, transaction-bound envelope.
 
 **Also covered:**
 
 - **Phishing and relaying.** The envelope names the service (`rp`), and the YubiKey assertion is tied to the service ID, so an approval collected by a fake site can't be used on the real one.
-- **AI agents never hold keys.** An agent files a request, and a named human approves it on the device. The audit log records both the agent that asked and the human who approved.
+- **AI agents never hold keys.** An agent files a request, and a named human approves it on the device. The audit log records both.
 - **SSH (future):** after an envelope, the guardian issues a 10-minute SSH certificate. OpenSSH 10 already uses the hybrid post-quantum key exchange (`mlkem768x25519-sha256`) by default.
-
-## What you see is what you sign
-
-- **The STM32 drives the LED matrix** (the Arduino docs confirm it is managed by the microcontroller, not Linux). That makes it the most trusted output on the board.
-- **The device parses the raw request**; the laptop's description is ignored. Unknown fields or actions are refused, and anything too long to show in full is refused rather than cut short.
-- **A 4-character check code** (from the approval's hash) appears on both the LED matrix and any big screen driven by Linux. If they differ, the big screen is lying.
-- **Danger actions get a `!` and a second approver:** EIP-7702 delegations, unlimited token approvals, adding signers, changing policies, deploying to the signing service. These are exactly what was abused on 29 October.
-- **Big actions need 2 of 3 people**, each with their own device and YubiKey, plus a time lock.
 
 ## The audit trail: who authorised what
 
 1. **On the device:** each envelope adds a log entry holding the previous entry's hash, signed with ML-DSA. Edit, delete or reorder one entry and the chain breaks (tested). A copy goes to the microSD.
-2. **On the guardian:** entries go into a **transparency log**, a Merkle tree like the one behind HTTPS Certificate Transparency. The guardian signs the tree head. Each device checks the guardian keeps adding to the same tree (it can't show different histories to different people).
+2. **On the guardian:** entries go into a **transparency log**, a Merkle tree like the one behind HTTPS Certificate Transparency. The guardian signs the tree head, so it can't show different histories to different people.
 3. **Daily checkpoint:** the tree head is signed with the SLH-DSA root and, as a Solana stretch goal, posted on chain, so even the guardian's own admins can't rewrite history.
 4. **Tiger Data** stores one row per approval with the entry hash, so the dashboard can show the chain and check it on load.
 
-The public log stores the sealed box, never the plain status, so reading the log doesn't reveal alarms. The guardian's incident records (for admins) do.
+The log stores a hash of the envelope, never the plain status, so reading it doesn't reveal alarms. The guardian's incident records (for admins) do.
 
-**"Who approved it?"** is answered by: approver name → membership certificate (signed by the root) → genuine YubiKey (attestation) → touch on this exact request (assertion) → this device (ML-DSA) → this place in history (log).
+**"Who approved it?"** is answered by: approver name → membership certificate (signed by the root) → genuine YubiKey (attestation) → touch on this exact request (assertion) → buttons and display on this device (tag) → this device (ML-DSA) → this place in history (log).
+
+## Failure modes
+
+Every row has a defined, safe result. Each is tested unless marked.
+
+| What happens | Result |
+|---|---|
+| Wrong PIN | Nothing released. After 5 wrong, the STM32 locks until power-cycled |
+| Grip not held | Presses don't count; the request times out after 90 s |
+| Gemini slow, down, or malformed | No score, so **duress**. Approval completes, the guardian holds it and alerts |
+| Wi-Fi down | Linux can't reach Gemini or the guardian: nothing executes. The envelope is kept and sent when back; its nonce will have expired, so the person approves again (not tested) |
+| Guardian down | Nothing executes (it is the only route). The device still makes decoys the same way |
+| YubiKey unplugged or the wrong one | Can't unwrap the ML-DSA key; refused |
+| Power cut mid-approval | STM32 forgets the session (RAM). The next `begin` starts clean. Linux's state file is written atomically |
+| Bridge call fails or is called out of order | The STM32 core returns "-" or "0"; there is no state in which a tag is made without a correct PIN (tested) |
+| Linux calls `seal` twice, or after the timeout | The second call and any call after 90 s return nothing (tested) |
+| A sensor is unplugged or reads impossibly | Onboard veto, so duress (tested) |
 
 ## Recovery and revocation
 
-- **Lost YubiKey:** enrol two YubiKeys from day one (the second lives in a safe). The seed is wrapped under each.
-- **Lost or broken device: don't back up signing keys; replace them.** Signing keys, unlike encryption keys, don't need to be recovered: enrol a new device, have the root sign a new certificate, and revoke the old one. That needs 2 of 3 people and a 24-hour delay with alerts to everyone, so an attacker can't "recover" their way in quietly.
+- **Lost YubiKey:** enrol two YubiKeys from day one (the second lives in a safe). In Wave 3, a second wrap of the ML-DSA key under the spare YubiKey.
+- **Lost or broken device:** don't back up signing keys; replace them. Enrol a new device, have the root sign a new certificate, revoke the old one. That needs 2 of 3 people and a 24-hour delay with alerts to everyone, so an attacker can't "recover" their way in quietly.
 - **Revocation list:** signed by the root and checked by the guardian on every approval.
 - **Lost root:** any 2 of the 3 backup shares rebuild it (Shamir secret sharing).
-- **Too many wrong PINs** (5): the device locks and needs a guardian unlock plus a second approver.
+- **Forgotten PIN:** the STM32 can't be unlocked. Re-provision and re-enrol with the root's approval.
+- **Someone leaves the team:** revoke their certificate; their device stops working at the guardian immediately.
 
 ## The network
 
 - **Hybrid post-quantum TLS** (X25519MLKEM768) to Gemini and the guardian. OpenSSL 3.5 and newer offers it by default; check `openssl version` on the UNO Q. This stops "harvest now, decrypt later" of the features and frames sent to Gemini.
-- **Pinning:** the guardian's own certificate is pinned exactly. For Google, pin the Google Trust Services root CAs rather than the server certificate, which rotates often.
+- **Pinning:** the guardian's own certificate is pinned exactly. For Google, pin the Google Trust Services roots rather than the server certificate, which rotates often.
 - **Envelopes don't depend on TLS.** They are signed end to end, so even a broken TLS connection can't forge or change an approval.
+
+## Privacy
+
+- **Raw camera frames, audio and PINs never leave the board.** Gemini gets the aggregated features and one frame, as now.
+- The **evidence box** keeps the features and Gemini's score for the guardian's second opinion. It is encrypted, ratcheted, and kept for 30 days.
+- **Tiger Data** keeps scores per usage, not frames or audio.
+- Reading emotion at work is restricted in the EU. The framing is *context risk scoring for consenting team members*, with the duress PIN as the main signal.
+- **Accessibility:** ElevenLabs reads the **request text** aloud, never the status, so what is spoken is the same for normal and duress.
 
 ## Threat coverage
 
 | Attack | What stops it |
 |---|---|
-| Malware on the laptop fakes "approved" | No "OK" message exists; only signed envelopes count |
-| Laptop swaps the destination after you approve | Request hash in `core`; guardian recomputes it |
-| Laptop shows you a different transaction | Device parses raw bytes itself; check code on the LED matrix |
+| Malware on the laptop fakes "approved" | No "OK" message exists; only signed envelopes with a tag count |
+| Laptop swaps the destination after you approve | Request hash in the envelope; the guardian recomputes it |
+| Laptop shows you a different transaction | The STM32 hashes the text it shows into the tag; the guardian renders its own and compares |
+| **Root on the Linux side** waits for a real touch and swaps the request | The tag covers the display hash and digest of what the STM32 showed, so it doesn't fit the swapped request (tested twice) |
+| Root on Linux makes the YubiKey sign and unwraps the ML-DSA key | Still needs a tag: needs the PIN on the buttons, for this exact text |
+| Address with a look-alike ending | Destinations are shown by name from a signed address book; unknown addresses are refused |
 | Stolen session token or deploy token (Binance) | Sessions are short, key-bound and can't move money; every action needs a fresh envelope |
 | Signing service driven directly (Binance) | The guardian is the only route to execute and requires an envelope per action |
 | EIP-7702 delegation abuse (Binance) | Danger action: `!DELEGATE`, second approver, time lock |
-| Replaying an old approval | Nonce, expiry and ratchet counter |
+| Replaying an old approval | Nonce, 2-minute expiry on the guardian's clock, ratchet counter |
 | Stolen YubiKey | Also needs the PIN and the device |
-| Stolen device | Also needs the YubiKey and PIN; device secret can't be extracted by software |
-| Copied key file, offline PIN guessing | Each guess needs a YubiKey touch and the device secret |
-| Someone forces you to approve | Duress PIN or Gemini's verdict → sealed duress → hold and silent alert |
-| Attacker checks which key signed | Only one key; status hidden in a same-size encrypted box |
-| Attacker seizes the device afterwards to see if you raised the alarm | Ratchet: old sealing keys are erased |
-| Network down or Gemini blocked to force a "calm" result | Fail closed: no verdict means duress |
+| Stolen device | Also needs the YubiKey; the tag key and K_MCU aren't on Linux |
+| Someone forces you to approve | Duress PIN or Gemini's verdict → duress tag → hold and silent alert |
+| Attacker checks which key signed | Only one key; status hidden in a tag only the guardian can read |
+| Malware tips off the attacker | Linux never sees the PIN and gets the same salt and a same-size tag whichever PIN was used (tested) |
+| Attacker seizes the device later to see if you raised the alarm | Ratchet: old evidence keys are erased; the tag key isn't on the device's Linux side |
+| Network cut or Gemini blocked to force "calm" | Fail closed: no verdict means duress |
 | Fake Gemini on the network | Pinned TLS; the verdict can only raise the alarm anyway |
-| Compromised Linux side says "calm" | Guardian second opinion from the sealed features; onboard veto |
-| Future quantum computer forges signatures | ML-DSA required alongside the YubiKey; SLH-DSA roots |
-| Harvest now, decrypt later | Hybrid ML-KEM TLS; ML-KEM for the sealing key |
+| Linux tells the STM32 "calm" | Guardian second opinion from the evidence box; onboard veto |
+| Future quantum computer forges signatures | ML-DSA required alongside the YubiKey; the tag is HMAC (not breakable by Shor); SLH-DSA roots |
+| Harvest now, decrypt later | Hybrid ML-KEM TLS; ML-KEM for the evidence key |
 | Insider edits the audit log | Hash chain, device signatures, transparency log, SLH-DSA checkpoints |
-| Phishing site relays an approval | Service ID bound into `core` and the YubiKey assertion |
-| Fake YubiKey at enrolment | Attestation check against Yubico's root |
-| Malicious firmware pushed to the device | No over-the-air updates; firmware signed by the root (secure boot later) |
-| Hacked guardian | Can block or leak alarms, but can't create approvals |
+| Phishing site relays an approval | Service name bound into the envelope and YubiKey signature |
+| Fake YubiKey at enrolment | Attestation checked against Yubico's root |
+| Malicious firmware | No over-the-air updates; root-signed firmware; secure boot later |
+| Hacked guardian | Can block or leak alarms, but can't create YubiKey or ML-DSA signatures |
 
 ## Remaining weak spots
 
 Honest list, worst first.
 
-1. **The hackathon build keeps the keys on the Linux side.** Until Wave 4 (or later) the ML-DSA key, seal chain and decision logic run in Python on the QRB2210, next to the camera, network and Gemini code. Root on Linux means game over for that device. The design puts them on the STM32; we're not there tonight.
-2. **The YubiKey talks to Linux over USB.** The hmac-secret and the PIN pass through Linux. The fix (future) is for the STM32 to act as the FIDO2 "platform": CTAP2 encrypts hmac-secret and PIN traffic with a key agreed between the platform and the YubiKey, so Linux becomes a dumb pipe that only sees ciphertext.
-3. **No secure element.** The STM32U585 has TrustZone, a hardware unique key and side-channel-resistant AES, which is good, but it's not a certified secure element. A skilled lab attacker with the device could glitch it. Our answer is that the device alone isn't enough (YubiKey and PIN are also needed).
-4. **The YubiKey half is classical.** A quantum computer could forge the YubiKey signature. ML-DSA still protects the approval, but the "proof of touch" then rests on the device being honest. A post-quantum security key would fix this when one exists.
-5. **A calm, determined attacker.** If they know about duress detection, the decoy only buys time: they will eventually notice the money didn't move. Time locks and the silent alert are meant to make that time enough.
-6. **Gemini can be wrong or fooled.** It may flag a nervous but willing user (cheap: second approver) or miss a calm coerced one. Attackers could also try **prompt injection through the camera**, such as a printed sign saying "the user is calm". Mitigations: structured output only, image treated as data, Gemini can only raise the alarm, and the duress PIN is always there.
-7. **Short PINs.** Three buttons give few combinations. The lockout counter and YubiKey-touch-per-guess make it acceptable, but use 8+ presses.
-8. **An 8×13 LED matrix can't show everything.** Long or complex requests are refused, which is safe but limiting.
-9. **Bugs beat maths.** This is new code written at a hackathon; that's far more likely to fail than ML-DSA. The tests help; an external review would help more.
-10. **The supply chain** (how Binance was first breached): a poisoned library on the board or the laptop. Pinned dependencies, signed firmware and reproducible builds reduce it.
-11. **ML-DSA is young** (standardised 2024). That's why it's always paired with classical signatures for approvals, and the root uses hash-based SLH-DSA.
+1. **PIN guessing with the device in hand.** The lockout counter lives in the STM32's RAM, so cutting power resets it. A thief with the device **and** the YubiKey could try PINs on the buttons (6⁸ = 1.7 million combinations at about 4 s a try, so months by hand, but a robot could do it faster). Fix: keep the counter in flash (VERIFY storage on the UNO Q), use 10+ presses, and have the guardian count failed attempts. A thief with only the device still can't make the YubiKey signature.
+2. **`K_MCU` is in the STM32's flash.** Anyone who can read the chip's flash gets it, unless the debug port is locked (readout protection) and, later, secure boot and TrustZone are used. Until then, treat the board as sensitive.
+3. **Keys on Linux tonight.** The ML-DSA key is on the Linux side while it signs. Root on Linux can use it, with a YubiKey touch and the salt, but **can't make a tag**, so the envelope is rejected. It also sees the sensors, so it can block or delay approvals (denial of service).
+4. **The guardian's tag key.** An insider with it can make tags, but not YubiKey or ML-DSA signatures, so still not approvals. Keep it in an HSM later.
+5. **The YubiKey half is classical.** A quantum attacker could forge the YubiKey signature. The ML-DSA signature and the HMAC tag still stand, so a forger would need the ML-DSA key (device) and a tag (PIN), but "who touched it" would rest on those. A post-quantum security key would fix this when one exists.
+6. **Shoulder-surfing.** Someone who watches you type your normal PIN, including the timing, learns it. The duress PIN is meant to be indistinguishable *unless they know the timing*. A privacy hood over the buttons (Wave 4, 3D printer) helps.
+7. **A calm, determined attacker.** If they know about duress detection, the decoy only buys time; they will eventually notice nothing moved. Time locks and the silent alert are meant to make that time enough.
+8. **Gemini can be wrong or tricked**, including by prompt injection through the camera (a printed sign saying "the user is calm"). Mitigations: structured output only, image treated as data, Gemini can only raise the alarm, the duress PIN is always there, and the guardian's second opinion.
+9. **No certified secure element.** The STM32U585 has TrustZone, a hardware unique key and side-channel-resistant AES, but it's not a certified secure element. A skilled lab attacker could glitch it.
+10. **An 8×13 LED matrix can't show everything.** Long or complex requests are refused. Safe, but limiting.
+11. **Bugs beat maths.** This is new code written at a hackathon; that's far more likely to fail than ML-DSA. 41 tests help; the glue that talks to the board (Bridge arguments, LED matrix, Buttons, YubiKey assertion) is **not yet run on hardware**. An external review would help more.
+12. **The supply chain** (how Binance was first breached): a poisoned library on the board or the laptop. Pinned dependencies and signed firmware reduce it.
+13. **ML-DSA is young** (standardised 2024). That's why it's always paired with the YubiKey and the HMAC tag, and the root uses hash-based SLH-DSA.
 
 ## What we build when
 
-### Hackathon (fits the existing waves)
-
-| Wave | Crypto work | In the code |
+| Wave | Crypto work | Code |
 |---|---|---|
-| **1. Skeleton** (now) | Switch to **one ML-DSA-65 key** plus the sealed status box, replacing the real/decoy key pair. YubiKey signs `core`. Verifier checks everything and answers "accepted" for both normal and duress. Use `cryptography>=48` for ML-DSA instead of building liboqs. | `yuseal.py` is ready: call `build_core`, `make_envelope` and `Verifier.check` from `main.py` |
-| **2. Real signals** | Nonce, expiry and counter checks (done in `Verifier`); hash-chained, signed audit log (done: `log_append`); PIN folded into the YubiKey (done: `create_keystore`/`unlock`, replacing `check_pin`). Move the **decision rule, LED matrix display and check code** to the STM32 sketch: Linux sends the verdict, the STM32 decides and shows. | Port `decide_status` and `check_code` to `sketch.ino` |
-| **3. Response and polish** | Verifier on Vultr is the only route to execute. YubiKey attestation at enrolment. Hybrid ML-KEM enrolment of the seal key (done: `seal_root_*`). **YuDuino login** for the admin dashboard, with the honeypot session on duress. Guardian second opinion. Merkle tree head on the dashboard. | `merkle_root` is ready |
-| **4. Harden and stretch** | ML-DSA on the STM32 if time (C library such as mldsa-native or PQClean; ~80 KB RAM, fine on 786 KB). SLH-DSA-signed membership certificates and checkpoints. Check hybrid TLS is negotiated. Solana: post the daily tree head on devnet. | |
+| **1. Skeleton** (now) | Run the existing tests. Provision a device. Flash the sketch. Run the guardian on the laptop. `enrol`, then one approval with a normal PIN and one with the duress PIN | `tools/provision.py`, `sketch.ino` + `yuseal_mcu.h`, `guardian.py`, `main.py` |
+| **2. Real signals** | Real sensor window into Gemini and the onboard veto; baselines; real nonce timing; persist the lockout counter if flash works; hash-chained log checks on the dashboard | `approve.py` (`gemini_fn`), `risk` rules for the veto, `sketch.ino` |
+| **3. Response and polish** | Guardian on Vultr with HTTPS and pinning; YubiKey attestation at enrolment; org-root-signed address book and certificates; guardian second opinion; YuDuino login with honeypot session; Merkle tree head on the dashboard | `guardian.py`, a small root tool |
+| **4. Harden and stretch** | Readout protection and a locked debug port; SLH-DSA root; check hybrid TLS is negotiated; Solana tree-head post; privacy hood | |
 
 ### After the hackathon
 
-- **STM32 as the FIDO2 platform**, so Linux only relays encrypted CTAP2 traffic.
-- **DHUK + SAES key wrapping, TrustZone (TF-M) and secure boot** on the STM32U585, with the debug port locked.
+- **STM32 as the FIDO2 platform**, so Linux only relays encrypted CTAP2 traffic and never holds the hmac-secret.
+- **ML-DSA on the STM32** (C library such as mldsa-native or PQClean; about 80 KB of RAM to sign, which fits in 786 KB), so the Linux side holds no signing key at all.
+- **DHUK key wrapping, TrustZone (TF-M), secure boot** on the STM32U585.
 - **A certified secure element** in the next hardware version.
-- **Multi-person threshold signing**, so a big action needs a signature only 2 of 3 devices can make together (post-quantum threshold schemes are still research; today we use 2 of 3 separate envelopes).
+- **Multi-person threshold signing**, so a big action needs a signature only 2 of 3 devices can make together.
 - **A local model** (such as Gemma) on the Linux side, so no features leave the device.
 - **Public witnesses** that co-sign the transparency log, and reproducible firmware builds.
 - **A formal model** of the protocol in a tool like Tamarin or ProVerif, plus an external audit.
-- **Post-quantum security keys** when they ship, to make the presence proof quantum-safe too.
+- **Post-quantum security keys** when they ship.
 
 ## Glossary
 
 - **Signature:** proof that a specific private key approved specific bytes. Anyone with the public key can check it; nobody without the private key can make it.
-- **Hash:** a fingerprint of data. Change one bit and the fingerprint changes completely.
+- **Hash (SHA-256):** a fingerprint of data. Change one bit and the fingerprint changes completely.
+- **HMAC:** a fingerprint that needs a secret key to make or check. The STM32's tag is one.
 - **ML-DSA / SLH-DSA / ML-KEM:** NIST's post-quantum standards (2024): a lattice signature, a hash-based signature and a key-agreement method.
 - **Hybrid:** using a classical and a post-quantum algorithm together, so you're safe if either holds.
 - **Nonce:** a number used once, so an old message can't be replayed.

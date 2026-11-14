@@ -31,7 +31,7 @@ We build in **waves**. Every wave moves **all three tracks forward together**: h
 | Track | What we build |
 |---|---|
 | **Hardware** | UNO Q, USB-C hub, power, camera. LED matrix as the display. Modulino Buttons for PIN, approve and reject. Modulino Movement and the touch sensor on a breadboard (no grip yet). YubiKey plugged into the laptop. |
-| **Cryptography** | The device hashes exactly what it shows (action, amount, destination, nonce, expiry). The YubiKey signs that hash via WebAuthn. The UNO Q adds a second signature with a **real key** or a **decoy key** (Ed25519, on the Linux side for now). A tiny verifier script on the laptop checks both and either "executes" or "freezes". |
+| **Cryptography** | Follow the **[YuSeal design](CRYPTO.md)**: the STM32 hashes exactly what it shows and makes a **tag** after the PIN; the YubiKey signs the same digest; ML-DSA-65 seals it all, with **one key** (no separate decoy key; the duress status is inside the tag). The guardian checks all three and either "executes" or "holds". Code is ready: see the **[build flow](BUILD-FLOW.md)**. |
 | **Extensions** | **Gemini:** one call with tremor and touch features plus one camera frame, returning `{duress, score, reasons}` as JSON, with a timeout that fails closed to the decoy. Results are logged to a local JSON file. **3D printer:** start printing the grip (it takes hours). |
 
 **Done when:** a fake transfer request scrolls on the LED matrix; we enter the PIN and tap the YubiKey; Gemini returns a verdict; a calm approval executes, and pulling the network cable gives a decoy that the verifier freezes.
@@ -67,7 +67,7 @@ We build in **waves**. Every wave moves **all three tracks forward together**: h
 | Track | What changes |
 |---|---|
 | **Hardware** | Privacy hood over the PIN buttons. Spare cables and a backup power bank. Label the parts for judges (the "hackiest hack" angle). |
-| **Cryptography** | Add an **ML-DSA** (post-quantum) signature from the STM32 alongside the YubiKey's, with every message naming its algorithm. The verifier requires both. If ML-DSA doesn't fit on the STM32 in time, show it on the Linux side and say so honestly. |
+| **Cryptography** | The ML-DSA signature and the STM32 tag are already in Wave 1 (see [CRYPTO.md](CRYPTO.md)). Wave 4 hardens: lock the STM32's debug port, SLH-DSA root, confirm hybrid post-quantum TLS. Moving the ML-DSA key itself onto the STM32 is future work. |
 | **Extensions** | Rehearse the **Binance-replay demo** twice and record a backup video. **ElevenLabs** calm and scared test voices for a reliable voice demo. **Stretch, if time:** Solana devnet wallet program (a valid signature releases funds, a decoy freezes them); MongoDB Atlas for profiles, policies and incidents. **DEV** write-up after the weekend. |
 
 **Done when:** the full demo runs start to finish without touching a laptop, twice in a row, and the backup video is saved.

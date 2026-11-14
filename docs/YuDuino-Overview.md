@@ -76,12 +76,12 @@ There is **no "approve = true" message anywhere**, because anyone who controls t
 
 A large quantum computer running Shor's algorithm would break the elliptic-curve and RSA signatures a YubiKey 5 uses. YuDuino plans for that:
 
-- **Two signatures per approval.** The YubiKey's P-256 signature plus an **ML-DSA** (NIST FIPS 204) signature from the UNO Q's STM32U585. The verifier requires both, so a forger must break both kinds of maths and steal from both devices.
+- **Three proofs per approval.** The YubiKey's P-256 signature, a **tag** from the STM32U585 (HMAC-SHA-256, so quantum-safe), and an **ML-DSA** (NIST FIPS 204) signature over everything. The verifier requires all three. Full design: [CRYPTO.md](CRYPTO.md).
 - **The UNO Q key earns its place.** The YubiKey can't do post-quantum signing, and it can't see the duress result. The UNO Q key does both: it only signs after the duress check, and under duress it signs with the decoy marker.
-- **Keep it on the microcontroller side**, never on the Linux side where camera and Gemini code run.
+- **The PIN, the display text and the duress status stay on the microcontroller side**, never on the Linux side where camera and Gemini code run. Moving the ML-DSA key there too is future work.
 - **Crypto-agility:** every message names its algorithm, so algorithms can be swapped later.
 
-For the hackathon, ML-DSA is a stretch goal; the YubiKey signature and the duress flow come first.
+ML-DSA is built into Python's `cryptography` library (version 48 or newer), so it is part of Wave 1, not a stretch goal.
 
 ## 7. Onboard processing
 

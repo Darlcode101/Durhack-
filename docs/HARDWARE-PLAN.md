@@ -89,7 +89,7 @@ Each step lists what to do and the test that must pass before moving on. Times a
 1. Upload the repo's [`sketch.ino`](../app/sketch/sketch.ino) in App Lab.
 2. Run [`main.py`](../app/python/main.py) on the Linux side.
 
-**Test:** Python prints a JSON line with real `temp_c`, `humidity`, `shake_rms`, `touch`, `moisture` and `pin_entry` values. Pressing buttons A, B, C changes `pin_entry`.
+**Test:** Python prints a JSON line with real `temp_c`, `humidity`, `shake_rms`, `touch`, `moisture`, `state` and `pin_count` values. Holding the grip and pressing buttons A, B, C changes `pin_count` (Linux sees how many presses, never which). The PIN itself stays on the STM32; see [BUILD-FLOW.md](BUILD-FLOW.md).
 
 ### Step 5: camera and microphone (30 min)
 1. Plug the camera into hub USB-A port 1.
@@ -110,11 +110,11 @@ One end-to-end approval, no AI yet:
 
 1. Laptop script sends a request: *pay 10 GBP to ...A1F3*.
 2. LED matrix scrolls `PAY 10 GBP ...A1F3?`.
-3. User holds the grip (touch = 1) and enters the PIN `ABCA` on the Buttons.
+3. User holds the grip (touch = 1) and enters the PIN on the Buttons (short press = `A`, `B`, `C`; press held 0.8 s or more = `a`, `b`, `c`; example `ABCABCAB`).
 4. User taps the YubiKey.
 5. LED matrix shows `OK`. A wrong PIN or no tap shows `NO`.
 6. The terminal prints the averaged sensor readings and face count.
-7. Entering the **duress PIN** `ABCC` also shows `OK`, but the terminal logs `DURESS` and nothing would be paid.
+7. Entering the **duress PIN** (same presses, last one held long: `ABCABCAb`) also shows `OK`, but the guardian logs `hold_and_alert` and nothing would be paid.
 
 When all seven work, the hardware is done. Everything after is software: baseline enrolment and rules (milestone 2), Gemini and the silent alert (milestone 3), then the grip enclosure and demo script (milestone 4).
 
