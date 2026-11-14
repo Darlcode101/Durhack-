@@ -135,7 +135,7 @@ Ledger Enterprise offers approval devices with trusted screens, and Fireblocks o
 
 ## 13. Open decisions
 
-- [x] Fake approval design details: one signing key plus a sealed, same-size status box only the guardian can open (see [CRYPTO.md](CRYPTO.md))
+- [x] Fake approval design details: one signing key plus a status hidden inside the STM32's tag, which only the guardian can read (see [CRYPTO.md](CRYPTO.md))
 - [ ] YubiKey on the laptop (WebAuthn) or directly on the UNO Q (USB)
 - [x] Gemini does the duress calculation in the cloud (features and one frame), with fail-closed and pinned HTTPS; local model later
 - [x] Verifier: the guardian backend on a Vultr server (incident reports and admin dashboard, verifier, silent alerts); a Solana devnet wallet program as a stretch goal

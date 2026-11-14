@@ -43,7 +43,6 @@ class Enrol(BaseModel):
     yk_pub_der: str       # YubiKey credential public key, base64 (SubjectPublicKeyInfo DER)
     pq_pub: str           # ML-DSA-65 public key, base64
     k_tag: str            # from tools/provision.py
-    seal_msg: dict        # hybrid ML-KEM + X25519 message from the device
 
 
 class Approve(BaseModel):
@@ -60,20 +59,11 @@ def nonce():
 def enrol(user: str, e: Enrol):
     if user in verifier.members:
         raise HTTPException(409, "already enrolled; revoke first")
-    kem, x = _guardian_keys()
     verifier.members[user] = ys.Member(
         serialization.load_der_public_key(ys.unb64(e.yk_pub_der)),
         mldsa.MLDSA65PublicKey.from_public_bytes(ys.unb64(e.pq_pub)),
-        ys.unb64(e.k_tag),
-        ys.SealChain(ys.seal_root_guardian_side(e.seal_msg, kem, x)))
+        ys.unb64(e.k_tag))
     return {"ok": True}
-
-
-@app.post("/enrol-keys")
-def enrol_keys():
-    kem, x = _guardian_keys()
-    return {"kem_pub": ys.b64(kem.public_key().public_bytes_raw()),
-            "x_pub": ys.b64(x.public_key().public_bytes_raw())}
 
 
 @app.post("/approve")
@@ -83,14 +73,3 @@ def approve(a: Approve):
         on_outcome(result, a.envelope)
     return {"public": result["public"]}
 
-
-_keys = {}
-
-
-def _guardian_keys():
-    """ML-KEM-768 and X25519 keys for enrolment. Wave 1: in memory (restart = re-enrol).
-    Wave 3: persisted with the state file."""
-    if not _keys:
-        _keys["kem"] = ys.mlkem.MLKEM768PrivateKey.generate()
-        _keys["x"] = ys.x25519.X25519PrivateKey.generate()
-    return _keys["kem"], _keys["x"]

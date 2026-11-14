@@ -101,7 +101,6 @@ cd app/python && python3 -m unittest test_yuseal -v
 | | Deploy `guardian.py` to Vultr behind HTTPS (Caddy or nginx). Pin its certificate in `main.py`'s `requests` call | Approval works over the internet; a wrong certificate is refused |
 | | In `guardian.on_outcome`: send the Telegram or email alert, write the incident report with Gemini, freeze funds, store to Tiger Data | A duress approval fires an alert and a report appears on the dashboard |
 | | Make the guardian the only route to "execute" (the wallet or demo contract only accepts calls from it) | Nothing executes without a guardian `execute` |
-| | `second_opinion` callable in `Verifier`: call Gemini again on the evidence | A lying Linux ("score 3") still ends in hold |
 | | Optional: YubiKey attestation at enrolment (`attestation="direct"`) | A software "YubiKey" can't enrol |
 | | ElevenLabs reads **only the request text** aloud | Same speech for normal and duress |
 

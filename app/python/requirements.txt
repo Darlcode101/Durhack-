@@ -1,6 +1,6 @@
 fido2>=2.0
-cryptography>=48  # ML-DSA and ML-KEM built in (yuseal.py)
-# liboqs is NOT needed for YuSeal (cryptography>=48 has ML-DSA/ML-KEM). Only the old pq_keystore.py uses it:
+cryptography>=48  # ML-DSA built in (yuseal.py)
+# liboqs is NOT needed for YuSeal (cryptography>=48 has ML-DSA). Only the old pq_keystore.py uses it:
 # liboqs-python @ git+https://github.com/open-quantum-safe/liboqs-python.git
 google-genai
 fastapi

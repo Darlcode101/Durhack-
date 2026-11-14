@@ -16,7 +16,7 @@ Who knows the status (normal / step-up / duress)? Only the STM32 and the guardia
 Linux never sees the PIN and can't read the tag, so malware there can't tell an attacker
 that the alarm was raised, and can't make a tag for something that wasn't on the display.
 
-Needs only `cryptography>=48` (ML-DSA and ML-KEM built in; no liboqs build).
+Needs only `cryptography>=48` (ML-DSA built in; no liboqs build).
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 
 from cryptography.exceptions import InvalidSignature, InvalidTag
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec, mldsa, mlkem, x25519
+from cryptography.hazmat.primitives.asymmetric import ec, mldsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -39,8 +39,6 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 SUITE = "YS2"  # ML-DSA-65 + ES256 (YubiKey) + HMAC-SHA-256 (STM32) + AES-256-GCM + SHA-256
 PQ_CONTEXT = b"YuDuino/approval/v2"  # FIPS 204 context string: these signatures can't be reused elsewhere
 NONCE_TTL_S = 120
-EVIDENCE_LEN = 512  # every evidence box is padded to this
-MAX_RATCHET_SKIP = 64
 MAX_TEXT = 96
 
 NORMAL, STEP_UP, DURESS = "N", "S", "D"
@@ -342,81 +340,15 @@ def unlock(store: dict, yk_secret: bytes) -> mldsa.MLDSA65PrivateKey | None:
     return mldsa.MLDSA65PrivateKey.from_seed_bytes(seed)
 
 
-# ---------------------------------------------------------------- 5. the evidence box (what Gemini saw, for the guardian)
-@dataclass
-class SealChain:
-    """Forward-secret keys shared by one device's Linux side and the guardian.
-
-    K_0 comes from enrolment (hybrid ML-KEM-768 + X25519). After each message:
-    message key = HKDF(K_i, "msg"), K_{i+1} = HKDF(K_i, "chain"), K_i is erased.
-    The box hides Gemini's verdict and the features from anyone watching the network.
-    It is evidence, not authority: the status that counts is in the STM32's tag.
-    """
-    key: bytes
-    counter: int = 0
-
-    def _step(self) -> bytes:
-        msg_key = hkdf(self.key, b"seal/msg")
-        self.key = hkdf(self.key, b"seal/chain")
-        self.counter += 1
-        return msg_key
-
-    def seal(self, evidence: dict, aad: bytes) -> dict:
-        payload = canonical(evidence)
-        if len(payload) > EVIDENCE_LEN - 2:
-            raise ValueError("evidence too large")
-        padded = len(payload).to_bytes(2, "big") + payload + os.urandom(EVIDENCE_LEN - 2 - len(payload))
-        ctr = self.counter + 1
-        msg_key = self._step()
-        nonce = os.urandom(12)
-        ct = AESGCM(msg_key).encrypt(nonce, padded, aad + ctr.to_bytes(8, "big"))
-        return {"ctr": ctr, "box": b64(nonce + ct)}
-
-    def open(self, sealed: dict, aad: bytes) -> dict:
-        ctr = sealed["ctr"]
-        if ctr <= self.counter or ctr - self.counter > MAX_RATCHET_SKIP:
-            raise ValueError("evidence counter replayed or too far ahead")
-        trial = SealChain(self.key, self.counter)
-        while trial.counter < ctr - 1:  # skip boxes that never arrived
-            trial._step()
-        msg_key = trial._step()
-        raw = unb64(sealed["box"])
-        padded = AESGCM(msg_key).decrypt(raw[:12], raw[12:], aad + ctr.to_bytes(8, "big"))
-        self.key, self.counter = trial.key, trial.counter  # only commit after it opened
-        n = int.from_bytes(padded[:2], "big")
-        return json.loads(padded[2:2 + n])
-
-
-def seal_root_device_side(guardian_kem_pub: mlkem.MLKEM768PublicKey,
-                          guardian_x_pub: x25519.X25519PublicKey) -> tuple[bytes, dict]:
-    """Enrolment: agree K_0 with the guardian using hybrid ML-KEM-768 + X25519.
-
-    Safe if EITHER algorithm holds. Returns (K_0, message for the guardian)."""
-    kem_ss, kem_ct = guardian_kem_pub.encapsulate()
-    eph = x25519.X25519PrivateKey.generate()
-    x_ss = eph.exchange(guardian_x_pub)
-    eph_pub = eph.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-    k0 = hkdf(kem_ss + x_ss + sha256(kem_ct + eph_pub), b"seal/root")
-    return k0, {"kem_ct": b64(kem_ct), "x_pub": b64(eph_pub)}
-
-
-def seal_root_guardian_side(msg: dict, kem_key: mlkem.MLKEM768PrivateKey,
-                            x_key: x25519.X25519PrivateKey) -> bytes:
-    kem_ct, eph_pub = unb64(msg["kem_ct"]), unb64(msg["x_pub"])
-    kem_ss = kem_key.decapsulate(kem_ct)
-    x_ss = x_key.exchange(x25519.X25519PublicKey.from_public_bytes(eph_pub))
-    return hkdf(kem_ss + x_ss + sha256(kem_ct + eph_pub), b"seal/root")
-
-
 # ---------------------------------------------------------------- 6. the envelope
 def _pq_tbs(env: dict) -> bytes:
     return sha256(canonical({"core": env["core"], "yk_sig": sha256(unb64(env["yk"]["signature"])).hex(),
-                             "mcu": env["mcu"], "sealed": env["sealed"], "prev": env["prev"]}))
+                             "mcu": env["mcu"], "prev": env["prev"]}))
 
 
-def make_envelope(core: dict, yk_assertion: dict, tag: bytes, sealed: dict, prev_log_hash: str,
+def make_envelope(core: dict, yk_assertion: dict, tag: bytes, prev_log_hash: str,
                   pq_key: mldsa.MLDSA65PrivateKey) -> dict:
-    env = {"core": core, "yk": yk_assertion, "mcu": b64(tag), "sealed": sealed, "prev": prev_log_hash}
+    env = {"core": core, "yk": yk_assertion, "mcu": b64(tag), "prev": prev_log_hash}
     env["pq_sig"] = b64(pq_key.sign(_pq_tbs(env), PQ_CONTEXT))  # hedged (randomised) signing
     return env
 
@@ -427,7 +359,6 @@ class Member:
     yk_pub: ec.EllipticCurvePublicKey
     pq_pub: mldsa.MLDSA65PublicKey
     k_tag: bytes  # shared with that device's STM32
-    seal: SealChain
 
 
 @dataclass
@@ -438,7 +369,6 @@ class Verifier:
     address_book: dict[str, str] = field(default_factory=dict)
     members: dict[str, Member] = field(default_factory=dict)
     open_nonces: dict[str, float] = field(default_factory=dict)
-    second_opinion: object = None  # optional callable(evidence) -> score 0..100, the guardian's own Gemini call
 
     def new_nonce(self, now: float | None = None) -> str:
         n = b64(os.urandom(16))
@@ -472,24 +402,17 @@ class Verifier:
                     if _hmac.compare_digest(tag, mcu_tag(m.k_tag, s, display_hash, digest))]
             if len(hits) != 1:
                 raise ValueError("no valid tag from the device's buttons and display")
-            evidence = m.seal.open(env["sealed"], digest)
-        except (KeyError, TypeError, ValueError, InvalidSignature, InvalidTag) as e:
+        except (KeyError, TypeError, ValueError, InvalidSignature) as e:
             return {"public": "rejected", "internal": "reject", "reason": str(e) or type(e).__name__}
         del self.open_nonces[core["nonce"]]
         status = hits[0]
         # The guardian may only make things stricter, never looser.
         if core["type"] in DANGER_ACTIONS and status == NORMAL:
             status = STEP_UP
-        if self.second_opinion is not None:
-            try:
-                own = decide_status(False, self.second_opinion(evidence), False)
-            except Exception:
-                own = DURESS
-            status = max(status, own, key=SEVERITY.get)
         internal = {NORMAL: "execute", STEP_UP: "need_second_approver", DURESS: "hold_and_alert"}[status]
         # Normal and duress look the same from outside: both are "accepted" and queued.
         public = "need_second_approver" if status == STEP_UP else "accepted"
-        return {"public": public, "internal": internal, "status": status, "reason": evidence}
+        return {"public": public, "internal": internal, "status": status, "reason": "ok"}
 
 
 # ---------------------------------------------------------------- 7. the audit log

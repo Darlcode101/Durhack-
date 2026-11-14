@@ -34,7 +34,7 @@ yuseal::Mcu core;
 // (Arduino_LED_Matrix, scrolling text call). Until then the text goes to Serial so the
 // logic can be tested.
 void showText(const char* text) {
-  Serial.println(text);
+  Monitor.println(text);
 }
 
 float shakeRms() {
@@ -61,8 +61,7 @@ String get_features() {
 }
 
 // ---------------- YuSeal approval calls (Linux -> STM32). All return Strings. ----------------
-// VERIFY: that Bridge.provide() accepts handlers with String arguments. If not, pack the
-// arguments into one String and split it here.
+// Bridge handlers run on another thread than loop(), so they use provide_safe. VERIFY on the board that String arguments work; if not, pack them into one String and split here.
 
 static bool fromHex(const String& h, uint8_t* out, size_t n) {
   if (h.length() != 2 * n) return false;
@@ -107,7 +106,7 @@ String seal_approval(String scoreStr, String vetoStr) {
 }
 
 void setup() {
-  Serial.begin(115200);
+  Monitor.begin(115200);
   Bridge.begin();
   Modulino.begin();          // VERIFY: on UNO Q the Qwiic port may be Wire1; check Modulino docs/examples
   thermo.begin();
@@ -119,10 +118,10 @@ void setup() {
 
   core.provision(YS_K_MCU, YS_PIN_TAG_NORMAL, YS_PIN_TAG_DURESS, YS_PIN_LEN);
 
-  Bridge.provide("get_features", get_features);
-  Bridge.provide("begin_approval", begin_approval);
-  Bridge.provide("get_unlock_salt", get_unlock_salt);
-  Bridge.provide("seal_approval", seal_approval);
+  Bridge.provide_safe("get_features", get_features);
+  Bridge.provide_safe("begin_approval", begin_approval);
+  Bridge.provide_safe("get_unlock_salt", get_unlock_salt);
+  Bridge.provide_safe("seal_approval", seal_approval);
 }
 
 void loop() {

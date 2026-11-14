@@ -29,7 +29,7 @@ SCARED = {"duress_score": 0.9, "signals": ["tremor", "second face"], "reasoning"
 class Device:
     """One enrolled YuDuino: STM32 (SoftMcu) + Linux side + YubiKey, and a guardian that knows it."""
 
-    def __init__(self, second_opinion=None):
+    def __init__(self):
         self.yk = ys.SoftYubiKey()
         k_mcu = os.urandom(32)
         self.mcu = ys.SoftMcu(k_mcu, PIN, DURESS_PIN)
@@ -39,13 +39,9 @@ class Device:
         salt = self.mcu.unlock_salt()
         self.mcu.seal(0)
         self.store, pq = ys.create_keystore(self.yk.hmac_secret(salt))
-        g_kem, g_x = ys.mlkem.MLKEM768PrivateKey.generate(), ys.x25519.X25519PrivateKey.generate()
-        k0, msg = ys.seal_root_device_side(g_kem.public_key(), g_x.public_key())
-        self.chain = ys.SealChain(k0)
-        self.verifier = ys.Verifier(RP, address_book=dict(BOOK), second_opinion=second_opinion)
+        self.verifier = ys.Verifier(RP, address_book=dict(BOOK))
         self.verifier.members["jonah"] = ys.Member(
-            self.yk.public_key, pq.public_key(), ys.mcu_keys(k_mcu)[1],
-            ys.SealChain(ys.seal_root_guardian_side(msg, g_kem, g_x)))
+            self.yk.public_key, pq.public_key(), ys.mcu_keys(k_mcu)[1])
         self.log = []
         self.linux_view = []  # everything the Linux side learns during approvals
 
@@ -66,9 +62,8 @@ class Device:
         score = ys.gemini_to_score(gemini) if linux_score is None else linux_score
         tag = self.mcu.seal(score, veto)                        # 5. STM32 decides and tags
         self.linux_view.append(("tag_len", len(tag)))
-        sealed = self.chain.seal({"gemini": gemini, "score": score}, digest)
         prev = self.log[-1]["hash"] if self.log else ys.GENESIS
-        env = ys.make_envelope(core, assertion, tag, sealed, prev, key)
+        env = ys.make_envelope(core, assertion, tag, prev, key)
         ys.log_append(self.log, env, key)
         return env
 
@@ -88,7 +83,7 @@ class ApprovalTest(unittest.TestCase):
         normal = self.d.approve(PIN, CALM)
         duress = self.d.approve(DURESS_PIN, CALM)
         self.assertEqual(normal.keys(), duress.keys())
-        for k in ("core", "mcu", "sealed", "pq_sig"):  # same sizes (the YubiKey's ECDSA length varies at random in both)
+        for k in ("core", "mcu", "pq_sig"):  # same sizes (the YubiKey's ECDSA length varies at random in both)
             self.assertEqual(len(ys.canonical(normal[k])), len(ys.canonical(duress[k])), k)
         self.assertEqual(self.outcome(normal), ("accepted", "execute"))
         self.assertEqual(self.outcome(duress), ("accepted", "hold_and_alert"))
@@ -154,8 +149,7 @@ class RootedLinuxTest(unittest.TestCase):
         digest = ys.core_digest(core)
         salt = ys.hmac256(self.d.mcu._k_pin, b"unlock-salt")  # malware cached it earlier
         key = ys.unlock(self.d.store, self.d.yk.hmac_secret(salt))
-        forged = ys.make_envelope(core, self.d.yk.assert_(RP, digest), ys.unb64(good["mcu"]),
-                                  self.d.chain.seal({"gemini": CALM, "score": 10}, digest), ys.GENESIS, key)
+        forged = ys.make_envelope(core, self.d.yk.assert_(RP, digest), ys.unb64(good["mcu"]), ys.GENESIS, key)
         r = self.d.verifier.check(forged, evil_req)
         self.assertEqual(r["internal"], "reject")
         self.assertIn("buttons and display", r["reason"])
@@ -172,8 +166,7 @@ class RootedLinuxTest(unittest.TestCase):
         salt = self.d.mcu.unlock_salt()
         key = ys.unlock(self.d.store, self.d.yk.hmac_secret(salt))
         tag = self.d.mcu.seal(10)
-        forged = ys.make_envelope(core, self.d.yk.assert_(RP, digest), tag,
-                                  self.d.chain.seal({"gemini": CALM, "score": 10}, digest), ys.GENESIS, key)
+        forged = ys.make_envelope(core, self.d.yk.assert_(RP, digest), tag, ys.GENESIS, key)
         self.assertEqual(self.d.verifier.check(forged, evil_req)["internal"], "reject")
 
     def test_cannot_turn_duress_into_normal(self):
@@ -182,16 +175,6 @@ class RootedLinuxTest(unittest.TestCase):
         frank = copy.deepcopy(duress)
         frank["mcu"] = normal["mcu"]  # tag from another approval
         self.assertEqual(self.d.verifier.check(frank, REQ)["internal"], "reject")
-
-    def test_lying_about_gemini_is_caught_by_second_opinion(self):
-        d = Device(second_opinion=lambda evidence: 95)  # the guardian's own Gemini call says duress
-        env = d.approve(PIN, SCARED, linux_score=3)     # malware tells the STM32 "calm"
-        r = d.verifier.check(env, REQ)
-        self.assertEqual((r["public"], r["internal"]), ("accepted", "hold_and_alert"))
-
-    def test_second_opinion_cannot_clear_a_duress(self):
-        d = Device(second_opinion=lambda evidence: 0)
-        self.assertEqual(d.verifier.check(d.approve(DURESS_PIN, CALM), REQ)["internal"], "hold_and_alert")
 
 
 class ProtocolTest(unittest.TestCase):
@@ -228,12 +211,6 @@ class ProtocolTest(unittest.TestCase):
         req = {"action": "add_address", "label": "BOB", "address": MALLORY}
         env = self.d.approve(PIN, CALM, request=req)
         self.assertEqual(self.d.verifier.check(env, req)["internal"], "need_second_approver")
-
-    def test_evidence_forward_secrecy(self):
-        env = self.d.approve(PIN, SCARED)
-        seized = ys.SealChain(self.d.chain.key, env["sealed"]["ctr"] - 1)  # device taken afterwards
-        with self.assertRaises(ys.InvalidTag):
-            seized.open(env["sealed"], ys.core_digest(env["core"]))
 
     def test_audit_log_tamper_evident(self):
         for _ in range(3):
@@ -397,7 +374,6 @@ class LinuxFlowTest(unittest.TestCase):
         guardian.verifier.open_nonces.clear()
         guardian.verifier.address_book.update(BOOK)
         guardian.outcomes.clear()
-        guardian._keys.clear()
         guardian.RP_ID = RP
         guardian.verifier.rp_id = RP
         self.guardian_mod = guardian

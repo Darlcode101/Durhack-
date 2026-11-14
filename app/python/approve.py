@@ -5,7 +5,7 @@ real YubiKey, HTTP guardian) and in tests (fake STM32, soft YubiKey, in-process 
 
     bridge    .call(name, *args) -> str          the STM32 (begin_approval, get_unlock_salt, ...)
     yk        .register(user), .assert_and_secret(rp_id, challenge, salt)
-    guardian  .nonce(), .approve(envelope, request), .enrol(user, body), .enrol_keys()
+    guardian  .nonce(), .approve(envelope, request), .enrol(user, body)
 
 Linux never sees the PIN and never learns the duress result: it gets a salt only after a
 correct PIN, and an opaque tag it can't read.
@@ -40,13 +40,10 @@ class HttpGuardian:
     def enrol(self, user: str, body: dict):
         return self._post(f"/enrol/{user}", body)
 
-    def enrol_keys(self) -> dict:
-        return self._post("/enrol-keys", {})
-
 
 # ---------------------------------------------------------------- state on the Linux side
 class DeviceState:
-    """credential, wrapped ML-DSA key, evidence-box chain, audit log. Saved after every change.
+    """credential, wrapped ML-DSA key, audit log. Saved after every change.
 
     Nothing in here is enough to approve anything: the ML-DSA key is wrapped under the YubiKey
     secret and the STM32's PIN-gated salt."""
@@ -62,12 +59,6 @@ class DeviceState:
         os.chmod(tmp, 0o600)
         os.replace(tmp, self.path)
 
-    def chain(self) -> ys.SealChain:
-        c = self.data["chain"]
-        return ys.SealChain(ys.unb64(c["key"]), c["counter"])
-
-    def set_chain(self, chain: ys.SealChain):
-        self.data["chain"] = {"key": ys.b64(chain.key), "counter": chain.counter}
 
 
 # ---------------------------------------------------------------- the sensors' own veto
@@ -99,18 +90,12 @@ def enrol(*, bridge, yk, guardian, state: DeviceState, user: str, device: str, r
     _, secret = yk.assert_and_secret(rp_id, zero, bytes.fromhex(salt))  # one touch
     bridge.call("seal_approval", "0", "0")  # finishes the STM32's session
     store, pq_key = ys.create_keystore(secret)
-    keys = guardian.enrol_keys()
     from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-    k0, seal_msg = ys.seal_root_device_side(
-        ys.mlkem.MLKEM768PublicKey.from_public_bytes(ys.unb64(keys["kem_pub"])),
-        ys.x25519.X25519PublicKey.from_public_bytes(ys.unb64(keys["x_pub"])))
     state.data.update(user=user, device=device, credential=ys.b64(credential), keystore=store, log=[],
                       pq_pub=ys.b64(pq_key.public_key().public_bytes_raw()))
-    state.set_chain(ys.SealChain(k0))
     state.save()
     return {"yk_pub_der": ys.b64(yk_pub.public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)),
-            "pq_pub": ys.b64(pq_key.public_key().public_bytes_raw()),
-            "seal_msg": seal_msg}  # the caller adds k_tag from tools/out/guardian_tag_key.json and POSTs it
+            "pq_pub": ys.b64(pq_key.public_key().public_bytes_raw())}  # the caller adds k_tag from tools/out/guardian_tag_key.json and POSTs it
 
 
 def _wait_for_salt(bridge, sleep, timeout_s, window: list | None = None) -> str:
@@ -157,14 +142,10 @@ def approve(*, bridge, yk, guardian, state: DeviceState, request: dict, address_
     if tag == "-":
         raise Refused("STM32 would not seal (session ended)")
 
-    chain = state.chain()
-    sealed = chain.seal({"gemini": gemini, "score": score, "veto": veto, "features": window[-1] if window else None},
-                        digest)
     log = state.data["log"]
     prev = log[-1]["hash"] if log else ys.GENESIS
-    env = ys.make_envelope(core, assertion, bytes.fromhex(tag), sealed, prev, pq_key)
+    env = ys.make_envelope(core, assertion, bytes.fromhex(tag), prev, pq_key)
     ys.log_append(log, env, pq_key)
-    state.set_chain(chain)
     state.save()
     del pq_key, secret
     return {"public": guardian.approve(env, request), "envelope": env}
