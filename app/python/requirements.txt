@@ -1,5 +1,8 @@
+fido2>=2.0
+cryptography
+# Needs the liboqs C library built on the board first (see README)
+liboqs-python @ git+https://github.com/open-quantum-safe/liboqs-python.git
 google-genai
-webauthn
 fastapi
 uvicorn
 opencv-python-headless

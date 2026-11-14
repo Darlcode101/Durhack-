@@ -4,12 +4,12 @@ Scores are deltas from the user's enrolled resting baseline, never absolute valu
 skin, sweat and shaking differ a lot between people.
 """
 
-def rules_score(features: dict, baseline: dict, face_count: int, pin_entry: str, user: dict) -> dict:
+def rules_score(features: dict, baseline: dict, face_count: int, explicit_duress: bool) -> dict:
     signals = []
     score = 0.0
 
-    # The explicit duress PIN is the strongest, most reliable signal.
-    if pin_entry and pin_entry == user.get("duress_pin"):
+    # The explicit duress PIN (checked in pq_keystore.check_pin) is the strongest, most reliable signal.
+    if explicit_duress:
         return {"score": 1.0, "signals": ["duress_pin_entered"], "explicit_duress": True}
 
     if face_count >= 2:
