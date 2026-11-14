@@ -23,7 +23,7 @@ Pin choices match the existing code in [`app/sketch/sketch.ino`](../app/sketch/s
               │  3.3V ─┬─ touch VCC        GND ─┬─ touch GND    │
               │        └─ moisture VCC          └─ moisture GND │
               │  D2  ◄── touch SIG                              │
-              │  A0  ◄── moisture AOUT                          │
+              │  A1  ◄── moisture AOUT                          │
               └─────────────────────────────────────────────────┘
 
  * Milestone 1: the YubiKey goes in the LAPTOP (WebAuthn through an SSH tunnel).
@@ -42,7 +42,7 @@ Pin choices match the existing code in [`app/sketch/sketch.ino`](../app/sketch/s
 | Modulino Movement | Qwiic | Buttons' second Qwiic socket | Qwiic cable |
 | Modulino Thermo | Qwiic | Movement's second Qwiic socket | Qwiic cable |
 | DFRobot touch v2 | VCC / GND / SIG | **3.3V** / GND / **D2** | 3 male-to-male jumpers |
-| DFRobot moisture v2 | VCC / GND / AOUT | **3.3V** / GND / **A0** | 3 male-to-male jumpers |
+| DFRobot moisture v2 | VCC / GND / AOUT | **3.3V** / GND / **A1** | 3 male-to-male jumpers |
 
 **Rules**
 - **3.3 V only** for the DFRobot sensors. The UNO Q's pins are 3.3 V; powering a sensor from 5 V can push its output above what the pins tolerate.
@@ -80,8 +80,8 @@ Each step lists what to do and the test that must pass before moving on. Times a
 ### Step 3: the DFRobot sensors (30 min)
 1. Power **off**. Wire the touch sensor: VCC → 3.3V, GND → GND, SIG → D2.
 2. Print `digitalRead(2)` and touch the pad.
-3. Power off. Wire the moisture sensor: VCC → 3.3V, GND → GND, AOUT → A0.
-4. Print `analogRead(A0)`. Hold it dry, then press a damp finger on it.
+3. Power off. Wire the moisture sensor: VCC → 3.3V, GND → GND, AOUT → A1.
+4. Print `analogRead(A1)`. Hold it dry, then press a damp finger on it.
 
 **Test:** touch reads 1 when touched and 0 when not. Moisture changes clearly between a dry and a damp finger. Note both values: they're the first baseline.
 

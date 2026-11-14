@@ -71,7 +71,7 @@ The tracks above set what we spend time on:
 | **Modulino Movement** | Hand tremor |
 | **Modulino Thermo** | Palm temperature and humidity (sweat) |
 | **DFRobot touch sensor (D2)** | Is the grip actually held? |
-| **DFRobot moisture sensor (A0)** | Second sweat and contact signal |
+| **DFRobot moisture sensor (A1)** | Second sweat and contact signal |
 | **32 GB microSD + Icy Box** | Offline backup of the audit log |
 
 Wiring and step-by-step bring-up: **[hardware plan](docs/HARDWARE-PLAN.md)**.

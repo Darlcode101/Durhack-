@@ -18,10 +18,11 @@ ModulinoButtons  buttons;
 
 // --- Analog / digital sensors (power them from 3.3V, not 5V) ---
 const int TOUCH_PIN    = 2;   // TTP223-style capacitive touch, digital out
-const int MOISTURE_PIN = A0;  // resistive probe used as a crude sweat/contact proxy
+const int MOISTURE_PIN = A1;  // resistive probe used as a crude sweat/contact proxy
 
 // --- Which Modulinos answered at startup ---
 bool hasThermo = false, hasMovement = false, hasButtons = false;
+char i2cFound[96] = "";   // hex addresses that ACKed on Wire1 at startup, for debugging wiring
 
 // --- Cached readings (written in loop, read by the Bridge thread) ---
 volatile float tempC = NAN, humidity = NAN, shake = 0;
@@ -62,7 +63,8 @@ String get_features() {
   s += "\"touch\":"      + String(touchVal) + ",";
   s += "\"moisture\":"   + String(moistureVal) + ",";
   s += "\"pin_entry\":\"" + String(pin) + "\",";
-  s += "\"modulinos\":\"" + String(hasThermo ? "T" : "-") + (hasMovement ? "M" : "-") + (hasButtons ? "B" : "-") + "\"";
+  s += "\"modulinos\":\"" + String(hasThermo ? "T" : "-") + (hasMovement ? "M" : "-") + (hasButtons ? "B" : "-") + "\",";
+  s += "\"i2c\":\"" + String(i2cFound) + "\"";
   s += "}";
   return s;
 }
@@ -75,6 +77,17 @@ String clear_pin() {
 void setup() {
   Bridge.begin();
   Modulino.begin(Wire1);     // UNO Q's Qwiic connector is on Wire1 (as in Arduino's examples)
+
+  // I2C scan of the Qwiic bus so get_features shows what is physically connected
+  for (uint8_t addr = 1; addr < 127; addr++) {
+    Wire1.beginTransmission(addr);
+    if (Wire1.endTransmission() == 0 && strlen(i2cFound) < sizeof(i2cFound) - 6) {
+      char buf[6];
+      snprintf(buf, sizeof(buf), "%02X ", addr);
+      strcat(i2cFound, buf);
+    }
+  }
+
   hasThermo   = thermo.begin();
   hasMovement = movement.begin();
   hasButtons  = buttons.begin();

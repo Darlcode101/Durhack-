@@ -35,7 +35,7 @@ USB-C hub with power passthrough (UNO Q has ONE USB-C port)
              │        ▲ Bridge (Python polls MCU with Bridge.call)
              └─ MCU (STM32): sketch/ — reads sensors, computes features, LED matrix
                   Qwiic chain: Modulino Thermo → Movement → Buttons
-                  D2: touch sensor   A0: moisture probe   (power both from 3.3V)
+                  D2: touch sensor   A1: moisture probe   (power both from 3.3V)
 ```
 
 **The grip:** one handheld object holding Movement (shake), touch (grip), Thermo (palm temperature and **humidity — a better sweat proxy than the soil probe**) and the moisture probe. Long Qwiic cables to the board.

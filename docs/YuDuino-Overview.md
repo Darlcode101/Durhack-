@@ -41,7 +41,7 @@ Everything below is in our hackathon inventory except the YubiKey, which we brin
 | **Modulino Movement** | Hand tremor from the accelerometer, inside the grip | Qwiic chain |
 | **Modulino Thermo** | Palm temperature and humidity. Humidity near the palm is our best sweat signal | Qwiic chain |
 | **DFRobot touch sensor v2** | "Is the grip actually being held?" Gates the capture window | Pin D2 |
-| **DFRobot moisture sensor v2** | Second, crude sweat/contact signal. Only its change from the user's own baseline counts | Pin A0 |
+| **DFRobot moisture sensor v2** | Second, crude sweat/contact signal. Only its change from the user's own baseline counts | Pin A1 |
 | **Male-to-male jumpers** | Wiring the two DFRobot sensors into the UNO Q's female headers | Headers |
 | **32 GB microSD + Icy Box** | Spare storage: offline backup of the audit log and the user's baseline | Not needed for the core |
 
