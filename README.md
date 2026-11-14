@@ -2,6 +2,8 @@
 
 **Hardware approval you can't fake, even under threat.** Built at DurHack 2026 on an Arduino UNO Q with a YubiKey 5 NFC.
 
+Everything runs on an **Arduino UNO Q**. A YubiKey plugged into the board only creates key material; the UNO Q is the only device that stores keys, protected with post-quantum cryptography (ML-DSA-65 + AES-256). A handheld grip (shake, palm humidity and temperature, grip, sweat) and a USB camera feed Gemini, which judges **whether the person is acting freely**. Under duress the system shows a normal "access granted" screen but signs the access token with a separate duress key, so the verifier can raise a silent alarm.
+
 ## The vision: a language the attacker can never read
 
 YuDuino is a small device that sits between a person and anything dangerous they can approve: moving money, deploying to production, letting an AI agent act. Nothing happens until a named person physically approves on it, and every approval is a **cryptographic signature, never an "OK" message**.
@@ -21,7 +23,7 @@ The attacker is standing right there and can see everything, but can't read the 
 3. **Hold and enter PIN:** the user holds the sensor grip and enters their PIN on the Modulino Buttons. An 8-second window captures every reading.
 4. **Tap:** the YubiKey signs a hash of exactly what was shown.
 5. **Translate:** each reading is compared with the user's own baseline, and Gemini aggregates them all, plus one camera frame, into a verdict with reasons.
-6. **Respond:** real approval, second approver, or decoy. The microcontroller chooses which key signs; the verifier only trusts signatures.
+6. **Respond:** real approval, second approver, or decoy. The UNO Q chooses which key signs; the verifier only trusts signatures.
 
 **Safeguards:** Gemini fails closed (no reply, a late reply or a malformed reply means the decoy), it's reached over pinned HTTPS, PINs are never sent, and the PIN plus YubiKey touch are always required.
 
@@ -60,7 +62,7 @@ The tracks above set what we spend time on:
 
 | Part | Role |
 |---|---|
-| **Arduino UNO Q** | The brain. Linux side: camera, mic, features, Gemini call. STM32 microcontroller side: real-time sensors and the signing keys |
+| **Arduino UNO Q** | The brain, and the only device that stores keys. Linux side: YubiKey, encrypted post-quantum key store (moving to the STM32 in wave 2 of the dev plan), camera, mic, Gemini call. STM32 side: real-time sensors and the LED matrix |
 | **UNO Q LED matrix** | The trusted display |
 | **Arduino USB-C hub, power adaptor, USB-C cable** | Power, camera and YubiKey on the UNO Q's single USB-C port |
 | **Arduino USB camera with mic** | Face, scene and voice |
@@ -88,27 +90,41 @@ Wiring and step-by-step bring-up: **[hardware plan](docs/HARDWARE-PLAN.md)**.
 app/
   sketch/sketch.ino     STM32: reads sensors, exposes get_features / clear_pin over Bridge
   python/
-    main.py             Linux entry point: capture window → translate → respond
-    camera.py           USB camera + face count (frames kept in memory only)
-    risk_rules.py       scaffold rules engine (to be replaced: Gemini alone decides, see the dev plan)
-    fusion_gemini.py    Gemini: frame + features → structured duress JSON
-    responder.py        grant / step-up / decoy + silent alert + audit log
-    auth_webauthn.py    YubiKey via WebAuthn (stub)
+    main.py             entry point: `enrol <user>` and `login <user>`
+    yubikey_auth.py     YubiKey over USB (CTAP2): credential + hmac-secret, verified on the board
+    pq_keystore.py      KEK from YubiKey, encrypted ML-DSA keys, PIN check, token signing
+    verifier.py         demo "door": checks tokens with public keys, spots duress tokens
+    camera.py           USB camera + Haar face count (frames kept in memory only)
+    risk_rules.py       scaffold rules engine (to be removed: Gemini alone decides)
+    fusion_gemini.py    Gemini: frame + sensor summary → structured risk JSON
+    responder.py        grant / step-up / duress: audit log + silent webhook alert
 docs/
 ```
 
-## Setup
+## Setup (on the UNO Q)
 
-1. Install **Arduino App Lab**, update the UNO Q and connect it to Wi-Fi (use a phone hotspot at the venue).
-2. In App Lab, create a new app, then copy `app/sketch/` and `app/python/` into it. Install the `Arduino_Modulino` library.
-3. `cp .env.example .env` and fill in `GEMINI_API_KEY`, `GEMINI_MODEL`, `ALERT_WEBHOOK_URL`. **Never commit `.env`.**
-4. For WebAuthn, open the dashboard through an SSH tunnel so the browser treats it as a secure context:
+1. Install **Arduino App Lab** on your laptop, update the UNO Q and connect it to Wi-Fi (use a phone hotspot at the venue).
+2. In App Lab, create a new app, copy `app/sketch/` into it and install the `Arduino_Modulino` library. Run it so the MCU serves sensor data.
+3. SSH into the board and build **liboqs** (takes a while, start it early):
    ```bash
-   ssh -L 8000:localhost:8000 arduino@<board>.local
+   sudo apt install -y cmake ninja-build libssl-dev git
+   ```
+   ```bash
+   git clone --depth 1 https://github.com/open-quantum-safe/liboqs && cmake -S liboqs -B liboqs/build -GNinja -DBUILD_SHARED_LIBS=ON && sudo cmake --build liboqs/build --target install
+   ```
+4. Install the Python packages: `pip install -r app/python/requirements.txt`
+5. Let your user talk to the YubiKey over USB (`/dev/hidraw*`): add a udev rule for Yubico devices, or run as root while testing.
+6. `cp .env.example .env` and fill in `GEMINI_API_KEY`, `GEMINI_MODEL`, `ALERT_WEBHOOK_URL`. **Never commit `.env`.**
+7. Enrol once, then log in:
+   ```bash
+   python3 app/python/main.py enrol alice
+   ```
+   ```bash
+   python3 app/python/main.py login alice
    ```
 
-On a laptop without the board, `python3 app/python/main.py` runs with fake sensor values.
+`keystore.json` (encrypted keys) and `verifier_keys.json` (public keys) are created on the board and are gitignored.
 
 ## Status
 
-Scaffold only: **not yet run on the UNO Q.** Several library calls are marked `VERIFY` in the code; the checklist is in [docs/PLAN.md](docs/PLAN.md#things-to-verify-in-hour-02-code-assumes-these-not-yet-tested-on-hardware). Build order: [Wave 1 of the development plan](docs/DEV-PLAN.md#wave-1-skeleton-minimal-end-to-end-prototype).
+**Not yet run on the UNO Q.** Several library calls are marked `VERIFY` in the code; the checklist is in [docs/PLAN.md](docs/PLAN.md#things-to-verify-in-hour-02-not-yet-tested-on-hardware). Build order: [Wave 1 of the development plan](docs/DEV-PLAN.md#wave-1-skeleton-minimal-end-to-end-prototype).

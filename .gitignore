@@ -3,6 +3,12 @@
 *.pem
 *.key
 
+# Generated on the UNO Q: encrypted key store, public keys, audit log
+keystore.json
+keystore.json.tmp
+verifier_keys.json
+audit.log
+
 # Captured frames / sensor recordings (contain people's faces)
 captures/
 recordings/
