@@ -99,7 +99,7 @@ cd app/python && python3 -m unittest test_yuseal -v
 
 | Hardware step | Code step | Test |
 |---|---|---|
-| Cardboard mouse mock-up, then the 3D-printed mouse shell ([MOUSE-DESIGN.md](MOUSE-DESIGN.md)); YubiKey and camera in the dock | `sketch.ino`: tremor filter (4 to 12 Hz) and skip while the mouse is moving or around a key press | The whole demo works from inside the shell with a hand on it; the matrix is readable; Wi-Fi holds |
+| Donor mouse with a read-only switch tap, then the base plate and inserts ([MOUSE-DESIGN.md](MOUSE-DESIGN.md)); YubiKey and camera in the dock | `sketch.ino`: tremor filter (4 to 12 Hz) and skip while the mouse is moving or around a key press | The mouse still works as a mouse; the STM32 logs every click; the approval flow works from inside the shell with a hand on it; Wi-Fi holds |
 | | Deploy `guardian.py` to Vultr behind HTTPS (Caddy or nginx). Pin its certificate in `main.py`'s `requests` call | Approval works over the internet; a wrong certificate is refused |
 | | In `guardian.on_outcome`: send the Telegram or email alert, write the incident report with Gemini, freeze funds, store to Tiger Data | A duress approval fires an alert and a report appears on the dashboard |
 | | Make the guardian the only route to "execute" (the wallet or demo contract only accepts calls from it) | Nothing executes without a guardian `execute` |
@@ -177,3 +177,20 @@ Upload these one at a time in App Lab or the Arduino IDE (folder `app/bringup/`)
 | `step4_buttons` | The trusted PIN core, no Linux | Do press/hold timing and the grip gate work? |
 
 Resolved by reading the docs: `provide_safe` is required (handlers run off the main loop); use `Monitor`, not `Serial`; the Buttons calls (`update`, `isPressed`) are right. Still to confirm on the board: String arguments over Bridge, and whether matrix text flickers at the 120 ms redraw.
+
+## Mouse mode (target design): what to build
+
+The repo's code is **strong mode** (PIN and matrix). Mouse mode removes the screen and the PIN and adds the owner check. Build it in this order, keeping strong mode working for large amounts. Design: [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md), [OWNER-CHECK.md](OWNER-CHECK.md), [BASELINE.md](BASELINE.md).
+
+| Order | What | Where | Test |
+|---|---|---|---|
+| 1 | Read-only tap on the donor mouse's left switch; STM32 timestamps each click and records whether the palm is on the grip | hardware, `sketch.ino` | Mouse-test page: every click is logged, the mouse still works |
+| 2 | `arm(digest)` with the click-age rule, an arming rate limit, and the new tag `HMAC(K_TAG, "YS3/tag" \| status \| digest \| click_age \| grip \| feature hash)` | `yuseal_mcu.h`, `yuseal.py` (keep strong mode beside it) | C++ and Python tags match; no click means no salt; an old click is refused |
+| 3 | Per-minute features on the STM32 (click, movement, grip, body), quiet windows only, MAC-attested | `sketch.ino` | A tampered feature fails the tag check |
+| 4 | YubiKey **without a touch** (CTAP2 `up=false`) | `yubikey_auth.py` | **Unverified on our key.** If refused, keep touch for step-up only |
+| 5 | Guardian: store features in Tiger Data; per-hour baseline; owner distance, three bands and continuity; quiet rejection; repeat lock and alert | `guardian.py` | A second person gets "uncertain" or "not the owner"; the owner passes; an impostor gets identical failures |
+| 6 | Guardian policy: caps, velocity, allowed hours, one pending request per person, phone alert with a cancel window; Gemini checks the request against the user's usual pattern | `guardian.py`, `approve.py` | A swapped or odd request is held; two pending requests cancel both |
+| 7 | **Measure the owner check** with two or three people on the same mouse | dashboard | Real separation numbers; if poor, keep the owner check advisory |
+| 8 | Tests for piggybacking, replay, forged tags, wrong key, swapped request | `test_yuseal.py` | All pass |
+
+**Not built yet:** none of the above. Until then, run strong mode ([TESTING.md](TESTING.md)).

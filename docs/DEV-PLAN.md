@@ -54,7 +54,7 @@ We build in **waves**. Every wave moves **all three tracks forward together**: h
 
 | Track | What changes |
 |---|---|
-| **Hardware** | Cardboard mock-up, then the **3D-printed mouse shell** ([MOUSE-DESIGN.md](MOUSE-DESIGN.md)), with the YubiKey moved from the laptop into the dock (the hub the mouse's cable plugs into) (stretch: if USB access is blocked, keep it on the laptop). Camera on a printed mount. Tidy the wiring. |
+| **Hardware** | A **donor mouse** with a read-only switch tap and a 3D-printed base plate ([MOUSE-DESIGN.md](MOUSE-DESIGN.md)); no screen and no PIN ([STEALTH-APPROVAL.md](STEALTH-APPROVAL.md)); the **owner check** ([OWNER-CHECK.md](OWNER-CHECK.md)), with the YubiKey moved from the laptop into the dock (the hub the mouse's cable plugs into) (stretch: if USB access is blocked, keep it on the laptop). Camera on a printed mount. Tidy the wiring. |
 | **Cryptography** | The verifier on Vultr becomes the only route to "execute" (no back door). Show the audit log chain on the dashboard and check it on load. YubiKey **attestation** check at enrolment, so only genuine YubiKeys can register. |
 | **Extensions** | **Vultr response engine:** on a decoy, alert the on-call team via Telegram or email, escalate if nobody acknowledges, freeze funds, and require a second approver. **Gemini** writes the incident report and the plain-English explanation of the transaction. **Admin dashboard** with live charts from Tiger Data and the incident reports. **ElevenLabs** reads the transaction aloud. |
 

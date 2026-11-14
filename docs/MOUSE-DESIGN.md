@@ -1,10 +1,15 @@
 # YuDuino in a mouse
 
-Design change (Jonah, 2026-11-14): the whole device is hidden inside a **computer mouse**, so it looks like something nobody would look at twice. This page says how each part maps onto a mouse, what the layout is, how the 3D-printed shell works, and what we give up.
+Design (Jonah, 2026-11-14): the whole device is hidden inside a **computer mouse that works exactly like a normal mouse**. No screen, no PIN, no extra gesture. The user just uses their mouse. This page covers the hardware: how each part maps onto a mouse, the layout, the 3D-printed or donor shell, and the physical trade-offs.
 
-**Two reasons for a mouse.** (1) It **hides** the device. (2) A mouse is held for hours every day, so it can **passively learn this person's normal grip, tremor, sweat and temperature**, which fixes the lack of baseline data. Reason 2 is described in [BASELINE.md](BASELINE.md) and is the bigger one.
+How the approval works with no input: [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md). How the mouse tells the owner from anyone else: [OWNER-CHECK.md](OWNER-CHECK.md). How it learns all day: [BASELINE.md](BASELINE.md).
 
-**One rule first.** Hiding the device is *obscurity*, not security. All the security still comes from the three proofs in [CRYPTO.md](CRYPTO.md). If someone finds out the mouse is the device, nothing breaks. The mouse only stops people noticing it, and makes the grip more natural.
+**Three reasons for a mouse.**
+1. It **hides** the device: nothing on it looks like an authenticator (no screen, no PIN pad).
+2. It is **held all day**, so it passively learns this person's normal grip, tremor, sweat and temperature ([BASELINE.md](BASELINE.md)).
+3. It can tell **whose hand** is on it, and quietly reject anyone else ([OWNER-CHECK.md](OWNER-CHECK.md)).
+
+**One rule first.** Hiding the device is obscurity, not security. If someone works out the mouse is the device, nothing breaks, because the checks don't depend on secrecy. The mouse mostly stops people *noticing* it, and makes its measurements natural.
 
 Sizes below are approximate. **Measure the real parts before you print.**
 
@@ -12,111 +17,105 @@ Sizes below are approximate. **Measure the real parts before you print.**
 
 | Question | Answer |
 |---|---|
-| Is it a working mouse? | **It has to be one to collect the all-day baseline**, because nobody holds a fake. The printed shell is fine to start with and for a short demo, but the real plan is **Option B** below: a donor mouse that works normally, with the YuDuino fitted next to its circuit board and kept electrically separate. |
-| Where is the UNO Q? | Flat in the base, with the LED matrix facing up under a small frosted window. |
-| What is the display? | Still the **UNO Q LED matrix**, seen through the window. A hidden device can't have a screen you can't see, and the "screen shows exactly what you approve" rule stays. |
-| Where do the PIN buttons go? | The Modulino Buttons sit under three printed finger keys at the front, where index, middle and ring fingers rest. |
+| Is it a working mouse? | **Yes, it has to be.** Nobody holds a fake, so it couldn't learn a baseline. Plan: a **donor mouse** (a cheap real one) keeps its own circuit board and its own cable or dongle to the laptop, so it behaves as a normal mouse. The YuDuino sits beside it, **electrically separate** (never join the two USB data lines). |
+| Display? | **None.** The LED matrix inside stays dark (bring-up and debugging only; switch it off in the final firmware). See the trade-off in [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md#what-we-lose-read-this). |
+| PIN keys? | **None.** The mouse's own buttons are the only buttons. |
+| How does the STM32 know about a click? | It **reads the real switch contact** of the mouse's left button (and wheel, if wanted) through a **read-only tap** (a high-value resistor or buffer into a GPIO). It never drives the line. Malware on the laptop can fake an OS click but cannot make a switch close. |
+| Where is the UNO Q? | Flat in the base, next to the donor board. |
 | What is on the palm? | The touch pad (grip gate), the moisture pads, and a vented pocket for the Thermo. |
-| Where are the camera and YubiKey? | **Outside the mouse**, in a small **dock** (the Arduino USB-C hub) that the mouse's cable plugs into. |
-| What does the mouse cable do? | Carries power and USB from the dock. The UNO Q talks to the guardian over its own Wi-Fi, so no data goes through a laptop. |
+| Where are the camera and YubiKey? | **Outside the mouse**, in a small **dock** (the Arduino USB-C hub). The YubiKey stays plugged in and is used **without a touch** (see [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md#what-changes-in-the-crypto)). |
+| How is the UNO Q powered, and how does it talk to the guardian? | A thin USB-C cable from the dock carries **power**. The UNO Q uses its **own Wi-Fi** to reach the guardian, so no data goes through the laptop. The donor mouse has its own, separate connection. |
 
 ## How the sensors map onto a mouse
 
-A resting hand on a mouse is the most natural grip there is, so the signals get *better* than on the handheld grip we planned before: the palm is always in the same place.
-
 | Signal | Part | Where in the mouse | Notes |
 |---|---|---|---|
-| **Grip held** | DFRobot touch sensor (D2) | Under the **palm hump**, behind a thin wall (about 1 to 1.5 mm; capacitive sensors read through plastic) | Gates the PIN: presses only count while it reads held, as before |
-| **Sweat and contact** | DFRobot moisture sensor (A1) | Two exposed **copper tape pads** flush with the shell where the **palm heel** and the **thumb base** touch | Add a 1 kΩ resistor in each pad line (see ESD below) |
-| **Palm humidity and temperature** | Modulino Thermo | In a **vented pocket** under the hump: a grille of 1 mm holes. **Keep it as far as possible from the UNO Q**, with an air gap | The board heats the shell, so absolute temperature drifts. The **humidity change** is the useful signal |
-| **Tremor** | Modulino Movement | Screwed **rigidly to the shell**, not floating loose and not on the UNO Q | See "Tremor on a mouse" below |
-| **PIN** | Modulino Buttons | Under three **printed keys** at the front | Short press = `A B C`, press held 0.8 s or more = `a b c`. These are not HID mouse buttons, so clicking them does nothing to any computer |
-| **Face, scene, voice** | USB camera with mic | **Outside**, on the monitor or the dock | Still needed for the challenge. It isn't hidden; the mouse hides the *trusted device*, not the camera |
+| **Click (the trigger, and click behaviour)** | Read-only tap on the donor switch lines | At the donor board's left-button switch (and wheel button) | STM32 timestamps each edge. The click is the trigger and also feeds the owner features (hold time, double-click gap). See "Tapping the switches" below |
+| **Grip held** | DFRobot touch sensor (D2) | Under the **palm hump**, behind a thin wall (about 1 to 1.5 mm; capacitive sensors read through plastic) | Gates the trigger: a click only counts with the palm on the pad |
+| **Sweat, contact, hand size** | DFRobot moisture sensor (A1) | Two exposed **copper tape pads** flush with the shell where the **palm heel** and the **thumb base** touch | A 1 kΩ resistor in each pad line (see ESD below). Contact resistance is also an owner feature |
+| **Palm humidity and temperature** | Modulino Thermo | In a **vented pocket** under the hump (1 mm grille holes), **as far as possible from the UNO Q**, with an air gap | The board heats the shell, so absolute temperature drifts. The **humidity change** is the useful signal |
+| **Tremor and movement style** | Modulino Movement | Screwed **rigidly to the shell**, not on the UNO Q | See "Tremor on a mouse" |
+| **Face, scene, voice** | USB camera with mic | **Outside**, on the monitor or the dock | Not hidden; the mouse hides the *trusted device*, not the camera |
+
+### Tapping the switches (the hardest bit of hardware)
+
+A mouse switch is normally one side to ground and one side to the mouse chip's input. To let the STM32 see it **without disturbing the mouse**:
+
+- Solder a thin wire to the switch's signal pad and bring it, through a **100 kΩ resistor** (or a small buffer, e.g. a Schmitt-trigger gate), to an STM32 pin set as input. The mouse chip keeps working exactly as before.
+- **Check the voltage first** with a multimeter: the donor's logic level must not exceed what the UNO Q pin tolerates (it is a 3.3 V part). Use a level shifter or a resistor divider if not.
+- **Read-only.** Never drive the line from the STM32.
+- Test: open a mouse-test web page and click; the STM32's click log must match every click, and the cursor must work exactly as before.
+- **Fallback if the tap is too fiddly:** use the Modulino Buttons (or a spare microswitch) physically under the same button cap, so one press closes both. A third fallback for a quick demo is to detect the click from the **accelerometer impulse** alone, which is weaker (see "Click quality" in [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md)).
 
 ### Tremor on a mouse
 
-A mouse sits on a desk, so the accelerometer sees the desk too. Two rules:
+A mouse sits on a desk and gets moved around, so the accelerometer sees the desk too. Two rules:
 
-1. **Only read tremor while the mouse is still** (the PIN is typed on a still mouse anyway). If the shake is large and slow, that is *someone moving the mouse*, not tremor: the window is ignored.
-2. **Filter to the tremor band** (about 4 to 12 Hz) and **ignore 100 ms around each key press**, so the click itself isn't counted as a shake. This is a Wave 2 code change in `sketch.ino` (`shakeRms`); today it only removes the average.
+1. **Only read tremor while the mouse is still** (grip held, large slow motion small). Large slow motion means "someone moving the mouse", not tremor. Movement *style* (speed and smoothness while moving) is its own feature for the owner check.
+2. **Filter to the tremor band** (about 4 to 12 Hz) and **ignore 100 ms around each click**, so the click itself isn't counted as a shake. This is a Wave 2 code change in `sketch.ino` (`shakeRms`); today it only removes the average.
 
 ## Layout
 
-Top view, **front (fingers)** at the top. Mouse shell about **115 × 65 × 38 mm**; UNO Q board about **69 × 53 mm**.
+Top view, **front (fingers)** at the top. Typical mouse about **115 × 65 × 38 mm**; UNO Q board about **69 × 53 mm**. It is tight, so mock it up first.
 
 ```
         front (away from you)
    ┌───────────────────────────┐
-   │  [ key A ][ key B ][ key C ] │  ← three printed keys over the Modulino Buttons
+   │   left btn  │  right btn   │  ← the donor mouse's own buttons, switch lines tapped read-only
+   │        (scroll wheel)      │
    │   ┌───────────────────┐   │
-   │   │  frosted window   │   │  ← LED matrix underneath: shows the request, then OK
+   │   │ donor mouse board │   │  ← its own optical sensor and cable or dongle, untouched
+   │   └───────────────────┘   │
+   │   ┌───────────────────┐   │
+   │   │     UNO Q (dark)  │   │  ← no window, no display
    │   └───────────────────┘   │
    │     ╭───────────────╮     │
    │     │  palm hump    │     │  ← touch pad (inside), moisture pads (flush)
    │     │  vent grille  │     │  ← Thermo pocket under it
    │     ╰───────────────╯     │
    └─────────────┬─────────────┘
-                 │  USB-C cable (thin) ──► dock: hub + camera + YubiKey
+                 │  thin USB-C cable (power) ──► dock: hub + camera + YubiKey
         back (towards you)
 ```
 
-Side view, the stack from the bottom:
-
-1. **Base plate**: the UNO Q on four M2.5 standoffs (the UNO form factor mounting holes; check yours).
-2. **Qwiic cables** (short, 5 to 10 cm) run up to the Buttons (front), Movement (screwed to a printed boss), and Thermo (far end, in its pocket).
-3. **Top shell**: window over the matrix, keys over the Buttons, hump over the touch pad, vent grille, cable notch at the back.
-
-The **USB-C port** faces the rear so the cable leaves where a mouse cable does. The board's **Wi-Fi antenna** should not sit under the palm (a hand detunes it): note where it is and test Wi-Fi signal with a hand on the mouse.
-
-## The display problem (the big one)
-
-The rule is that the screen must show exactly what you approve. A hidden device still needs a visible display. Our answer:
-
-- The **LED matrix** shows through a window of **thin natural PLA** (0.8 to 1 mm, which diffuses the LEDs) or a cut-out covered with frosted tape. It is **dark except during an approval**, so nobody sees it light up unless they are looking at your mouse while you're approving.
-- **The risk is readability.** The matrix is only 8 × 13 and scrolls. With a hand on the mouse, the window sits just behind the knuckles. **Cardboard-test this first** (see the build order) before printing anything. If your hand blocks it, move the window and the keys until you can read it comfortably with the hand resting.
-- **Fallbacks, in order:** (1) lift the fingers off the keys to read, then press (the 90 s timeout allows it); (2) put the window on the thumb side; (3) a small HDMI screen at the dock, the same trusted-display slot as in the hardware plan (it's wired to the board, not to the laptop).
-- **Not acceptable:** showing the text on the laptop screen, or reading it out through the laptop. The laptop is exactly the thing we don't trust. (ElevenLabs reading the request aloud stays an accessibility extra, never the check.)
-- If the text is **upside down**, rotate the board 180° in the shell. The matrix call for rotation is unverified.
+Stack, from the bottom: **base plate** with the UNO Q on four M2.5 standoffs (check the hole pattern) beside the donor board; **short Qwiic cables** (5 to 10 cm) to the Movement (screwed to a boss), the Thermo (far end), and nothing at the front because there are no PIN buttons any more; **top shell** (the donor's own, or printed) with the vent grille, the thin wall over the touch pad, the palm pad recesses and a cable notch. The **USB-C port** faces the rear. Keep the board's **Wi-Fi antenna** away from the palm (a hand detunes it) and test signal with a hand on it.
 
 ## Shell and 3D printing
 
-- **Two parts:** base plate and top shell, joined by four small screws at the corners, hidden under the cable notch and rubber feet. Seal the screws with a dot of paint so tampering shows.
-- **Print the top shell upside down**, so it needs no supports. The base prints flat. PLA, 0.2 mm layers, about 3 perimeters. The size is large for a hobby bed; check the printer's bed first, and plan a few hours of printing, so start it early.
-- **Features to model:** four standoffs; slot for the Modulino Buttons board; three key caps with a small stop so they can't fall out; a window opening with a 1 mm skin; a thin 1.2 mm wall over the touch pad; palm pad recesses for copper tape; the vent grille; a screw boss for the Movement board; the cable notch with a strain relief (a knot or zip-tie inside).
-- **Look:** a smooth ergonomic profile and a matte finish. Rubber feet at the corners and a light sand and paint finish make it look like it came from a shop.
-- **Option B (after the demo works): a donor mouse.** Buy a cheap real mouse, keep its shell, buttons and wheel, and fit the YuDuino inside. Its own cable and circuit board still plug into the laptop, so it works as a real mouse. **Never connect the two boards electrically.** This is the most convincing version, but it is tight, so only try it once the printed shell works.
+- **Best:** reuse a donor mouse's shell, so it feels and sounds like a normal mouse. Use the printer for **a base plate, standoffs, the Thermo pocket and a palm-pad insert** that fit inside it.
+- **Prototype:** a printed two-part shell (base and top). Print the top upside down so it needs no supports; PLA, 0.2 mm layers, about 3 perimeters. The size is large for a hobby bed, so start early and check the bed first.
+- **Features to model:** standoffs; a boss for the Movement board; a 1.2 mm wall over the touch pad; recesses for copper tape; the vent grille; the cable notch with strain relief (a knot or zip tie inside); screw bosses.
+- **Seal the screws** with a dot of paint so tampering shows.
+- A printed shell has **no real buttons**, so use it only for fit and sensor tests. The final version needs the donor.
 
-## Security trade-offs (please read)
+## Physical trade-offs
+
+(The security trade-offs from having no screen and no PIN are in [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md#what-we-lose-read-this).)
 
 | # | Trade-off | Why it matters | What we do |
 |---|---|---|---|
-| 1 | **Secret device vs visible display** | A device nobody notices still needs a window you can read | Window over the matrix, lit only during an approval; cardboard test first; fallbacks above |
-| 2 | **Hiding is not protection** | Anyone who opens it finds an ordinary UNO Q | Security stays in the crypto. Sealed screws show tampering. Wave 4 still locks the STM32 debug port ([weak spot 2](CRYPTO.md#remaining-weak-spots)) |
-| 3 | **A look-alike mouse swapped in** | A fake could show a different text to you | It can't produce a valid tag (it lacks `K_MCU`), and the guardian re-renders the text itself, so the worst outcome is a refused approval, not a forged one |
-| 4 | **The YubiKey is in the dock, not the mouse** | You touch it in two places (buttons on the mouse, YubiKey at the dock) | Put the dock at the desk edge. This also means the YubiKey is *not* hidden |
-| 5 | **The camera isn't hidden** | An attacker can see a camera and know duress is judged | The strongest signal is still the duress PIN, which the camera doesn't affect |
-| 6 | **Static from your hand (ESD)** | Bare pads on the palm can reset or damage the board, which in a demo looks like a crash | 1 kΩ series resistors on both pad lines; test after shuffling on carpet |
-| 7 | **Heat in a closed shell** | The UNO Q warms the shell, so temperature readings drift and the palm gets warm | Thermo far from the board; vent grille; rely on humidity change; baseline per device |
-| 8 | **Wi-Fi is weaker inside a palm** | A failed guardian call fails closed (duress), so a weak signal looks like an alarm | Check signal with a hand on the mouse; keep the antenna end clear of the palm |
-| 9 | **A mouse that isn't a mouse** | A fake never gets held, so it can't learn a baseline, and someone may find the cursor doesn't move | Build Option B (a working donor mouse) as soon as the printed shell works; use it all day |
-| 13 | **Always-on collection** | The UNO Q needs power all day, and a mouse collects data you didn't ask for each time | A second cable or a power bank, aggregates only, and pause, view and delete controls ([BASELINE.md](BASELINE.md#privacy)) |
-| 14 | **A stolen or borrowed mouse teaches the baseline wrong** | Someone else's hands become "normal" | Samples count only after the owner's PIN approval; duress samples are never added ([BASELINE.md](BASELINE.md#keeping-the-baseline-honest-poisoning)) |
-| 10 | **Cable and dock are not secret** | A thick cable to a hub gives it away | Use a thin USB-C cable; hide the dock behind the monitor |
-| 11 | **Pressing keys on a mouse looks normal** | This is a *gain*: PIN presses look like clicks, and a long press for the duress PIN is hard to notice | Keep both PINs short enough to type fast, and test that long presses are easy to do blind |
-| 12 | **Reading while holding** | Awkward reading slows approvals | The session timeout is 90 s; keep requests short (96 characters maximum) |
+| 1 | **Hiding is not protection** | Anyone who opens it finds an ordinary UNO Q | The checks don't depend on secrecy. Sealed screws show tampering. Wave 4 locks the STM32 debug port ([weak spot 2](CRYPTO.md#remaining-weak-spots)) |
+| 2 | **A look-alike mouse swapped in** | A fake could collect the user's habits or relay clicks | It can't produce a valid tag (no `K_MCU`), so approvals fail. The worst result is a refusal |
+| 3 | **Tapping the donor's switches** | A bad tap could stop the mouse working or damage a pin | High-value resistor or buffer, voltage check, read-only; test with a mouse-test page |
+| 4 | **The YubiKey is in the dock, not the mouse** | It isn't hidden, and (with no touch) it only proves possession | The dock sits behind the monitor; step-up asks for a touch ([STEALTH-APPROVAL.md](STEALTH-APPROVAL.md)) |
+| 5 | **The camera isn't hidden** | An attacker can see a camera and know someone judges them | The strongest signals (the owner check, physiology) don't depend on the camera |
+| 6 | **Static from your hand (ESD)** | Bare pads on the palm can reset or damage the board | 1 kΩ series resistors on both pad lines; test after shuffling on carpet |
+| 7 | **Heat in a closed shell** | The UNO Q warms the shell and the palm | Thermo far from the board; vent grille; rely on humidity change; baseline per device |
+| 8 | **Wi-Fi is weaker inside a palm** | A failed guardian call fails closed, so a weak signal looks like an alarm | Check signal with a hand on; keep the antenna end clear |
+| 9 | **Always-on collection** | The UNO Q needs power all day, and it collects data you didn't ask for each time | A thin power cable from the dock or a power bank; aggregates only; pause, view and delete controls ([BASELINE.md](BASELINE.md#privacy)) |
+| 10 | **A stolen or borrowed mouse teaches the baseline wrong** | Someone else's hands become "normal" | Samples count only after the owner check and an accepted approval; duress samples are never added ([BASELINE.md](BASELINE.md#keeping-the-baseline-honest-poisoning)) |
+| 11 | **The cable and dock are not secret** | A thick cable to a hub gives it away | Thin USB-C cable; hide the dock behind the monitor |
+| 12 | **The donor mouse needs its own connection to the laptop** | Two cables or a dongle plus the power lead | Use a wireless donor mouse, so only the thin power lead is visible |
 
 ## Build order (before printing)
 
-1. **Cardboard mock-up (20 min).** Cut a mouse-sized shape from cardboard. Put the UNO Q, Buttons and Thermo in place with tape. **Hold it. Can you read the matrix? Can you press A, B, C and a long press without moving the board?** Adjust positions. Photograph the layout.
-2. **Run the whole demo from the cardboard mock-up** (the Milestone 1 steps in [HARDWARE-PLAN.md](HARDWARE-PLAN.md)). If it works, the electronics are done.
-3. **Measure and model.** Measure each part with calipers or a ruler, make the model, print the **base plate first** as a fit test (it's quick), then the top shell.
-4. **Assemble** with short Qwiic cables, copper pads, resistors, and the cable strain relief. Re-run Milestone 1 inside the shell.
-5. **Test the mouse specifics:** matrix readable with a hand on; Wi-Fi signal with a hand on; touch pad reads 1 only when the palm is there; moisture rises on a damp palm; tremor window ignores desk movement; shake the mouse and check the PIN still works.
+1. **Donor mouse first (30 min).** Open it, find the left-button switch, check the voltage, and solder the read-only tap. Confirm the mouse still works and the STM32 sees every click (mouse-test page).
+2. **Cardboard mock-up of the rest (20 min).** Tape the UNO Q, Thermo and Movement inside or beside the donor shell. Hold it. Does it feel like a mouse? Is anything in the way of your fingers? Adjust.
+3. **Run the invisible flow** from [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md) against the bench rig: click, and the approval goes through with no extra input.
+4. **Measure and model** the base plate, standoffs and inserts; print the base first as a fit test.
+5. **Assemble** with short Qwiic cables, copper pads, resistors and the strain relief. Re-run step 3 inside the shell.
+6. **Mouse specifics:** the touch pad reads 1 only with the palm there; moisture rises on a damp palm; the tremor window ignores desk movement; Wi-Fi holds with a hand on; the mouse still works as a mouse for a day.
 
 ## What changes in the code
 
-Nothing breaks. Small changes, all in Wave 2 and later:
-
-- **`sketch.ino`:** filter tremor to 4 to 12 Hz, and skip the window while the mouse is moving or for 100 ms around a key press (`shakeRms`). Possibly rotate the matrix text.
-- **Veto rule:** check `onboard_veto` in `approve.py` against mouse use. Large slow movement means "the mouse was moved", not duress, so it must not trigger the veto.
-- **No new crypto.** The three proofs, the PIN rules and the decision rule are unchanged.
+See [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md#what-needs-to-change-in-the-code-not-done-yet). The repo is still the v2 code (PIN and matrix) until those changes are built.

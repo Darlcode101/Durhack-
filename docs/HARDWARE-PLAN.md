@@ -6,7 +6,7 @@ Pin choices match the existing code in [`app/sketch/sketch.ino`](../app/sketch/s
 
 ## What plugs into what
 
-The board, the Modulinos and the DFRobot sensors now sit **inside a mouse-shaped shell** (see [MOUSE-DESIGN.md](MOUSE-DESIGN.md)). The hub, camera and YubiKey are the **dock** outside it.
+The board, the Modulinos and the DFRobot sensors now sit **inside a working mouse** (see [MOUSE-DESIGN.md](MOUSE-DESIGN.md)). The hub, camera and YubiKey are the **dock** outside it.
 
 ```
  Wall ── Arduino power adaptor (5 V 3 A)
@@ -122,18 +122,18 @@ When all seven work, the hardware is done. Everything after is software: baselin
 
 ## Building the mouse
 
-The device now lives inside a **computer mouse** (see [MOUSE-DESIGN.md](MOUSE-DESIGN.md) for the full layout, the trade-offs and the build order). Once Milestone 1 works on the desk:
-- **Cardboard mock-up first.** Check you can read the matrix and press `A B C` (and long presses) with a hand on it, before any printing.
+The device lives inside a **normal-working mouse** with **no screen and no PIN** (see [MOUSE-DESIGN.md](MOUSE-DESIGN.md) for the layout and build order, and [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md) for the flow). Steps 1 to 6 above still apply on the desk; the Buttons and the LED matrix are bring-up tools only, and are not in the final mouse. Once Milestone 1 works on the desk:
+- **Donor mouse first.** Find the left-button switch, check its voltage, and solder a **read-only tap** (100 kΩ or a buffer) to an STM32 pin. The mouse must still work exactly as before.
 - Touch pad under the palm hump (thin wall); moisture pads of copper tape flush at the palm heel and thumb base, each with a 1 kΩ resistor in line.
 - Thermo in a vented pocket as far from the UNO Q as possible. Movement screwed rigidly to the shell.
-- Buttons under three printed finger keys; the LED matrix under a frosted window.
-- Short Qwiic cables (5 to 10 cm) and tape or hot glue on every joint; a loose jumper mid-demo looks like duress.
-- The **camera and YubiKey stay outside** in the dock (the USB-C hub); the mouse's thin USB-C cable plugs into it.
+- **No window, no keys.** The LED matrix stays dark; switch it off in the final firmware.
+- Short Qwiic cables (5 to 10 cm) and tape or hot glue on every joint.
+- The **camera and YubiKey stay outside** in the dock (the USB-C hub); the mouse's thin USB-C cable (power only) plugs into it. The UNO Q uses its own Wi-Fi.
 
 ## Shopping gaps
 
 Ask Arduino for these if they're available:
 - **Short Qwiic cables** (5 to 10 cm) for the inside of the mouse, and a few spare 1 kΩ resistors, copper tape, M2.5 standoffs and screws.
-- **A cheap real mouse** (optional, for the donor-mouse option in the mouse design).
+- **A cheap real mouse** (preferably wireless) as the donor, plus fine solder wire and 100 kΩ resistors for the switch tap.
 - **Any small HDMI screen** for a better trusted display, if the hub has an HDMI port. The LED matrix stays as the fallback.
 - **A USB-A to USB-C adapter**, if the hub has only one USB-A port.

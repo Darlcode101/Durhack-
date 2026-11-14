@@ -14,6 +14,8 @@ The mouse therefore does two jobs: it **hides the device**, and it **feeds the b
 
 **Gemini's job is unchanged.** It still calculates the duress verdict and fails closed. It just gets better inputs: each feature as a deviation from *this person's* usual value for this hour.
 
+> **This baseline now also powers the owner check** ([OWNER-CHECK.md](OWNER-CHECK.md)): the same features, plus click, movement and grip features, are compared with the registered user's usual to reject other hands. The feature list below is the minimum; the owner check adds the click and movement groups.
+
 ## What the mouse measures all day
 
 Every minute (while the hand is on the mouse), the STM32 computes **one row of aggregate features**. Never raw data.
@@ -64,9 +66,9 @@ The baseline moves: hands are different at 9 am and at 11 pm, after coffee, afte
 
 If someone else uses the mouse for days, they would teach it *their* hands. So:
 
-- Samples count toward the baseline only after the **owner has shown up**: a normal-PIN approval or unlock within the last few hours. Other samples are kept in a separate "unverified" bucket and are not used.
+- Samples count toward the baseline only when the **owner check passes with continuity** (the same hand, held continuously) or after an approval the guardian accepted as normal. Other samples are kept in a separate "unverified" bucket and are not used. (There is no PIN any more to prove the owner is present.)
 - **Samples from a duress approval are never added**, and neither is the hour around one.
-- A person who is being coerced for a long time is a limit we can't remove; the duress PIN is the backstop.
+- A person who is being coerced for a long time is a limit we can't remove; there is no deliberate duress signal in mouse mode, so this is a limit we state openly ([STEALTH-APPROVAL.md](STEALTH-APPROVAL.md)).
 
 ## Where each part runs
 

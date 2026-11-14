@@ -29,7 +29,7 @@ Point 6 is as binding as the others. A design that can't be built this weekend i
 **Decisions already made by Jonah**
 
 - A signature or key is released, never an "OK" message.
-- Cannot be operated remotely: a physical button press is required and the device screen shows exactly what is being approved.
+- Cannot be operated remotely: a physical button press is required and the device screen shows exactly what is being approved. **Superseded for mouse mode (2026-11-14):** the trigger is a real click on the mouse's switch, there is no device screen, and the loss is listed in [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md#what-we-lose-read-this).
 - Under duress, a decoy that looks identical to the attacker, which the verifier treats as a silent alarm.
 - Gemini alone does the duress calculation. No reply, a late reply or a malformed reply means the decoy. Pinned HTTPS.
 - The final decision stays on the STM32.

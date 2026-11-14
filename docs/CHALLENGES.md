@@ -27,10 +27,10 @@ The brief asks for an intelligent system that captures data, analyses sensor inp
 
 | Step | What YuDuino does | Parts |
 |---|---|---|
-| **Sense** | During an 8-second capture window while the grip is held: tremor, palm humidity and temperature, moisture, PIN rhythm, one camera frame, audio | Modulino Movement, Thermo, Buttons; DFRobot touch and moisture; USB camera with mic |
+| **Sense** | During an 8-second capture window while the grip is held: tremor, palm humidity and temperature, moisture, click and movement style, one camera frame, audio | Modulino Movement, Thermo; the mouse's own switches (read-only tap); DFRobot touch and moisture; USB camera with mic |
 | **Analyse** | Each reading becomes a feature against the user's own baseline; Gemini aggregates them and calculates the duress verdict | UNO Q (STM32 side for sensors, Linux side for camera, audio, Gemini) |
-| **Decide** | Low risk: real approval. Medium: ask for a second approver. Duress or duress PIN: decoy approval | UNO Q |
-| **Act** | Shows the transaction and result on the LED matrix, releases the signature (never an "OK"), sends a silent alert under duress | LED matrix, YubiKey, verifier |
+| **Decide** | Low risk: real approval. Medium: ask for a second approver. Duress: decoy approval. An unknown hand: a quiet, ordinary-looking failure | UNO Q |
+| **Act** | In mouse mode there is no screen; releases the signature (never an "OK"), sends a silent alert under duress or on repeated unknown-hand tries | LED matrix, YubiKey, verifier |
 
 All three mandatory parts are used: **UNO Q** (the brain), **camera** (face count, expression, voice), **USB-C hub** (power, camera, YubiKey).
 
@@ -58,7 +58,9 @@ The brief: invent a physical language that encodes digital information.
 
 **Hidden in plain sight, on purpose.** The attacker is standing right there and can see everything, but can't read it. The user doesn't have to do anything visible, and the device's response looks the same either way: a decoy approval is indistinguishable from a real one on the LED matrix. Only the verifier learns the translation.
 
-**Optional deliberate "word".** A user can also choose a secret grip tilt or tap rhythm at enrolment that means "I'm being forced", for when the involuntary signals aren't strong enough. It's a backup, not the main pitch.
+**Optional deliberate "word" (dropped in mouse mode).** An earlier idea let the user choose a secret grip tilt or tap rhythm that means "I'm being forced". The mouse must work with no extra input, so this is **not** included; duress is detected only passively. It is a real loss, listed in [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md#what-we-lose-read-this).
+
+**The same language also says *who*.** The aggregated shape of a hand at work (click, movement, grip, body) identifies the registered user, so the mouse can quietly reject anyone else ([OWNER-CHECK.md](OWNER-CHECK.md)). Nobody knows those features are measured, so there is nothing to steal.
 
 ## 3. MLH Best Use of Gemini API
 
