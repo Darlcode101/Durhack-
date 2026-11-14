@@ -32,8 +32,8 @@ Upload each sketch from `app/bringup/` and watch the serial monitor. Each file's
 
 1. Flash `app/sketch/sketch.ino` (with `secrets.h` from the step above).
 2. Plug the YubiKey into the hub. Start the guardian on the laptop: `cd app/python && uvicorn guardian:app --port 8000`.
-3. Copy `.env.example` to `.env`, set `GUARDIAN_URL`, then on the board: `python3 main.py enrol alex` (enter the normal PIN once, touch the key).
-4. `python3 main.py approve alex '{"action":"transfer","to":"<address in address book>","amount":10,"currency":"GBP"}'`
+3. Copy `.env.example` to `.env`; set `GUARDIAN_URL` and the same `ADDRESS_BOOK` (JSON, address -> unique name) for the guardian and the board, then on the board: `python3 main.py enrol alex` (enter the normal PIN once, touch the key).
+4. `python3 main.py approve alex '{"action":"transfer","to":"<address in address book>","amount":10,"asset":"GBP"}'`
    - **Normal PIN + calm** -> the matrix shows the request, then OK; guardian prints `execute`.
    - **Duress PIN** -> the matrix still shows OK; the guardian prints `hold_and_alert`.
    - **Wrong PIN x5** -> locked until power cycle.
