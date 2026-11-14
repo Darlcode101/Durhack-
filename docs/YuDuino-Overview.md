@@ -131,6 +131,6 @@ Ledger Enterprise offers approval devices with trusted screens, and Fireblocks o
 - [ ] Fake approval design details
 - [ ] YubiKey on the laptop (WebAuthn) or directly on the UNO Q (USB)
 - [ ] Gemini in the cloud with scores only, or a local model
-- [x] Verifier: the guardian backend on a Vultr server (dashboard, verifier, silent alerts); a Solana devnet wallet program as a stretch goal
+- [x] Verifier: the guardian backend on a Vultr server (incident reports and admin dashboard, verifier, silent alerts); a Solana devnet wallet program as a stretch goal
 - [x] Database: Tiger Data for per-usage scores and baselines, written after the decision. MongoDB Atlas (profiles, policies, guardians, incidents) is a stretch goal if time
 - [x] Tagged framing: the body's duress signals are the hidden language, Gemini translates (secret gesture optional)

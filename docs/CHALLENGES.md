@@ -14,7 +14,7 @@ Back to the **[overview](YuDuino-Overview.md)** · **[hardware plan](HARDWARE-PL
 | MLH Best Use of Tiger Data | Target | One record per usage; baselines as continuous aggregates; false-alarm labels; audit log |
 | DEV Writing Challenge | Add-on (free) | Write-up after the weekend |
 | MLH Best Use of ElevenLabs | Add-on (cheap) | Reads the transaction aloud; generates test voices for the demo |
-| MLH Best Use of Vultr | Add-on | The guardian backend: dashboard, verifier and silent alerts |
+| MLH Best Use of Vultr | Add-on | The guardian backend: stores incident reports for an admin dashboard; runs the verifier and silent alerts |
 | MLH Best Use of Solana | Stretch | Devnet wallet program: a valid signature releases funds, a decoy freezes them |
 | MLH Best Use of MongoDB Atlas | Stretch (if time) | Document data: profiles, policies, guardian contacts and incident reports |
 | Entire | Skip | It rewards our AI coding workflow, not the product |
@@ -82,7 +82,7 @@ Tiger Data is PostgreSQL with time-series extensions. **It stores one record per
 
 ## 5. MLH Best Use of MongoDB Atlas (stretch, if time)
 
-**Benched for now; we only build this if there's time left.** The core plan works without it: until then, policies and guardian contacts live in a config file on the device and the guardian backend, and incidents are recorded as usages in Tiger Data.
+**Benched for now; we only build this if there's time left.** The core plan works without it: until then, policies and guardian contacts live in a config file on the device and the guardian backend, and incident reports are stored on the Vultr guardian backend.
 
 If we build it, MongoDB Atlas holds the **document-shaped** data, so it never overlaps with Tiger Data's time-series:
 
@@ -116,6 +116,6 @@ In priority order:
 
 - **DEV Writing Challenge: yes.** Publish the build story after the weekend. It costs no hack time and pays $100.
 - **ElevenLabs: yes, cheap.** It reads the transaction aloud for accessibility, and generates calm and scared test voices so the duress demo is reliable (lower priority). **ElevenLabs does not detect fear.** Fear detection stays with Gemini audio or the onboard pitch, shake and speaking-rate features.
-- **Vultr: yes.** Few teams will enter it, so it's worth the small effort. One Vultr server is the **guardian backend**: the live dashboard, the signature verifier and the silent-alert service. It reads usages and baselines from Tiger Data (and, if we add the MongoDB stretch, profiles, policies, contacts and incidents from MongoDB Atlas). No GPU training.
+- **Vultr: yes.** Few teams will enter it, so it's worth the small effort. One Vultr server is the **guardian backend**: it **hosts and stores the incident reports** (one report per decoy approval or alert, with the transaction, risk scores and Gemini's explanation) on the server or in Vultr Object Storage, and serves an **admin dashboard** where admins review them and mark each one as real duress or a false alarm. It also runs the signature verifier and the silent-alert service, and reads per-usage scores and baselines from Tiger Data (false-alarm labels are written back there). No GPU training.
 - **Solana: stretch goal.** A devnet program acts as the wallet: it only releases funds when given a valid YuDuino signature over the exact transaction. A decoy signature freezes the funds and raises the alarm on-chain instead. This ties directly to the Binance story.
 - **Skip Entire**: it rewards our AI coding workflow, not the product.
