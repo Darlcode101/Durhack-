@@ -2,7 +2,7 @@
 
 *Project overview by Jonah, 14 November 2026. Built for DurHack on an Arduino UNO Q with a YubiKey 5 NFC. (Formerly "YuPico"; renamed because the build no longer uses a Raspberry Pi Pico.)*
 
-To wire it up, see the step-by-step **[hardware plan](HARDWARE-PLAN.md)**. For the team schedule and software checklist, see **[PLAN.md](PLAN.md)**. For how YuDuino targets each DurHack challenge (RS/Arduino, Tagged, Gemini, Tiger Data and add-ons), see the **[challenge plan](CHALLENGES.md)**.
+To wire it up, see the step-by-step **[hardware plan](HARDWARE-PLAN.md)**. For the team schedule and software checklist, see **[PLAN.md](PLAN.md)**. For how YuDuino targets each DurHack challenge (RS/Arduino, Tagged, Gemini, Tiger Data and add-ons), see the **[challenge plan](CHALLENGES.md)**. For the build order, wave by wave, see the **[prototype and development plan](DEV-PLAN.md)**.
 
 ## 1. The pitch: selling peace of mind
 
@@ -53,14 +53,13 @@ The DFRobot sensors and Modulinos live in one **handheld grip** (cardboard and h
 2. **Show.** The UNO Q decodes the raw request and scrolls it on the LED matrix: action, amount, the last characters of the destination, and any unusual permission. Anything too long to show is refused, never cut short. The laptop screen is never trusted for this.
 3. **Hold and enter PIN.** The user holds the grip (touch sensor confirms it) and enters their PIN on the Modulino Buttons. An 8-second capture window records tremor, humidity, temperature, moisture, PIN rhythm, a camera frame and audio.
 4. **Tap.** The user touches the YubiKey, which signs a hash of exactly what was shown.
-5. **Translate.** The UNO Q turns each reading into a feature compared with the user's own baseline (from Tiger Data). Gemini receives all the features together, plus one camera frame, and **does the duress calculation**: it aggregates the signals and returns a verdict and its reasons as structured JSON. A minimal onboard veto runs alongside (see below).
+5. **Translate.** The UNO Q turns each reading into a feature compared with the user's own baseline (from Tiger Data). Gemini receives all the features together, plus one camera frame, and **does the duress calculation**: it aggregates the signals and returns a verdict and its reasons as structured JSON.
 6. **Respond.** Low risk: a real approval. Medium: ask for a second approver. Duress (or the duress PIN): a **fake approval**. The LED matrix shows exactly what a real one would, but the signature carries a hidden marker. The verifier freezes the action and sends a silent alert.
 
 **Safeguards around Gemini's verdict:**
 
 - **Fail closed.** No reply, a late reply or a malformed reply from Gemini means the decoy key, never the real one.
 - **Pinned HTTPS to Google.** The UNO Q only accepts Google's certificate, so nobody on the network can impersonate Gemini and send "all clear".
-- **Minimal onboard veto.** A safety net, not a second calculation: only extreme readings or an unplugged sensor force the decoy, whatever Gemini says.
 - **The final decision and the keys stay on the STM32.** Gemini's verdict is an input; the microcontroller chooses which key signs.
 - **Gemini can't approve on its own.** The PIN and the YubiKey touch are always required. PINs are never sent to Gemini.
 
@@ -125,7 +124,7 @@ Ledger Enterprise offers approval devices with trusted screens, and Fireblocks o
 | A calm, well-informed attacker can beat physiological checks | Duress PIN, time delays and 2-of-3 approval as backstops |
 | Doesn't stop the initial malware infection | It limits what stolen access is worth |
 | The UNO Q has no dedicated secure element | Key on the microcontroller side only; signed firmware; secure element in a later version |
-| Cloud Gemini conflicts with "everything onboard", and the duress verdict depends on it | Features and one frame only; pinned HTTPS; fail closed to the decoy; onboard veto; local model later |
+| Cloud Gemini conflicts with "everything onboard", and the duress verdict depends on it | Features and one frame only; pinned HTTPS; fail closed to the decoy; local model later |
 | Emotion recognition is legally sensitive (the EU AI Act restricts it at work) | Frame it as context risk scoring; consenting teammates only on camera; frames never stored |
 
 ## 12. Hackathon goals
@@ -138,7 +137,7 @@ Ledger Enterprise offers approval devices with trusted screens, and Fireblocks o
 
 - [ ] Fake approval design details
 - [ ] YubiKey on the laptop (WebAuthn) or directly on the UNO Q (USB)
-- [x] Gemini does the duress calculation in the cloud (features and one frame), with fail-closed, pinned HTTPS and an onboard veto; local model later
+- [x] Gemini does the duress calculation in the cloud (features and one frame), with fail-closed and pinned HTTPS; local model later
 - [x] Verifier: the guardian backend on a Vultr server (incident reports and admin dashboard, verifier, silent alerts); a Solana devnet wallet program as a stretch goal
 - [x] Database: Tiger Data for per-usage scores and baselines, written after the decision. MongoDB Atlas (profiles, policies, guardians, incidents) is a stretch goal if time
 - [x] Core vision: the readings are a language the attacker can't read; each means nothing alone, aggregated they form a signal, Gemini translates (secret gesture optional)

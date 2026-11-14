@@ -4,7 +4,7 @@
 
 > **The vision that ties every track together:** YuDuino is a **language the attacker can never read**. Each reading (tremor, sweat, touch rhythm, voice, face, scene) means nothing on its own. Aggregated, the readings form a signal, and **Gemini translates** it into one verdict: under duress or not.
 
-Back to the **[overview](YuDuino-Overview.md)** · **[hardware plan](HARDWARE-PLAN.md)**
+Back to the **[overview](YuDuino-Overview.md)** · **[hardware plan](HARDWARE-PLAN.md)** · **[development plan](DEV-PLAN.md)**
 
 ## At a glance
 
@@ -70,7 +70,6 @@ The brief: invent a physical language that encodes digital information.
 - **Safeguards:**
   - **Fail closed:** no reply, a late reply or a malformed reply means the decoy key.
   - **Pinned HTTPS to Google**, so nobody can impersonate Gemini and send "all clear".
-  - **Minimal onboard veto:** only extreme readings or an unplugged sensor force the decoy. It's a safety net, not a second calculation.
   - **The final decision and the keys stay on the STM32.** Gemini can't approve on its own: the PIN and the YubiKey touch are always required, and PINs are never sent.
 
 ## 4. MLH Best Use of Tiger Data

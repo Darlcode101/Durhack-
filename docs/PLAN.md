@@ -1,13 +1,15 @@
 # Plan — Duress-aware authentication (DurHack hardware track)
 
 > Track: *build an intelligent system that can sense, analyse and respond to the real world.*
+>
+> The schedule below is superseded by the wave-by-wave **[prototype and development plan](DEV-PLAN.md)**.
 
 **One line:** the YubiKey + PIN prove **who** is logging in; sensors, camera and Gemini judge **whether they're acting freely**. If duress is detected, the system looks like it lets them in, but silently raises an alert.
 
 | Verb | What we do |
 |---|---|
 | Sense | USB camera, Modulino Thermo (temp + humidity), Modulino Movement (shake), Modulino Buttons (PIN), touch, moisture, YubiKey |
-| Analyse | Features vs. personal baseline, aggregated and translated by Gemini (the duress calculation); minimal onboard veto |
+| Analyse | Features vs. personal baseline, aggregated and translated by Gemini (the duress calculation) |
 | Respond | Grant / step-up / decoy-grant + silent alert, LED matrix + dashboard + audit log |
 
 ## Hardware
@@ -33,7 +35,7 @@ Laptop browser + YubiKey ──SSH tunnel──► dashboard on the UNO Q
 2. User holds the grip → ~8 s capture window (sensors + camera).
 3. Enter PIN on Modulino Buttons (A/B/C sequence). Wrong PIN → denied.
 4. Tap YubiKey (WebAuthn).
-5. Translate: features (deltas vs baseline) + frame → Gemini, which does the duress calculation → `{duress_score, signals, reasoning}`. Onboard veto: duress PIN, extreme readings or an unplugged sensor force the decoy.
+5. Translate: features (deltas vs baseline) + frame → Gemini, which does the duress calculation → `{duress_score, signals, reasoning}`. The duress PIN goes straight to the decoy at the PIN step.
 6. Respond: `grant` / `step_up` / `duress` → decoy grant + Discord webhook alert + audit log.
 
 **Rule:** Gemini calculates the verdict; the STM32 makes the final decision and holds the keys. Fail closed: no, late or malformed reply → decoy key. Pinned HTTPS to Google. PIN and YubiKey touch always required; PINs are never sent to Gemini.
