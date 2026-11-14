@@ -9,7 +9,7 @@ Back to the **[overview](YuDuino-Overview.md)** · **[hardware plan](HARDWARE-PL
 | Track | Priority | YuDuino's angle |
 |---|---|---|
 | RS / Arduino: sense, analyse and respond to the real world | **Main** | Duress-aware approval device: sensors and camera in, a real, escalated or decoy approval out |
-| Tagged: Information Hidden in Plain Sight | Optional | A covert duress language in the grip, plus a decoy marker hidden in the LED approval animation |
+| Tagged: Information Hidden in Plain Sight | Optional | The body's involuntary signals are a hidden language for "under duress"; Gemini translates; the attacker can't read it |
 | MLH Best Use of Gemini API | Target | Multimodal duress judge and plain-English transaction explainer |
 | MLH Best Use of Tiger Data | Target | Time-series of capture windows, per-user baselines, false-alarm labels and the audit log |
 | DEV Writing Challenge | Add-on (free) | Write-up after the weekend |
@@ -39,8 +39,21 @@ All three mandatory parts are used: **UNO Q** (the brain), **camera** (face coun
 
 The brief: invent a physical language that encodes digital information.
 
-- **Covert duress language (main idea).** A secret tilt of the grip or a tap rhythm on the buttons means "I'm being forced". Modulino Movement and Buttons read it. To an attacker watching, it looks like a normal approval, so the duress bit is hidden in plain sight. Each user picks their own gesture at enrolment, so it works like a duress PIN that nobody can see being typed.
-- **Decoy marker in the approval animation (second piece).** The LED matrix plays an approval animation that looks the same for real and decoy approvals. A small pattern in it encodes the result and a fragment of the approval hash, which only the verifier's camera can decode.
+**The whole system is the language.** Under duress, the body involuntarily "speaks" a physical language: a shaking hand, sweaty palms, a tense voice, a hesitant PIN rhythm, a grip held differently, a second face in the frame. Each sensor records one part of that language and turns it into data:
+
+| Physical "word" | Recorded by | What it encodes |
+|---|---|---|
+| Tremor | Modulino Movement | Shaking hands |
+| Sweat | Modulino Thermo (humidity), DFRobot moisture | Sweaty palms |
+| Touch and PIN rhythm | DFRobot touch, Modulino Buttons | Hesitant or rushed input |
+| Voice | Camera mic | Fear or stress in the voice |
+| Face | Camera | Expression, and whether someone else is present |
+
+**Gemini is the translator.** It reads all of these signals together, compared with the user's own baseline, and translates them into one digital bit: *under duress or not*.
+
+**Hidden in plain sight, on purpose.** The attacker is standing right there and can see everything, but can't read it. The user doesn't have to do anything visible, and the device's response looks the same either way: a decoy approval is indistinguishable from a real one on the LED matrix. Only the verifier learns the translation.
+
+**Optional deliberate "word".** A user can also choose a secret grip tilt or tap rhythm at enrolment that means "I'm being forced", for when the involuntary signals aren't strong enough. It's a backup, not the main pitch.
 
 ## 3. MLH Best Use of Gemini API
 

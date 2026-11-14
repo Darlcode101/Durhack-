@@ -133,4 +133,4 @@ Ledger Enterprise offers approval devices with trusted screens, and Fireblocks o
 - [ ] Gemini in the cloud with scores only, or a local model
 - [ ] Verifier: co-signing server or smart contract for the demo
 - [x] Sponsor database: Tiger Data, derived scores and labels only, written after the decision
-- [ ] Covert duress gesture for the Tagged challenge: tilt, tap rhythm, or both
+- [x] Tagged framing: the body's duress signals are the hidden language, Gemini translates (secret gesture optional)
