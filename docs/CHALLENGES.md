@@ -116,10 +116,9 @@ The design rule is that raw data stays on the UNO Q. Gemini and Tiger Data are c
 
 In priority order:
 
-1. **Handheld grip** holding Modulino Movement, Thermo and the touch sensor, with palm pads over the Thermo and moisture sensors so readings are consistent.
-2. **UNO Q enclosure** with a window for the LED matrix and a YubiKey dock that only exposes the touch pad.
-3. **Privacy hood** over the Modulino Buttons PIN pad.
-4. **Camera mount** at face height.
+1. **Mouse shell** that hides the whole device: the UNO Q with a frosted window over the LED matrix, three finger keys over the Modulino Buttons, and palm pads over the touch, moisture and Thermo sensors. Layout and trade-offs: [MOUSE-DESIGN.md](MOUSE-DESIGN.md).
+2. **Dock** for the USB-C hub, camera and YubiKey.
+3. **Camera mount** at face height.
 
 ## 8. Other MLH prizes
 

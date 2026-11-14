@@ -45,13 +45,13 @@ Everything below is in our hackathon inventory except the YubiKey, which we brin
 | **Male-to-male jumpers** | Wiring the two DFRobot sensors into the UNO Q's female headers | Headers |
 | **32 GB microSD + Icy Box** | Spare storage: offline backup of the audit log and the user's baseline | Not needed for the core |
 
-The DFRobot sensors and Modulinos live in one **handheld grip** (cardboard and hot glue are fine), so every approval happens while the user is holding it.
+The DFRobot sensors and Modulinos live inside one **computer mouse** (cardboard and hot glue first, then a 3D-printed shell; see [MOUSE-DESIGN.md](MOUSE-DESIGN.md)), so every approval happens while the user is holding it.
 
 ## 4. How an approval works
 
 1. **Request.** A laptop, server or AI agent asks for an action. The request carries a one-time nonce and a 2-minute expiry.
 2. **Show.** The UNO Q decodes the raw request and scrolls it on the LED matrix: action, amount, the last characters of the destination, and any unusual permission. Anything too long to show is refused, never cut short. The laptop screen is never trusted for this.
-3. **Hold and enter PIN.** The user holds the grip (touch sensor confirms it) and enters their PIN on the Modulino Buttons. An 8-second capture window records tremor, humidity, temperature, moisture, PIN rhythm, a camera frame and audio.
+3. **Hold and enter PIN.** The user rests a hand on the mouse (the touch sensor confirms the palm is there) and enters their PIN on the Modulino Buttons. An 8-second capture window records tremor, humidity, temperature, moisture, PIN rhythm, a camera frame and audio.
 4. **Tap.** The user touches the YubiKey, which signs a hash of exactly what was shown.
 5. **Translate.** The UNO Q turns each reading into a feature compared with the user's own baseline (from Tiger Data). Gemini receives all the features together, plus one camera frame, and **does the duress calculation**: it aggregates the signals and returns a verdict and its reasons as structured JSON.
 6. **Respond.** Low risk: a real approval. Medium: ask for a second approver. Duress (or the duress PIN): a **fake approval**. The LED matrix shows exactly what a real one would, but the signature carries a hidden marker. The verifier freezes the action and sends a silent alert.
@@ -131,7 +131,7 @@ Ledger Enterprise offers approval devices with trusted screens, and Fireblocks o
 
 - **Demo:** replay the Binance attack. An "attack script" on the laptop requests a transfer; the LED matrix shows it; nothing moves without a real tap. Then a forced approval: the duress check fires, the attacker sees "OK", and the verifier silently freezes the funds.
 - **Target challenges** (details in the [challenge plan](CHALLENGES.md)): RS/Arduino (main), Tagged "Information Hidden in Plain Sight" (optional), MLH Best Use of Gemini API, MLH Best Use of Tiger Data. Cheap add-ons: DEV, ElevenLabs, Vultr; Stretch goals if time: Solana and MongoDB Atlas.
-- Use the free 3D printer for the grip, enclosure and YubiKey dock.
+- Use the free 3D printer for the mouse shell and the YubiKey dock.
 
 ## 13. Open decisions
 

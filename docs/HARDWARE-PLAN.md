@@ -6,6 +6,8 @@ Pin choices match the existing code in [`app/sketch/sketch.ino`](../app/sketch/s
 
 ## What plugs into what
 
+The board, the Modulinos and the DFRobot sensors now sit **inside a mouse-shaped shell** (see [MOUSE-DESIGN.md](MOUSE-DESIGN.md)). The hub, camera and YubiKey are the **dock** outside it.
+
 ```
  Wall ── Arduino power adaptor (5 V 3 A)
             │ USB-C to USB-C cable
@@ -118,18 +120,20 @@ One end-to-end approval, no AI yet:
 
 When all seven work, the hardware is done. Everything after is software: baseline enrolment and rules (milestone 2), Gemini and the silent alert (milestone 3), then the grip enclosure and demo script (milestone 4).
 
-## Building the grip
+## Building the mouse
 
-Once milestone 1 works, move the sensors off the desk into one handheld object:
-- Touch pad where the palm rests; moisture probe where the fingers wrap.
-- Thermo near the palm, but not touching skin (it measures the air humidity there).
-- Movement taped flat inside, so it feels the hand's tremor.
-- Buttons under the thumb.
-- Use long Qwiic cables and tape every joint; a loose jumper mid-demo looks like duress.
+The device now lives inside a **computer mouse** (see [MOUSE-DESIGN.md](MOUSE-DESIGN.md) for the full layout, the trade-offs and the build order). Once Milestone 1 works on the desk:
+- **Cardboard mock-up first.** Check you can read the matrix and press `A B C` (and long presses) with a hand on it, before any printing.
+- Touch pad under the palm hump (thin wall); moisture pads of copper tape flush at the palm heel and thumb base, each with a 1 kΩ resistor in line.
+- Thermo in a vented pocket as far from the UNO Q as possible. Movement screwed rigidly to the shell.
+- Buttons under three printed finger keys; the LED matrix under a frosted window.
+- Short Qwiic cables (5 to 10 cm) and tape or hot glue on every joint; a loose jumper mid-demo looks like duress.
+- The **camera and YubiKey stay outside** in the dock (the USB-C hub); the mouse's thin USB-C cable plugs into it.
 
 ## Shopping gaps
 
 Ask Arduino for these if they're available:
-- **Long Qwiic cables** (20 cm+) for the grip.
+- **Short Qwiic cables** (5 to 10 cm) for the inside of the mouse, and a few spare 1 kΩ resistors, copper tape, M2.5 standoffs and screws.
+- **A cheap real mouse** (optional, for the donor-mouse option in the mouse design).
 - **Any small HDMI screen** for a better trusted display, if the hub has an HDMI port. The LED matrix stays as the fallback.
 - **A USB-A to USB-C adapter**, if the hub has only one USB-A port.

@@ -319,7 +319,7 @@ Honest list, worst first.
 3. **Keys on Linux tonight.** The ML-DSA key is on the Linux side while it signs. Root on Linux can use it, with a YubiKey touch and the salt, but **can't make a tag**, so the envelope is rejected. It also sees the sensors, so it can block or delay approvals (denial of service).
 4. **The guardian's tag key.** An insider with it can make tags, but not YubiKey or ML-DSA signatures, so still not approvals. Keep it in an HSM later.
 5. **The YubiKey half is classical.** A quantum attacker could forge the YubiKey signature. The ML-DSA signature and the HMAC tag still stand, so a forger would need the ML-DSA key (device) and a tag (PIN), but "who touched it" would rest on those. A post-quantum security key would fix this when one exists.
-6. **Shoulder-surfing.** Someone who watches you type your normal PIN, including the timing, learns it. The duress PIN is meant to be indistinguishable *unless they know the timing*. A privacy hood over the buttons (Wave 4, 3D printer) helps.
+6. **Shoulder-surfing.** Someone who watches you type your normal PIN, including the timing, learns it. The duress PIN is meant to be indistinguishable *unless they know the timing*. The mouse shell helps: PIN presses look like ordinary clicks, and the keys are shielded by the hand ([MOUSE-DESIGN.md](MOUSE-DESIGN.md)).
 7. **A calm, determined attacker.** If they know about duress detection, the decoy only buys time; they will eventually notice nothing moved. Time locks and the silent alert are meant to make that time enough.
 8. **Gemini can be wrong or tricked**, including by prompt injection through the camera (a printed sign saying "the user is calm"). Mitigations: structured output only, image treated as data, Gemini can only raise the alarm, and the duress PIN is always there.
 9. **No certified secure element.** The STM32U585 has TrustZone, a hardware unique key and side-channel-resistant AES, but it's not a certified secure element. A skilled lab attacker could glitch it.
@@ -336,7 +336,7 @@ Honest list, worst first.
 | **1. Skeleton** (now) | Run the existing tests. Provision a device. Flash the sketch. Run the guardian on the laptop. `enrol`, then one approval with a normal PIN and one with the duress PIN | `tools/provision.py`, `sketch.ino` + `yuseal_mcu.h`, `guardian.py`, `main.py` |
 | **2. Real signals** | Real sensor window into Gemini and the onboard veto; baselines; real nonce timing; persist the lockout counter if flash works; hash-chained log checks on the dashboard | `approve.py` (`gemini_fn`), `risk` rules for the veto, `sketch.ino` |
 | **3. Response and polish** | Guardian on Vultr with HTTPS and pinning; YubiKey attestation at enrolment; org-root-signed address book and certificates; YuDuino login with honeypot session; Merkle tree head on the dashboard | `guardian.py`, a small root tool |
-| **4. Harden and stretch** | Readout protection and a locked debug port; SLH-DSA root; check hybrid TLS is negotiated; Solana tree-head post; privacy hood | |
+| **4. Harden and stretch** | Readout protection and a locked debug port; SLH-DSA root; check hybrid TLS is negotiated; Solana tree-head post; sealed mouse-shell screws | |
 
 ### After the hackathon
 

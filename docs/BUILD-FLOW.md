@@ -97,7 +97,7 @@ cd app/python && python3 -m unittest test_yuseal -v
 
 | Hardware step | Code step | Test |
 |---|---|---|
-| 3D-printed grip and enclosure; YubiKey dock | None | The device works fully assembled |
+| Cardboard mouse mock-up, then the 3D-printed mouse shell ([MOUSE-DESIGN.md](MOUSE-DESIGN.md)); YubiKey and camera in the dock | `sketch.ino`: tremor filter (4 to 12 Hz) and skip while the mouse is moving or around a key press | The whole demo works from inside the shell with a hand on it; the matrix is readable; Wi-Fi holds |
 | | Deploy `guardian.py` to Vultr behind HTTPS (Caddy or nginx). Pin its certificate in `main.py`'s `requests` call | Approval works over the internet; a wrong certificate is refused |
 | | In `guardian.on_outcome`: send the Telegram or email alert, write the incident report with Gemini, freeze funds, store to Tiger Data | A duress approval fires an alert and a report appears on the dashboard |
 | | Make the guardian the only route to "execute" (the wallet or demo contract only accepts calls from it) | Nothing executes without a guardian `execute` |
@@ -110,7 +110,7 @@ cd app/python && python3 -m unittest test_yuseal -v
 
 | Hardware step | Code step | Test |
 |---|---|---|
-| Privacy hood over the buttons; spare cables | Lock the STM32's debug port and enable readout protection if the toolchain allows | Flash can't be read through the debug port |
+| Sealed shell screws; spare cables | Lock the STM32's debug port and enable readout protection if the toolchain allows | Flash can't be read through the debug port |
 | | Check `openssl version` is 3.5+ on the board; test that TLS to the guardian negotiates `X25519MLKEM768` | `openssl s_client -groups X25519MLKEM768 …` succeeds |
 | | Rehearse the Binance-replay demo twice; record a backup video | Runs start to finish without touching a laptop, twice |
 | | Stretch: Solana devnet program checks the envelope and releases or freezes funds | A normal approval releases, a duress approval freezes on chain |
@@ -124,7 +124,7 @@ The same four roles as the [dev plan](DEV-PLAN.md#who-does-what-team-of-4), now 
 | **1. Microcontroller and sensors** | `sketch.ino` (and `yuseal_mcu.h` only with someone else reviewing) | Rows 1 to 5 of Wave 1: matrix, Qwiic, Bridge calls |
 | **2. Linux side and Gemini** | `main.py`, `approve.py` (`gemini_fn`, `onboard_veto`), `camera.py`, `fusion_gemini.py`, `yubikey_auth.py` | Row 7: `RealYubiKey` on the real key; then `gemini_fn` |
 | **3. Crypto and backend** | `guardian.py`, `yuseal.py`, `tools/provision.py`, Vultr, Tiger Data | Rows 4 and 6; then Wave 3's alerts and dashboard |
-| **4. Build and pitch** | grip, enclosure, dashboard look, demo script, video | Print the grip; write the demo script from §6 |
+| **4. Build and pitch** | the mouse shell, dashboard look, demo script, video | Print the mouse shell; write the demo script from §6 |
 
 **Review rule:** any change to `yuseal_mcu.h`, `yuseal.py` or the tag format needs the tests to pass and a second person to read it. Everything else can move fast.
 

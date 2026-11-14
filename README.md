@@ -22,7 +22,7 @@ The attacker is standing right there and can see everything, but can't read the 
 
 1. **Request:** a laptop, server or AI agent asks for an action, with a one-time nonce and a 2-minute expiry.
 2. **Show:** the UNO Q scrolls exactly what will be signed on its own LED matrix. The laptop screen is never trusted.
-3. **Hold and enter PIN:** the user holds the sensor grip and enters their PIN on the Modulino Buttons (short and long presses). The PIN goes to the STM32 only; Linux never sees it. The sensors record every reading meanwhile.
+3. **Hold and enter PIN:** the user rests a hand on the mouse (palm on the grip pad) and enters their PIN on the Modulino Buttons (short and long presses). The PIN goes to the STM32 only; Linux never sees it. The sensors record every reading meanwhile.
 4. **Tap:** the YubiKey signs a hash of exactly what was shown.
 5. **Translate:** each reading is compared with the user's own baseline, and Gemini aggregates them all, plus one camera frame, into a verdict with reasons.
 6. **Respond:** the STM32 turns the verdict into a tag that says real approval, second approver, or decoy, and only the verifier can read it. The verifier trusts signatures and tags, never an "OK".
@@ -40,7 +40,7 @@ The attacker is standing right there and can see everything, but can't read the 
 | **MLH Best Use of Vultr** | Add-on | One Vultr server is the **guardian backend**: the signature verifier, the stored incident reports and an **admin dashboard**. Its **response engine** runs the security protocol: alert the on-call team (Telegram, SMS or email), escalate if nobody responds, freeze the funds and require a second approver. It can lock and alert but never approve. |
 | **MLH Best Use of ElevenLabs** | Add-on | Reads the transaction aloud for accessibility, and generates calm and scared test voices for a reliable demo. (It doesn't detect fear; Gemini does the translating.) |
 | **DEV Writing Challenge** | Add-on | Publish the build story after the weekend. |
-| **Free 3D printer** | Build | A handheld **sensor grip** with palm pads, a **UNO Q enclosure** with an LED-matrix window and a YubiKey dock, a **privacy hood** over the PIN buttons, and a **camera mount**. |
+| **Free 3D printer** | Build | A **computer-mouse shell** that hides the whole device (palm pads, an LED-matrix window, three finger keys), plus a dock for the YubiKey and a **camera mount**. See [docs/MOUSE-DESIGN.md](docs/MOUSE-DESIGN.md). |
 | **MLH Best Use of Solana** | Stretch | A devnet wallet program: a valid YuDuino signature releases funds, a decoy freezes them on-chain. |
 | **MLH Best Use of MongoDB Atlas** | Stretch | Document data: user and device profiles, policies (spend limits, allow-lists, second-approver rules), guardian contacts and incident reports. |
 
@@ -54,7 +54,7 @@ The tracks above set what we spend time on:
 2. **The hidden language (Tagged + Gemini).** Every sensor feeds the aggregate; Gemini's translation is the heart of the demo. Calm and coerced approvals must give visibly different verdicts.
 3. **Personal baselines (Tiger Data).** One record per usage, with continuous-aggregate baselines, so the translation is about *this* person *right now*.
 4. **A real-world response (Vultr).** Alerts, frozen funds and incident reports, so judges see the system *act*.
-5. **A device that looks like a product (3D printer).** Grip, enclosure, YubiKey dock.
+5. **A device nobody looks at twice (3D printer).** The whole device hides inside a computer mouse; the YubiKey and camera sit in a dock.
 6. **Polish and accessibility (ElevenLabs, DEV).** Spoken readback, demo voices, write-up.
 7. **Stretch goals, only if time (post-quantum ML-DSA signature, Solana, MongoDB).**
 
@@ -65,8 +65,8 @@ The tracks above set what we spend time on:
 | Part | Role |
 |---|---|
 | **Arduino UNO Q** | The brain. **STM32 side** (the trusted core): buttons and PIN, sensors, the LED matrix, the tag that proves a person pressed the PIN for the displayed text. **Linux side:** YubiKey, the ML-DSA key, camera, mic, Gemini call |
-| **UNO Q LED matrix** | The trusted display |
-| **Arduino USB-C hub, power adaptor, USB-C cable** | Power, camera and YubiKey on the UNO Q's single USB-C port |
+| **UNO Q LED matrix** | The trusted display, seen through a small frosted window in the mouse |
+| **Arduino USB-C hub, power adaptor, USB-C cable** | The **dock** outside the mouse: power, camera and YubiKey on the UNO Q's single USB-C port, through the mouse's thin cable |
 | **Arduino USB camera with mic** | Face, scene and voice |
 | **YubiKey 5 NFC** | Proves who is approving |
 | **Modulino Buttons** | PIN, approve and reject, PIN rhythm |
@@ -84,6 +84,7 @@ Wiring and step-by-step bring-up: **[hardware plan](docs/HARDWARE-PLAN.md)**.
 - **[Challenge plan](docs/CHALLENGES.md):** how we target each DurHack track.
 - **[Development plan](docs/DEV-PLAN.md):** build waves, each advancing hardware, cryptography and extensions together, with a demo at the end of every wave.
 - **[Hardware plan](docs/HARDWARE-PLAN.md):** wiring, pins and the bring-up order.
+- **[Mouse design](docs/MOUSE-DESIGN.md):** the device hidden inside a computer mouse: layout, sensor map, display, 3D-printed shell, and the security trade-offs.
 - **[Crypto design (YuSeal)](docs/CRYPTO.md):** keys, the three proofs, the hidden duress status, login, audit log, threat coverage, weak spots.
 - **[Build flow](docs/BUILD-FLOW.md):** for each piece of hardware, what to code where, the test for each step, and the demo script.
 - **[Design brief](docs/DESIGN-BRIEF.md):** the requirements the crypto was designed against, and why version 1 was replaced.
