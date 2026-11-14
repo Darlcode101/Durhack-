@@ -14,6 +14,8 @@ def _camera():
         _cap = cv2.VideoCapture(0)  # VERIFY the index once the camera is on the USB-C hub
         _cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         _cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        for _ in range(30):  # first frames are dark until auto-exposure settles (~1 s)
+            _cap.read()
     return _cap
 
 
