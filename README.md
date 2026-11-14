@@ -87,6 +87,7 @@ Wiring and step-by-step bring-up: **[hardware plan](docs/HARDWARE-PLAN.md)**.
 - **[Crypto design (YuSeal)](docs/CRYPTO.md):** keys, the three proofs, the hidden duress status, login, audit log, threat coverage, weak spots.
 - **[Build flow](docs/BUILD-FLOW.md):** for each piece of hardware, what to code where, the test for each step, and the demo script.
 - **[Design brief](docs/DESIGN-BRIEF.md):** the requirements the crypto was designed against, and why version 1 was replaced.
+- **[Mouse proposal](docs/MOUSE.md):** putting the sensors inside an ordinary mouse, for all-day baselines and a device nobody notices.
 - **[Original plan](docs/PLAN.md):** early scaffold notes, downloads and things to verify on the hardware.
 
 ## Code layout
