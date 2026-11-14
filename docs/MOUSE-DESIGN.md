@@ -2,6 +2,8 @@
 
 Design change (Jonah, 2026-11-14): the whole device is hidden inside a **computer mouse**, so it looks like something nobody would look at twice. This page says how each part maps onto a mouse, what the layout is, how the 3D-printed shell works, and what we give up.
 
+**Two reasons for a mouse.** (1) It **hides** the device. (2) A mouse is held for hours every day, so it can **passively learn this person's normal grip, tremor, sweat and temperature**, which fixes the lack of baseline data. Reason 2 is described in [BASELINE.md](BASELINE.md) and is the bigger one.
+
 **One rule first.** Hiding the device is *obscurity*, not security. All the security still comes from the three proofs in [CRYPTO.md](CRYPTO.md). If someone finds out the mouse is the device, nothing breaks. The mouse only stops people noticing it, and makes the grip more natural.
 
 Sizes below are approximate. **Measure the real parts before you print.**
@@ -10,7 +12,7 @@ Sizes below are approximate. **Measure the real parts before you print.**
 
 | Question | Answer |
 |---|---|
-| Is it a working mouse? | **No, by default.** It's a mouse-shaped shell. It doesn't move a cursor, and it is **not** a USB mouse to any computer. (Stretch option B below makes it a real one.) |
+| Is it a working mouse? | **It has to be one to collect the all-day baseline**, because nobody holds a fake. The printed shell is fine to start with and for a short demo, but the real plan is **Option B** below: a donor mouse that works normally, with the YuDuino fitted next to its circuit board and kept electrically separate. |
 | Where is the UNO Q? | Flat in the base, with the LED matrix facing up under a small frosted window. |
 | What is the display? | Still the **UNO Q LED matrix**, seen through the window. A hidden device can't have a screen you can't see, and the "screen shows exactly what you approve" rule stays. |
 | Where do the PIN buttons go? | The Modulino Buttons sit under three printed finger keys at the front, where index, middle and ring fingers rest. |
@@ -96,7 +98,9 @@ The rule is that the screen must show exactly what you approve. A hidden device 
 | 6 | **Static from your hand (ESD)** | Bare pads on the palm can reset or damage the board, which in a demo looks like a crash | 1 kΩ series resistors on both pad lines; test after shuffling on carpet |
 | 7 | **Heat in a closed shell** | The UNO Q warms the shell, so temperature readings drift and the palm gets warm | Thermo far from the board; vent grille; rely on humidity change; baseline per device |
 | 8 | **Wi-Fi is weaker inside a palm** | A failed guardian call fails closed (duress), so a weak signal looks like an alarm | Check signal with a hand on the mouse; keep the antenna end clear of the palm |
-| 9 | **A mouse that isn't a mouse** | Someone may pick it up and find the cursor doesn't move | Keep it on the desk like a spare mouse, or build Option B so it really works |
+| 9 | **A mouse that isn't a mouse** | A fake never gets held, so it can't learn a baseline, and someone may find the cursor doesn't move | Build Option B (a working donor mouse) as soon as the printed shell works; use it all day |
+| 13 | **Always-on collection** | The UNO Q needs power all day, and a mouse collects data you didn't ask for each time | A second cable or a power bank, aggregates only, and pause, view and delete controls ([BASELINE.md](BASELINE.md#privacy)) |
+| 14 | **A stolen or borrowed mouse teaches the baseline wrong** | Someone else's hands become "normal" | Samples count only after the owner's PIN approval; duress samples are never added ([BASELINE.md](BASELINE.md#keeping-the-baseline-honest-poisoning)) |
 | 10 | **Cable and dock are not secret** | A thick cable to a hub gives it away | Use a thin USB-C cable; hide the dock behind the monitor |
 | 11 | **Pressing keys on a mouse looks normal** | This is a *gain*: PIN presses look like clicks, and a long press for the duress PIN is hard to notice | Keep both PINs short enough to type fast, and test that long presses are easy to do blind |
 | 12 | **Reading while holding** | Awkward reading slows approvals | The session timeout is 90 s; keep requests short (96 characters maximum) |

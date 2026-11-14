@@ -42,9 +42,9 @@ We build in **waves**. Every wave moves **all three tracks forward together**: h
 
 | Track | What changes |
 |---|---|
-| **Hardware** | Add Modulino Thermo, the moisture sensor, and microphone audio. Everything moves into a **cardboard grip**. Add a one-minute **enrolment** recording of the user's calm baseline. |
+| **Hardware** | Add Modulino Thermo, the moisture sensor, and microphone audio. Everything moves into a **cardboard grip**. Add a one-minute **enrolment** recording of the user's calm baseline, then start the **all-day baseline** from the mouse ([BASELINE.md](BASELINE.md)): one aggregate row a minute, quiet windows only. |
 | **Cryptography** | Move the real and decoy keys to the **STM32 microcontroller side**: Linux sends the verdict, the STM32 chooses which key signs. Add nonce and expiry checks to the verifier (replays fail). Start the **hash-chained audit log** (each entry includes the previous entry's hash). |
-| **Extensions** | **Tiger Data:** one row per usage (feature scores, verdict, decision), with a continuous aggregate for each user's baseline. Gemini now gets every feature as a delta from that baseline. **Vultr:** stand up the server and move the verifier onto it, with **pinned HTTPS** for the Gemini call. **3D printer:** collect the grip; start the UNO Q enclosure and YubiKey dock. |
+| **Extensions** | **Tiger Data:** the mouse's rolling per-minute rows in a hypertable, an hourly continuous aggregate per user for the baseline, and approvals alongside (see [CHALLENGES.md](CHALLENGES.md#4-mlh-best-use-of-tiger-data)). Gemini now gets every feature as a delta from that baseline. **Vultr:** stand up the server and move the verifier onto it, with **pinned HTTPS** for the Gemini call. **3D printer:** collect the grip; start the UNO Q enclosure and YubiKey dock. |
 
 **Done when:** the same person approving calmly and then while shaking and breathing fast gets different Gemini verdicts with sensible reasons; both usages appear in Tiger Data; replaying an old approval is rejected.
 

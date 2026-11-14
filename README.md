@@ -36,7 +36,7 @@ The attacker is standing right there and can see everything, but can't read the 
 | **RS / Arduino:** build an intelligent system that can sense, analyse and respond to the real world | **Main** | **Sense:** grip sensors, camera and mic. **Analyse:** readings against the user's baseline, aggregated by Gemini. **Decide:** real, second approver or decoy. **Act:** LED matrix, signature release, silent alert and frozen funds. Uses all the mandatory hardware (UNO Q, camera, USB hub). Pitched as "smart safety monitoring", with accessibility via spoken readback. |
 | **Tagged: Information Hidden in Plain Sight** (invent a physical language that encodes digital information) | Optional | **The whole system is the language.** The body's involuntary signals encode one bit, "under duress", that no single reading reveals. Gemini translates it. The attacker sees everything and can't read it, and the response looks the same either way. |
 | **MLH Best Use of Gemini API** | Target | Gemini **does the duress calculation**: it aggregates every feature plus a camera frame into structured JSON. It also detects a second person in the scene, explains the transaction in plain English, and writes the incident reports. |
-| **MLH Best Use of Tiger Data** | Target | **One record per usage** (feature scores, verdict, decision, label) in a hypertable. **Per-user and time-of-day baselines** as continuous aggregates, built from enrolment, every usage, a population prior and a within-session check. **False-alarm labels** tune it over time. Feeds the live dashboard. |
+| **MLH Best Use of Tiger Data** | Target | **Rolling time-series from the mouse:** one row of aggregate features a minute, all day, in a **hypertable**. **Continuous aggregates** give per-user baselines by hour of day, **`time_bucket` queries** give the z-score at approval time, and **compression and retention** keep raw rows for days and aggregates for months. Approvals and false-alarm labels sit alongside. Feeds the live dashboard. See [docs/CHALLENGES.md](docs/CHALLENGES.md#4-mlh-best-use-of-tiger-data). |
 | **MLH Best Use of Vultr** | Add-on | One Vultr server is the **guardian backend**: the signature verifier, the stored incident reports and an **admin dashboard**. Its **response engine** runs the security protocol: alert the on-call team (Telegram, SMS or email), escalate if nobody responds, freeze the funds and require a second approver. It can lock and alert but never approve. |
 | **MLH Best Use of ElevenLabs** | Add-on | Reads the transaction aloud for accessibility, and generates calm and scared test voices for a reliable demo. (It doesn't detect fear; Gemini does the translating.) |
 | **DEV Writing Challenge** | Add-on | Publish the build story after the weekend. |
@@ -52,9 +52,9 @@ The tracks above set what we spend time on:
 
 1. **The end-to-end approval loop (RS/Arduino).** Request, trusted display, PIN, YubiKey, verdict, real or decoy signature, verifier. Everything else depends on it working.
 2. **The hidden language (Tagged + Gemini).** Every sensor feeds the aggregate; Gemini's translation is the heart of the demo. Calm and coerced approvals must give visibly different verdicts.
-3. **Personal baselines (Tiger Data).** One record per usage, with continuous-aggregate baselines, so the translation is about *this* person *right now*.
+3. **Personal baselines (Tiger Data).** A rolling stream from the mouse, rolled up by continuous aggregates into per-hour baselines, so the translation is about *this* person *right now*.
 4. **A real-world response (Vultr).** Alerts, frozen funds and incident reports, so judges see the system *act*.
-5. **A device nobody looks at twice (3D printer).** The whole device hides inside a computer mouse; the YubiKey and camera sit in a dock.
+5. **A device nobody looks at twice, that learns you all day (3D printer).** The whole device hides inside a computer mouse. Because a mouse is held for hours, it also **passively collects a rich baseline** of your grip, tremor, sweat and temperature, which solves the "not enough data to know what's irregular" problem ([docs/BASELINE.md](docs/BASELINE.md)). The YubiKey and camera sit in a dock.
 6. **Polish and accessibility (ElevenLabs, DEV).** Spoken readback, demo voices, write-up.
 7. **Stretch goals, only if time (post-quantum ML-DSA signature, Solana, MongoDB).**
 
@@ -84,6 +84,7 @@ Wiring and step-by-step bring-up: **[hardware plan](docs/HARDWARE-PLAN.md)**.
 - **[Challenge plan](docs/CHALLENGES.md):** how we target each DurHack track.
 - **[Development plan](docs/DEV-PLAN.md):** build waves, each advancing hardware, cryptography and extensions together, with a demo at the end of every wave.
 - **[Hardware plan](docs/HARDWARE-PLAN.md):** wiring, pins and the bring-up order.
+- **[All-day baseline](docs/BASELINE.md):** how the mouse learns each person's normal all day, the privacy limits, filtering out mouse movement, and time-of-day drift.
 - **[Mouse design](docs/MOUSE-DESIGN.md):** the device hidden inside a computer mouse: layout, sensor map, display, 3D-printed shell, and the security trade-offs.
 - **[Crypto design (YuSeal)](docs/CRYPTO.md):** keys, the three proofs, the hidden duress status, login, audit log, threat coverage, weak spots.
 - **[Build flow](docs/BUILD-FLOW.md):** for each piece of hardware, what to code where, the test for each step, and the demo script.

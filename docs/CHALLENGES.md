@@ -74,20 +74,71 @@ The brief: invent a physical language that encodes digital information.
 
 ## 4. MLH Best Use of Tiger Data
 
-Tiger Data is PostgreSQL with time-series extensions. **It stores one record per usage**: every approval session, with its sensor feature scores, Gemini's verdict, the decision and (later) a label. Never raw audio or video.
+Tiger Data is PostgreSQL with time-series extensions (TimescaleDB). **With the mouse, YuDuino is a true time-series workload.** Before, we had one row per approval, a handful a day. Now the mouse streams **one row of aggregate features a minute, all day, for every person** (see [BASELINE.md](BASELINE.md)). That is exactly what a hypertable, continuous aggregates, compression and retention are for, so this is a much stronger fit than the one-row-per-approval version.
 
-**Why Tiger Data fits:** duress detection is all about "is this reading unusual *for this person, right now*?". That is a time-series question, and Tiger Data answers it in plain SQL:
+**The question Tiger Data answers:** "is this reading unusual *for this person, at this hour*?", fast enough to run in the middle of an approval.
 
-- **Hypertable of usages:** one row per approval session, partitioned by time, with a relational `users` table alongside in the same database.
-- **Baselines as continuous aggregates:** per-user and per-time-of-day baselines (for example, your usual tremor at 9 am versus 11 pm) are pre-computed and kept up to date automatically, so the device gets its baseline in one fast query.
-- **Where a baseline comes from:**
-  1. A **one-minute enrolment** at setup, recorded calm.
-  2. **Every usage** after that.
-  3. A **population prior** for brand-new users, which shifts toward the user's own baseline as their usages accumulate.
-  4. A **within-session check**: readings when the grip is picked up versus at confirmation, so a sudden change mid-approval stands out even without history.
-- **False-alarm labels:** when a duress flag turns out to be wrong, the usage is labelled, and thresholds are tuned from those labels (this is how YuDuino "learns from false alarms").
-- **Audit log:** the hash-chained approval log, mirrored from the microSD.
-- **Live dashboard:** real-time charts from the continuous aggregates, which also serve as the RS demo graph. Compression keeps months of usages on the free tier.
+| Tiger Data feature | What we use it for |
+|---|---|
+| **Hypertable** `readings(ts, user_id, grip_fraction, tremor, humidity, humidity_delta, temp, moisture, still_fraction, n)` | The continuous stream of per-minute feature rows, partitioned by time. **No raw sensor data, camera or audio.** |
+| **Hypertable** `approvals(ts, user_id, features, gemini_score, decision, label)` | One row per approval, kept for the audit trail and false-alarm labels |
+| **Continuous aggregates** | An **hourly** rollup per user (average, spread, sample count, min and max per feature), refreshed automatically. Per-user baselines by hour of day are then a fast read of a small table |
+| **`time_bucket` queries** | At approval time: roll the last few minutes into a bucket and compare it with the user's baseline **for the same hour**, giving a z-score per feature in one query |
+| **Compression policy** | Minute rows are compressed after a day or two, so a team's data stays small |
+| **Retention policy** | **Raw minute rows are dropped after about 30 days; hourly aggregates are kept for months.** This is also our privacy promise: the fine detail doesn't linger |
+| **Relational `users` table** in the same database | Consent, pause flag, enrolment date |
+
+### How the pieces fit (SQL sketch)
+
+This is a sketch to build from. Check the syntax against the Tiger Data docs on the day (names of the compression and columnstore calls have changed between versions).
+
+```sql
+-- the stream
+CREATE TABLE readings (
+  ts timestamptz NOT NULL, user_id text NOT NULL,
+  grip_fraction real, tremor real, humidity real, humidity_delta real,
+  temp real, moisture real, still_fraction real, n int);
+SELECT create_hypertable('readings', 'ts');
+
+-- hourly rollup per user, kept up to date automatically
+CREATE MATERIALIZED VIEW readings_hourly WITH (timescaledb.continuous) AS
+SELECT time_bucket('1 hour', ts) AS hour, user_id,
+       avg(tremor) AS tremor_avg, stddev(tremor) AS tremor_sd,
+       avg(humidity_delta) AS hum_avg, stddev(humidity_delta) AS hum_sd,
+       avg(moisture) AS moist_avg, stddev(moisture) AS moist_sd,
+       sum(n) AS n
+FROM readings WHERE still_fraction > 0.5            -- quiet-hand rows only
+GROUP BY 1, 2;
+SELECT add_continuous_aggregate_policy('readings_hourly',
+  start_offset => INTERVAL '3 days', end_offset => INTERVAL '1 hour',
+  schedule_interval => INTERVAL '30 minutes');
+
+-- keep detail short, keep summaries long
+SELECT add_compression_policy('readings', INTERVAL '2 days');
+SELECT add_retention_policy('readings', INTERVAL '30 days');
+SELECT add_retention_policy('readings_hourly', INTERVAL '180 days');
+
+-- at approval time: this person's usual for THIS hour of day (last 4 weeks) ...
+WITH base AS (
+  SELECT avg(tremor_avg) AS mu, avg(tremor_sd) AS sd, sum(n) AS n
+  FROM readings_hourly
+  WHERE user_id = $1 AND hour > now() - INTERVAL '28 days'
+    AND extract(hour FROM hour) = extract(hour FROM now())),
+-- ... against the last five minutes
+now5 AS (
+  SELECT avg(tremor) AS x FROM readings
+  WHERE user_id = $1 AND ts > now() - INTERVAL '5 minutes' AND still_fraction > 0.5)
+SELECT (now5.x - base.mu) / NULLIF(base.sd, 0) AS tremor_z, base.n FROM base, now5;
+```
+
+If `base.n` is too small, the guardian widens to the whole day and then the population prior (see [BASELINE.md](BASELINE.md#time-of-day-and-drift)). The z-scores go to Gemini with the camera frame; Gemini still decides, and the decision rule still fails closed. If we have the Tiger Data hyperfunctions, we can use medians (approximate percentiles) in the rollup instead of averages, to match the robust statistics in [BASELINE.md](BASELINE.md).
+
+### What this buys us for the prize
+
+- **A graph that fills in live:** the dashboard shows a person's tremor and humidity by hour of day appearing over the day. The continuous aggregates drive it.
+- **Real time-series features:** hypertable, continuous aggregates, compression, retention and `time_bucket` all used for a reason, not for show.
+- **A privacy story built from database settings:** raw rows expire, aggregates remain.
+- **Same database as before:** the audit log mirror, false-alarm labels (thresholds are tuned from them), and the live dashboard are unchanged.
 
 ## 5. MLH Best Use of MongoDB Atlas (stretch, if time)
 

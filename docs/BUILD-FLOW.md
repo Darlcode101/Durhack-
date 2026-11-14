@@ -85,6 +85,8 @@ cd app/python && python3 -m unittest test_yuseal -v
 | Hardware step | Code step | Test |
 |---|---|---|
 | Sensors into the cardboard grip; tape every joint | None | A loose wire mid-demo trips the veto; tape it |
+| **All-day baseline** ([BASELINE.md](BASELINE.md)): STM32 computes a per-minute row (grip fraction, 4 to 12 Hz tremor from quiet windows only, humidity delta, moisture, still fraction); `main.py` posts it to the guardian, which writes Tiger Data | Rows appear every minute only while the hand is on a still-enough mouse; no raw data in the table |
+| Baseline lookup by hour of day, with fallbacks | Guardian returns the hour bucket (median and spread), falls back to the whole day and then the population prior, and passes it to Gemini | The dashboard shows the baseline filling in; sparse hours fall back |
 | One-minute calm baseline | In `main.py enrol`, record `capture_window(30)`-style readings into `device.json`; send to Tiger Data | Baseline row appears in Tiger Data |
 | Camera and microphone on the hub | `gemini_fn` in `main.py` already grabs a frame; add the mic features to the summary | `gemini_fn` returns `duress_score` for a calm and a shaky approval |
 | Calm vs. shaking approvals | Put each reading as a **delta from the baseline** in `gemini_fn`'s summary | Calm gives a low score, shaking and a second face give a high one, with reasons |
