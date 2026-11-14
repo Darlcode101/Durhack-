@@ -2,7 +2,7 @@
 
 *Project overview by Jonah, 14 November 2026. Built for DurHack on an Arduino UNO Q with a YubiKey 5 NFC. (Formerly "YuPico"; renamed because the build no longer uses a Raspberry Pi Pico.)*
 
-To wire it up, see the step-by-step **[hardware plan](HARDWARE-PLAN.md)**. For the team schedule and software checklist, see **[PLAN.md](PLAN.md)**.
+To wire it up, see the step-by-step **[hardware plan](HARDWARE-PLAN.md)**. For the team schedule and software checklist, see **[PLAN.md](PLAN.md)**. For how YuDuino targets each DurHack challenge (RS/Arduino, Tagged, Gemini, Tiger Data and add-ons), see the **[challenge plan](CHALLENGES.md)**.
 
 ## 1. The pitch: selling peace of mind
 
@@ -123,7 +123,8 @@ Ledger Enterprise offers approval devices with trusted screens, and Fireblocks o
 ## 12. Hackathon goals
 
 - **Demo:** replay the Binance attack. An "attack script" on the laptop requests a transfer; the LED matrix shows it; nothing moves without a real tap. Then a forced approval: the duress check fires, the attacker sees "OK", and the verifier silently freezes the funds.
-- Enter every side challenge, including **hackiest hack** (cardboard grip, hot glue and crocodile clips).
+- **Target challenges** (details in the [challenge plan](CHALLENGES.md)): RS/Arduino (main), Tagged "Information Hidden in Plain Sight" (optional), MLH Best Use of Gemini API, MLH Best Use of Tiger Data. Cheap add-ons: DEV, ElevenLabs, Vultr; Solana as a stretch.
+- Use the free 3D printer for the grip, enclosure and YubiKey dock.
 
 ## 13. Open decisions
 
@@ -131,4 +132,5 @@ Ledger Enterprise offers approval devices with trusted screens, and Fireblocks o
 - [ ] YubiKey on the laptop (WebAuthn) or directly on the UNO Q (USB)
 - [ ] Gemini in the cloud with scores only, or a local model
 - [ ] Verifier: co-signing server or smart contract for the demo
-- [ ] Which sponsor database, and what data it may store
+- [x] Sponsor database: Tiger Data, derived scores and labels only, written after the decision
+- [ ] Covert duress gesture for the Tagged challenge: tilt, tap rhythm, or both
