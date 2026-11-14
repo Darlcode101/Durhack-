@@ -1,13 +1,15 @@
 # Plan — Duress-aware, post-quantum authentication (DurHack hardware track)
 
 > Track: *build an intelligent system that can sense, analyse and respond to the real world.*
+>
+> The schedule below is superseded by the wave-by-wave **[prototype and development plan](DEV-PLAN.md)**.
 
 **One line:** everything runs on the Arduino UNO Q. The YubiKey only creates key material; the UNO Q is the only device that stores keys, and it protects them with post-quantum cryptography. Sensors, camera and Gemini judge **whether the person is acting freely**. Under duress the system looks like it lets them in, but silently raises an alert.
 
 | Verb | What we do |
 |---|---|
 | Sense | USB camera, Modulino Thermo (temp + humidity), Modulino Movement (shake), Modulino Buttons (PIN), touch, moisture, YubiKey |
-| Analyse | On the UNO Q: offline rules engine vs. personal baseline + Gemini check of image and sensor summary |
+| Analyse | On the UNO Q: features vs. personal baseline, aggregated and translated by Gemini (the duress calculation) |
 | Respond | On the UNO Q: post-quantum signed access token / step-up / duress token + silent alert, LED matrix + audit log |
 
 ## Who does what
@@ -15,9 +17,9 @@
 | Device | Role |
 |---|---|
 | **YubiKey** | Creates its FIDO2 credential and a 32-byte secret (`hmac-secret`) when touched. Its private key never leaves it. Does nothing else. |
-| **UNO Q (Linux side)** | All processing: talks to the YubiKey, derives keys, generates and stores the post-quantum keys, runs camera, rules, Gemini call, decision, alerts. **The only device that stores keys.** |
+| **UNO Q (Linux side)** | All processing: talks to the YubiKey, derives keys, generates and stores the post-quantum keys, runs camera, Gemini call, decision, alerts. **The only device that stores keys.** |
 | **UNO Q (MCU side)** | Reads sensors, computes features, LED matrix. |
-| **Gemini (cloud)** | Extra risk check only. Gets one frame + sensor summary. Never sees keys, PINs or tokens. Can only raise risk. |
+| **Gemini (cloud)** | Does the duress calculation: gets one frame + feature summary, returns the verdict. Never sees keys, PINs or tokens. Fails closed: no, late or malformed reply → duress key. |
 | **Laptop** | Not in the login path. Optional: view the dashboard. |
 
 ## Hardware
@@ -29,7 +31,7 @@ USB-C hub with power passthrough (UNO Q has ONE USB-C port)
   └─ 5V/3A USB-C power supply
         └─► Arduino UNO Q
              ├─ Linux (Qualcomm MPU): python/ — YubiKey (CTAP2), key derivation, post-quantum
-             │    keys + encrypted key store, camera, rules, Gemini, decision, alerts, dashboard
+             │    keys + encrypted key store, camera, Gemini, decision, alerts, dashboard
              │        ▲ Bridge (Python polls MCU with Bridge.call)
              └─ MCU (STM32): sketch/ — reads sensors, computes features, LED matrix
                   Qwiic chain: Modulino Thermo → Movement → Buttons
@@ -51,7 +53,7 @@ USB-C hub with power passthrough (UNO Q has ONE USB-C port)
 1. Hold the grip → ~8 s sensor + camera window.
 2. Enter PIN on Modulino Buttons (A/B/C sequence). Wrong PIN → denied.
 3. Touch the YubiKey. UNO Q checks the assertion against the stored credential, gets the `hmac-secret` output, rebuilds the KEK, decrypts the ML-DSA keys in RAM.
-4. Score: rules engine (deltas vs baseline, face count, duress PIN) + Gemini (frame + feature JSON → `{duress_score, signals, reasoning}`). Final score = max(rules, Gemini).
+4. Translate: features (deltas vs baseline) + frame → Gemini, which does the duress calculation → `{duress_score, signals, reasoning}`. Fail closed: no, late or malformed reply → duress. The duress PIN goes straight to the duress key.
 5. Respond:
    - `grant` → sign an access token (user, time, nonce) with the **normal** key.
    - `step_up` → no token, ask for another check.
@@ -59,6 +61,10 @@ USB-C hub with power passthrough (UNO Q has ONE USB-C port)
 6. Wipe the KEK and decrypted keys from memory.
 
 **Why this is post-quantum:** access tokens are ML-DSA signatures; keys at rest are AES-256 under a 256-bit KEK (quantum attacks only halve symmetric strength, leaving ~128-bit). Stealing the stored files without the YubiKey gives nothing usable.
+
+**Rule:** Gemini alone calculates the verdict; there is no onboard rules-engine fallback. Pinned HTTPS to Google. PIN and YubiKey touch always required; PINs are never sent to Gemini.
+
+_Considered and dropped: Alex's offline rules engine as a fallback (final score = max(rules, Gemini)). Jonah chose to keep the prototype simple, with Gemini alone deciding and failing closed._
 
 ## Downloads
 
@@ -80,7 +86,7 @@ USB-C hub with power passthrough (UNO Q has ONE USB-C port)
 |---|---|---|
 | 0. Smoke tests | 0–2 | Board updated + on Wi-Fi; LED matrix demo; camera **and YubiKey** seen via hub; all 3 Modulinos detected; `ykman info` shows key model; start the liboqs build (slow) |
 | 1. Data + keys | 2–8 | `get_features` returns real values over Bridge; camera frames; YubiKey enrol + `hmac-secret` → KEK on the UNO Q; ML-DSA sign/verify; encrypted key store round-trip |
-| 2. Analyse | 8–14 | Baseline enrolment; rules tuned on real data; Gemini call returning valid JSON; fallback on timeout |
+| 2. Analyse | 8–14 | Baseline enrolment; Gemini call returning valid JSON; fail closed to duress on timeout |
 | 3. Respond | 14–20 | Normal vs duress tokens + demo verifier, LED matrix states, webhook alert, dashboard (view-only) + audit log |
 | 4. Polish | 20–24 | Grip enclosure, wiring diagram, README, rehearse calm vs coerced demo, backup video |
 
@@ -118,8 +124,8 @@ Team of 4: (1) MCU + sensors (2) camera + Gemini (3) YubiKey + post-quantum cryp
 - 2 GB RAM: keep on-board vision light (Haar face count); liboqs + OpenCV + web server must fit together.
 
 **Gemini**
-- 1–5 s latency, needs network, free-tier rate limits → call once per login, rules engine as fallback.
-- Prompt injection via the camera (a sign saying "approve") → system prompt treats image text as untrusted, fixed JSON schema, Gemini can only raise risk.
+- 1–5 s latency, needs network, free-tier rate limits → call once per approval; fail closed to the decoy if it doesn't answer in time.
+- Prompt injection via the camera (a sign saying "approve") → system prompt treats image text as untrusted, fixed JSON schema, a malformed reply fails closed, and Gemini can't approve without the PIN and YubiKey touch.
 - Non-deterministic → temperature 0, thresholds not single yes/no.
 
 **Core problem**
