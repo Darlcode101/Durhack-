@@ -2,7 +2,7 @@
 
 **Hardware approval you can't fake, even under threat.** Built at DurHack 2026 on an Arduino UNO Q with a YubiKey 5 NFC.
 
-**The device is hidden inside a computer mouse that works exactly like a normal mouse.** No screen, no PIN, nothing extra to do: the user just clicks, and the authentication happens in the background. It also learns the owner's hand all day and **quietly rejects anyone else**. See [the target design](#the-target-design-a-mouse-you-just-use) below.
+**Peace of mind in an AI-accelerated world.** The past few months were the worst ever for cyber security (the Binance attack, where an attacker used a compromised laptop and an internal AI tool to make Binance's own signer approve theft of about US$6.3 billion). YuDuino is a **future-proof, post-quantum-signed** approval system that **new users can use without understanding it, because there are no inputs**: it is hidden inside a computer mouse that works exactly like a normal mouse. No screen, no PIN, nothing extra to do: the user just clicks, and the authentication happens in the background. To our knowledge it is a **new combination** of known parts that we couldn't find put together before ([prior art](docs/PRIOR-ART.md)). It also learns the owner's hand all day and **quietly rejects anyone else**. See [the target design](#the-target-design-a-mouse-you-just-use) below.
 
 Everything runs on an **Arduino UNO Q**. Every approval is a sealed envelope with three independent proofs: a **YubiKey** signature (who touched it), a tag from the board's **STM32 microcontroller** (the PIN was pressed on the real buttons for exactly the text on the LED matrix), and an **ML-DSA-65** post-quantum signature over everything. A handheld grip (shake, palm humidity and temperature, grip, sweat) and a USB camera feed Gemini, which judges **whether the person is acting freely**. Under duress the screen shows a normal "OK" and the envelope looks identical, but the STM32's tag secretly says "duress", which only the verifier can read, so it can raise a silent alarm. Details: **[crypto design](docs/CRYPTO.md)**.
 
@@ -116,6 +116,7 @@ Wiring and step-by-step bring-up: **[hardware plan](docs/HARDWARE-PLAN.md)**.
 - **[Development plan](docs/DEV-PLAN.md):** build waves, each advancing hardware, cryptography and extensions together, with a demo at the end of every wave.
 - **[Hardware plan](docs/HARDWARE-PLAN.md):** wiring, pins and the bring-up order.
 - **[All-day baseline](docs/BASELINE.md):** how the mouse learns each person's normal all day, the privacy limits, filtering out mouse movement, and time-of-day drift.
+- **[Prior art](docs/PRIOR-ART.md):** what already exists (mouse dynamics, biometric and sensor mice, duress detection, decoy wallets, post-quantum keys), what is genuinely different, and what we must not claim.
 - **[Composition](docs/COMPOSITION.md):** the DurHack theme: YuDuino as a composition, a music angle, the judging map and a demo.
 - **[Marshall Wace: New Worlds](docs/INSTITUTIONAL-FIT.md):** our answer to their challenge, plus the institutional fit: treasury and trader authorisation, insider and coercion risk, audit trails, objections and a demo.
 - **[Invisible approval](docs/STEALTH-APPROVAL.md):** no screen, no PIN, no extra input: the flow, what we lose and how we cover it.
