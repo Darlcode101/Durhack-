@@ -23,7 +23,10 @@ TZ = os.environ.get("DASHBOARD_TZ", "Europe/London")
 BASE_COLUMNS = ("time", "device", "verdict", "score", "local_score", "gemini_score", "faces", "close_people",
                 "far_people", "humidity", "temp_c", "shake_rms", "moisture", "touch", "sweat_z", "move_z",
                 "yubikey", "gemini_latency")
-COLUMNS = BASE_COLUMNS + ("decided_by",)   # "sensors" or "camera": who settled the verdict
+# Extra columns, each written only if the service accepted the ALTER TABLE that adds it.
+EXTRA_COLUMNS = [("decision column", ("decided_by",)),                       # "sensors" or "camera"
+                 ("assessment columns", ("body_score", "explanation", "baseline"))]  # baseline = jsonb snapshot
+COLUMNS = BASE_COLUMNS + tuple(c for _, cols in EXTRA_COLUMNS for c in cols)
 
 SCHEMA = [
     ("readings table", """
@@ -36,6 +39,25 @@ SCHEMA = [
     ("readings hypertable", "SELECT create_hypertable('readings', by_range('time', INTERVAL '1 day'), if_not_exists => TRUE)"),
     ("readings index", "CREATE INDEX IF NOT EXISTS readings_device_time ON readings (device, time DESC)"),
     ("decision column", "ALTER TABLE readings ADD COLUMN IF NOT EXISTS decided_by text"),
+    ("assessment columns", """
+     ALTER TABLE readings ADD COLUMN IF NOT EXISTS body_score real,
+                          ADD COLUMN IF NOT EXISTS explanation text,
+                          ADD COLUMN IF NOT EXISTS baseline jsonb"""),
+    ("incident labels", """
+     ALTER TABLE incidents ADD COLUMN IF NOT EXISTS label text,
+                           ADD COLUMN IF NOT EXISTS labelled_at timestamptz"""),
+    ("personal baseline aggregate", """
+     CREATE MATERIALIZED VIEW IF NOT EXISTS baseline_1h
+     WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
+     SELECT time_bucket('1 hour', time) AS bucket, device,
+            avg(humidity) AS humidity, stddev_samp(humidity) AS humidity_sd,
+            avg(moisture) AS moisture, stddev_samp(moisture) AS moisture_sd,
+            avg(shake_rms) AS shake, stddev_samp(shake_rms) AS shake_sd, count(*) AS n
+     FROM readings WHERE touch IS TRUE AND verdict = 'NORMAL'
+     GROUP BY bucket, device WITH NO DATA"""),
+    ("personal baseline refresh policy", """
+     SELECT add_continuous_aggregate_policy('baseline_1h', start_offset => INTERVAL '3 days',
+            end_offset => INTERVAL '1 hour', schedule_interval => INTERVAL '15 minutes', if_not_exists => TRUE)"""),
     ("incidents table", """
      CREATE TABLE IF NOT EXISTS incidents (
        time timestamptz NOT NULL, device text NOT NULL, verdict text NOT NULL,
@@ -124,12 +146,18 @@ def _flush(conn):
     while _queue and len(rows) < 2000:
         rows.append(_queue.popleft())
     if rows:
-        # If the service refused the new column, keep writing the original columns.
-        cols = COLUMNS if status["features"].get("decision column") is True else BASE_COLUMNS
+        # Write only the extra columns the service actually accepted.
+        keep = list(range(len(BASE_COLUMNS)))
+        pos = len(BASE_COLUMNS)
+        for feat, cols in EXTRA_COLUMNS:
+            if status["features"].get(feat) is True:
+                keep += list(range(pos, pos + len(cols)))
+            pos += len(cols)
+        cols = [COLUMNS[i] for i in keep]
         try:
             with conn.cursor() as cur, cur.copy(f"COPY readings ({', '.join(cols)}) FROM STDIN") as cp:
                 for r in rows:
-                    cp.write_row(r[:len(cols)])
+                    cp.write_row([r[i] for i in keep])
             status["written"] += len(rows)
         except Exception:
             _queue.extendleft(reversed(rows))   # put them back, retry later
@@ -244,11 +272,56 @@ def normal_by_hour() -> dict:
 
 def incidents(limit: int = 25) -> list:
     # ::float8 because extract() returns numeric (Python Decimal), which JSON can't encode
-    rows = query("""SELECT extract(epoch FROM time)::float8, verdict, peak_score, signals, gemini_reasoning,
-                           extract(epoch FROM ended_at)::float8
-                    FROM incidents WHERE device = %s ORDER BY time DESC LIMIT %s""", (DEVICE, limit))
-    return [{"t": r[0], "verdict": r[1], "peak": r[2], "signals": r[3] or [], "reasoning": r[4], "ended": r[5]}
-            for r in rows]
+    lab = status["features"].get("incident labels") is True
+    rows = query(f"""SELECT extract(epoch FROM time)::float8, verdict, peak_score, signals, gemini_reasoning,
+                            extract(epoch FROM ended_at)::float8, {"label" if lab else "NULL"}
+                     FROM incidents WHERE device = %s ORDER BY time DESC LIMIT %s""", (DEVICE, limit))
+    return [{"t": r[0], "verdict": r[1], "peak": r[2], "signals": r[3] or [], "reasoning": r[4], "ended": r[5],
+             "label": r[6]} for r in rows]
+
+
+# ------------------------------------------------------------------ learning inputs (all deterministic)
+def usual_for_hour(hour: int) -> dict | None:
+    """This user's calm, hand-on-mouse normal at this hour of day over the last 14 days, as
+    {key: (mean, sd, n)}, pooled from the baseline_1h continuous aggregate."""
+    import baseline_model as bm
+    rows = query(f"""SELECT humidity, humidity_sd, moisture, moisture_sd, shake, shake_sd, n
+                     FROM baseline_1h
+                     WHERE device = %s AND bucket > now() - INTERVAL '14 days'
+                       AND extract(hour FROM bucket AT TIME ZONE '{TZ}') = %s""", (DEVICE, hour))
+    if not rows:
+        return None
+    return {"humidity": bm.pool([(r[0], r[1], r[6]) for r in rows]),
+            "moisture": bm.pool([(r[2], r[3], r[6]) for r in rows]),
+            "shake_rms": bm.pool([(r[4], r[5], r[6]) for r in rows])}
+
+
+def recent_rows(minutes: int = 30) -> list:
+    """Hand-on-mouse readings from the last `minutes`, oldest first: (t, humidity, moisture, shake, verdict)."""
+    return query(f"""SELECT extract(epoch FROM time)::float8, humidity, moisture, shake_rms, verdict
+                     FROM readings WHERE device = %s AND touch IS TRUE AND time > now() - INTERVAL '{int(minutes)} minutes'
+                     ORDER BY time""", (DEVICE,))
+
+
+def false_alarms_near_hour(hour: int) -> int:
+    """Incidents labelled false alarms in the last 30 days within an hour of this time of day."""
+    if status["features"].get("incident labels") is not True:
+        return 0
+    return query(f"""SELECT count(*) FROM incidents
+                     WHERE device = %s AND label = 'false_alarm' AND time > now() - INTERVAL '30 days'
+                       AND abs(extract(hour FROM time AT TIME ZONE '{TZ}') - %s) <= 1""", (DEVICE, hour))[0][0]
+
+
+def label_incident(t: float, label: str) -> bool:
+    """Mark an incident (by its start time) as 'false_alarm' or 'confirmed'. In a real deployment
+    only compliance/security would be allowed to do this, because labels widen tolerance."""
+    if label not in ("false_alarm", "confirmed", None):
+        raise ValueError("label must be false_alarm, confirmed or null")
+    from datetime import datetime, timezone
+    rows = query("""UPDATE incidents SET label = %s, labelled_at = now()
+                    WHERE device = %s AND time = %s RETURNING 1""",
+                 (label, DEVICE, datetime.fromtimestamp(t, timezone.utc)))
+    return bool(rows)
 
 
 def stats() -> dict:

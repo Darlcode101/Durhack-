@@ -36,6 +36,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingRes
 from fusion_gemini import gemini_score  # noqa: E402
 
 sys.path.insert(0, HERE)
+import baseline_model as bm  # noqa: E402
 import tiger  # noqa: E402  (reads TIGER_DATABASE_URL, so it must come after load_dotenv)
 
 FEATURES_PATH = os.environ.get(
@@ -304,17 +305,7 @@ CLEAR_NORMAL_BELOW = float(os.environ.get("CLEAR_NORMAL_BELOW", "0.25"))
 CLEAR_DURESS_FROM = float(os.environ.get("CLEAR_DURESS_FROM", "0.75"))
 
 
-def _z_to_score(z):
-    """0 at 1.5σ above normal, 1 at 4.5σ. Below normal never counts."""
-    return None if z is None else max(0.0, min(1.0, (z - 1.5) / 3.0))
-
-
-def body_score(sweat_z, move_z):
-    parts = [p for p in (_z_to_score(sweat_z), _z_to_score(move_z)) if p is not None]
-    if not parts:
-        return None
-    hi, lo = max(parts), min(parts)
-    return min(1.0, hi + 0.5 * lo) if len(parts) > 1 else hi
+# The body score itself comes from baseline_model.assess (two baselines, exertion and fatigue rules).
 
 
 def decide(body, c, g_score, others):
@@ -348,6 +339,35 @@ def decide(body, c, g_score, others):
     return "NORMAL", min(base, 0.3), "camera", reasons
 
 
+# ------------------------------------------------------------------ learning from Tiger
+learned = {}   # usual (this hour), recent (last 20 min + return/trend), tolerance, refreshed every 20 s
+
+
+def learn_loop():
+    """Pull this user's learned normal from Tiger. Deterministic: plain aggregates and statistics."""
+    from zoneinfo import ZoneInfo
+    while True:
+        if tiger.URL and tiger.status.get("connected"):
+            try:
+                hour = datetime.now(ZoneInfo(tiger.TZ)).hour
+                usual = tiger.usual_for_hour(hour)
+                recent = bm.recent_from_rows(tiger.recent_rows(30), time.time())
+                fa = tiger.false_alarms_near_hour(hour)
+                with lock:
+                    learned.update(usual=usual, recent=recent, false_alarms=fa, tolerance=bm.tolerance_for(fa),
+                                   hour=hour, at=time.time(), error=None)
+            except Exception as e:
+                with lock:
+                    learned["error"] = tiger._safe(e)
+        time.sleep(20)
+
+
+def _session_ref():
+    if not baseline.stats:
+        return None
+    return {k: baseline.stats[k] for k in bm.KEYS if k in baseline.stats} or None
+
+
 # ------------------------------------------------------------------ fusion
 current_state = {}
 _uncertain = {}   # {"since": t} while the body sensors are in the uncertain band
@@ -365,16 +385,17 @@ def compute_state():
         yk = yubikey["present"]
         g = dict(gemini)
 
-    sweat_z = move_z = None
-    if s and baseline.stats:
-        zs = [z for z in (baseline.z(s, "humidity"), baseline.z(s, "moisture")) if z is not None]
-        sweat_z = max(zs) if zs else None
-        move_z = baseline.z(s, "shake_rms")
-    body = body_score(sweat_z, move_z)
+    with lock:
+        L = dict(learned)
+    a = bm.assess(s, L.get("usual"), L.get("recent"), _session_ref(), L.get("tolerance", 1.0)) if s else None
+    body = a["body"] if a else None
+    sweat_z = a["groups"]["sweat"]["z"] if a and a["groups"].get("sweat") else None
+    move_z = a["groups"]["movement"]["z"] if a and a["groups"].get("movement") else None
     signals = []
     for name, z in (("sweating more than normal", sweat_z), ("moving differently from normal", move_z)):
         if z is not None and z > 2:
             signals.append(f"{name} ({z:+.1f}σ)")
+    explanations = a["explanations"] if a else []
 
     uncertain = body is None or CLEAR_NORMAL_BELOW <= body < CLEAR_DURESS_FROM
     # Gemini's answer only counts if it was given during this uncertain spell.
@@ -398,8 +419,15 @@ def compute_state():
         "watching": c["watching"],
         "sensors_ok": f is not None, "features": s,
         "sweat_z": sweat_z, "move_z": move_z, "touch": (s or {}).get("touch"),
-        "baseline_ready": baseline.stats is not None, "baseline_progress": round(baseline.progress(), 2),
+        "baseline_ready": baseline.stats is not None or bool(a and a["baseline_kind"]),
+        "baseline_progress": round(baseline.progress(), 2),
         "baseline": baseline.stats,
+        "assessment": {"kind": a["baseline_kind"] if a else None, "groups": a["groups"] if a else {},
+                       "tolerance": a["tolerance"] if a else 1.0, "returned_s": a["returned_s"] if a else None,
+                       "explanations": explanations,
+                       "usual_n": sum(((L.get("usual") or {}).get(k) or (0, 0, 0))[2] for k in bm.KEYS),
+                       "recent_n": (L.get("recent") or {}).get("n", 0), "hour": L.get("hour"),
+                       "false_alarms": L.get("false_alarms", 0), "learn_error": L.get("error")},
         "yubikey": yk,
         "gemini": {"score": g_score, "fresh": g_fresh, "needed": uncertain, "latency": g["latency"],
                    "error": g["error"] if uncertain else None,
@@ -437,7 +465,11 @@ def store(st, s):
             "moisture": f.get("moisture"), "touch": bool(f.get("touch")) if f else None,
             "sweat_z": st["sweat_z"], "move_z": st["move_z"], "yubikey": st["yubikey"],
             "gemini_latency": st["gemini"]["latency"] if st["gemini"]["fresh"] else None,
-            "decided_by": st["decided_by"]})
+            "decided_by": st["decided_by"],
+            # Enough to recompute this verdict: which baseline, the z-scores and each signal's state.
+            "body_score": st["body_score"],
+            "explanation": "; ".join(st["assessment"]["explanations"]) or None,
+            "baseline": json.dumps({k: st["assessment"][k] for k in ("kind", "tolerance", "returned_s", "groups")})})
     reason = st["gemini"]["reasoning"]
     if st["verdict"] != "NORMAL":
         if incident["start"] is None:
@@ -518,6 +550,13 @@ def api_incidents():
     return _tiger(tiger.incidents)
 
 
+@app.post("/api/incidents/label")
+def api_label(t: float, label: str):
+    """Mark an incident as a false alarm (widens tolerance at that time of day, capped) or confirmed.
+    Demo only: in a real deployment this would need compliance/security sign-in."""
+    return _tiger(lambda: {"ok": tiger.label_incident(t, None if label == "clear" else label)})
+
+
 @app.get("/frame.jpg")
 def frame():
     """Latest annotated frame. The page polls this, so it recovers by itself after a restart
@@ -554,7 +593,7 @@ def video():
 
 if __name__ == "__main__":
     print("Tiger Data:", "configured" if tiger.URL else "not configured (live view only)", flush=True)
-    for fn in (camera_loop, yubikey_loop, gemini_loop, fusion_loop, tiger.writer_loop):
+    for fn in (camera_loop, yubikey_loop, gemini_loop, fusion_loop, tiger.writer_loop, learn_loop):
         threading.Thread(target=fn, daemon=True).start()
     print(f"Dashboard on http://0.0.0.0:{PORT}  (sensors from {FEATURES_PATH})", flush=True)
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")

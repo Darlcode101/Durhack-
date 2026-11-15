@@ -144,6 +144,7 @@
 
   <div class="sh"><h2>Signals</h2><span class="aside"><span id="base-text"></span> · <button class="link" id="learn">Re-learn normal</button></span></div>
   <div class="tiles" id="tiles"></div>
+  <div class="foot" id="learn-note"></div>
 
   <div class="cols">
     <div>
@@ -217,10 +218,13 @@ function renderLive(s) {
   $("badge").innerHTML = icon(s.verdict === "NORMAL" ? "i-shield" : "i-alert", 28);
   $("v-title").textContent = s.verdict === "NORMAL" ? "No signs of duress" : s.verdict === "WATCH" ? "Something looks unusual" : "Possible duress";
   $("v-reason").textContent = s.signals.length ? s.signals.join(", ").replace(/^./, (c) => c.toUpperCase()) + "." : "Everything is within your normal range.";
-  $("v-path").textContent = s.decided_by === "sensors"
+  const A = s.assessment || {};
+  const path = s.decided_by === "sensors"
     ? "Decided by the body sensors. The camera and Gemini weren’t needed."
     : s.baseline_ready ? "The body sensors were unsure, so the camera and Gemini made the call."
                        : "Still learning your normal, so the camera and Gemini are making the call.";
+  const expl = (A.explanations || []).map((e) => e.replace(/^./, (c) => c.toUpperCase()) + ".").join(" ");
+  $("v-path").textContent = expl ? `${path} ${expl}` : path;
   $("v-score").textContent = fmt(s.score);
   $("v-score").className = "v num" + (s.verdict === "NORMAL" ? "" : ` t-${tone}`);
 
@@ -230,9 +234,18 @@ function renderLive(s) {
     : s.watching ? `Watching your screen, ${Math.round(s.dwell)} s`
     : s.others ? "Nearby, not watching" : `${s.faces} in view`;
   let t = tile("i-people", "--indigo", "People close", s.others ?? "–", "", peopleCap, s.over_shoulder ? "t-red" : s.watching ? "t-orange" : "");
+  // Caption: how this reading compares with your last 20 minutes and with your usual for this hour.
+  const zcap = (gr) => {
+    if (!gr || gr.z == null) return "Learning your normal";
+    const sig = (z) => (z >= 0 ? "+" : "−") + Math.abs(z).toFixed(1) + "σ";
+    if (gr.state === "recovering") return `Easing off since you got back (${sig(gr.z_usual)} vs usual)`;
+    if (gr.z_recent != null && gr.z_usual != null) return `${sig(gr.z_recent)} vs last 20 min, ${sig(gr.z_usual)} vs usual`;
+    return `${sig(gr.z)} vs ${A.kind && A.kind.startsWith("usual") ? "usual" : "this session"}`;
+  };
+  const G = A.groups || {};
   if (s.sensors_ok) {
-    t += tile("i-drop", "--teal", "Humidity", fmt(f.humidity, 1), "%", r ? fmtZ(s.sweat_z) : "Learning your normal", r ? zColor(s.sweat_z) : "");
-    t += tile("i-wave", "--blue", "Movement", fmt(f.shake_rms, 3), "g", r ? fmtZ(s.move_z) : "Learning your normal", r ? zColor(s.move_z) : "");
+    t += tile("i-drop", "--teal", "Sweat", fmt(f.humidity, 1), "%", zcap(G.sweat), r ? zColor(s.sweat_z) : "");
+    t += tile("i-wave", "--blue", "Movement", fmt(f.shake_rms, 3), "g", zcap(G.movement), r ? zColor(s.move_z) : "");
     t += tile("i-hand", "--orange", "Grip", f.touch ? "Held" : "Not held", "", `Moisture ${f.moisture ?? "–"}`, "");
     t += tile("i-temp", "--red", "Palm temperature", fmt(f.temp_c, 1), "°C", "Modulino Thermo", "");
   } else {
@@ -243,7 +256,14 @@ function renderLive(s) {
     ? tile("i-spark", "--indigo", "Gemini", "Standby", "", "Only asked when sensors are unsure", "")
     : tile("i-spark", "--indigo", "Gemini", fmt(g.score), "", g.score != null && g.latency != null ? `${g.latency} s to respond` : (g.error ? "No answer" : "Asking…"), g.score >= 0.6 ? "t-red" : g.score >= 0.35 ? "t-orange" : "");
   $("tiles").innerHTML = t;
-  $("base-text").textContent = r ? "Normal learned" : `Learning normal, ${Math.round(s.baseline_progress * 30)} of 30 s`;
+  $("base-text").textContent = !r ? `Learning normal, ${Math.round(s.baseline_progress * 30)} of 30 s`
+    : A.kind ? `Compared with your ${A.kind.replace("usual for this hour", "usual at this hour")}` : "Normal learned";
+  const hh = A.hour != null ? String(A.hour).padStart(2, "0") + ":00" : "this hour";
+  const usualMin = Math.round((A.usual_n || 0) / 60);
+  $("learn-note").textContent = tigerInfo && tigerInfo.enabled
+    ? `Learned from Tiger: ${usualMin} min of calm use around ${hh} over the last 14 days${usualMin < 10 ? " (needs 10 min before it replaces this session’s calibration)" : ""}, and ${Math.round((A.recent_n || 0) / 30)} min of your last 20.` +
+      (A.false_alarms ? ` ${A.false_alarms} false alarm${A.false_alarms === 1 ? "" : "s"} near this time widened the tolerance to ${A.tolerance}×.` : "")
+    : "";
 
   $("cam-meta").textContent = s.camera_ok ? `${Math.round(s.fps)} fps` : "Offline";
   $("g-meta").textContent = g.model || "";
@@ -356,9 +376,13 @@ async function loadIncidents() {
       const duress = r.verdict === "DURESS";
       const len = r.ended ? `${Math.max(1, Math.round(r.ended - r.t))} s` : "Ongoing";
       const why = (r.signals || []).join(", ") || "No details";
-      return `<div class="row noicon"><span class="dot ${duress ? "on-red" : "on-orange"}"></span>
+      const lab = r.label === "false_alarm"
+        ? `<button class="link" data-t="${r.t}" data-l="clear">Marked false alarm · Undo</button>`
+        : `<button class="link" data-t="${r.t}" data-l="false_alarm">False alarm?</button>`;
+      return `<div class="row noicon"><span class="dot ${r.label === "false_alarm" ? "" : duress ? "on-red" : "on-orange"}"></span>
         <div class="main"><div class="title">${duress ? "Possible duress" : "Unusual activity"}</div>
-        <div class="sub">${esc(why.replace(/^./, (c) => c.toUpperCase()))}</div></div>
+        <div class="sub">${esc(why.replace(/^./, (c) => c.toUpperCase()))}</div>
+        <div class="sub" style="margin-top:4px">${lab}</div></div>
         <div class="trail num"><div>${ago(r.t)}</div><div class="sub">${len}, peak ${fmt(r.peak)}</div></div></div>`;
     }).join("");
   } catch (e) { box.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
@@ -395,6 +419,12 @@ $("seg").onclick = (e) => {
   loadHistory();
 };
 $("learn").onclick = () => fetch("/calibrate", { method: "POST" });
+$("incidents").onclick = async (e) => {
+  const b = e.target.closest("button[data-t]"); if (!b) return;
+  b.disabled = true;
+  await fetch(`/api/incidents/label?t=${encodeURIComponent(b.dataset.t)}&label=${b.dataset.l}`, { method: "POST" });
+  loadIncidents();
+};
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => Object.keys(charts).forEach((id) => { charts[id].destroy(); delete charts[id]; }));
 pollLive(); pollTiger(); pollCam(); setTimeout(pollNormal, 1500);
 </script>
