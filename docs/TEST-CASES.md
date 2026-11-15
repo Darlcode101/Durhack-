@@ -130,6 +130,7 @@ Each one must be rejected, and each is a thing the Binance attackers could have 
 |---|---|---|---|---|
 | 2026-11-15 morning | Alex + Claude | b9fb028 | 1 (58 tests, OK, 10/10 runs); 2.1 P; 2.2 F, then stopped | 2.2: `fatal error: ../../sketch/yuseal_mcu.h: No such file or directory`; after the include fix, a palm-on-grip press of button C printed `refused`. YubiKey probe not run (mode unknown) |
 | 2026-11-15 afternoon | Alex + Claude | a520585 (laptop only) | 1 | 74 of 75 pass. 1.0/1.10/1.13/1.14: `test_baseline_matches_python` (`test_yuseal.py:464`): `AssertionError: b"\xe[23 chars]x80F@''7<\xa6\x88\xf5?\xe8\x03:\xce\xb0\xb5\x9[116 chars]xb6?" != b"\xe[23 chars]x80F@('7<\xa6\x88\xf5?\xe8\x03;\xce\xb0\xb5\x9[116 chars]xb6?"`. Also failed on 8bb4bdd and f6812f4 |
+| 2026-11-15 afternoon (fix) | Claude | after a520585 | 1 (75 tests) | `test_baseline_matches_python` was the C++ test build fusing multiply-adds on the tester's CPU (aarch64 or `-march=native`), which changes the last bits of the baseline doubles. Reproduced with `-mfma`; the test now builds with `-ffp-contract=off` and passes. Re-run group 1 on the tester's machine to confirm. |
 
 **Blockers to settle first, in order:** 2.1 (the sketch compiles), 2.8 (Bridge String arguments), 3.2 and 3.3 (the YubiKey without a touch). Groups 4 to 7 depend on them.
 
