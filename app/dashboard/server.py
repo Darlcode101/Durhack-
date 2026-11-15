@@ -225,6 +225,36 @@ class Baseline:
 
 
 baseline = Baseline()
+
+# A synthetic calm profile instead of a live 30 s hold: the same every time (seeded), and no palm
+# hold needed after a restart. Humidity and temperature use tools/gen_generic_training.py's calm
+# ranges; shake and moisture use this mouse's calm range in its own units (the generator's raw shake
+# column is ~10x what this Movement board reads at rest, which would hide real shaking).
+SYNTH_CALM = {"humidity": (45.0, 12.0), "temp_c": (33.0, 2.5), "shake_rms": (0.015, 0.015), "moisture": (0.0, 5.0)}
+
+
+def synthetic_baseline(n: int = 600, seed: int = 1) -> dict:
+    import random
+    r = random.Random(seed)
+    stats = {}
+    for k, (m, sd) in SYNTH_CALM.items():
+        v = [r.gauss(m, sd) for _ in range(n)]
+        if k in ("shake_rms", "moisture"):
+            v = [abs(x) for x in v]          # these can't go negative
+        mean = sum(v) / n
+        spread = (sum((x - mean) ** 2 for x in v) / n) ** 0.5
+        stats[k] = (round(mean, 4), round(max(spread, Baseline.KEYS[k]), 4))
+    return stats
+
+
+def use_synthetic_baseline():
+    baseline.reset()
+    baseline.stats = synthetic_baseline()
+    baseline.kind = "synthetic"
+
+
+if os.environ.get("BASELINE_MODE", "synthetic") == "synthetic":
+    use_synthetic_baseline()
 recent_features = collections.deque(maxlen=10)   # ~2 s of readings, averaged
 
 
@@ -391,9 +421,44 @@ current_state = {}
 _uncertain = {}   # {"since": t} while the body sensors are in the uncertain band
 
 
+# The Thermo sits under the palm. Without a hand on the pad it reads the room, which poisons the
+# baseline and the sweat score, so its readings only count while the pad is touched, and only after
+# THERMO_SETTLE_S for the sensor to go from room air to palm (brief touch dropouts are bridged).
+THERMO_SETTLE_S = float(os.environ.get("THERMO_SETTLE_S", "3"))
+PALM_TEMP_MIN = float(os.environ.get("PALM_TEMP_MIN", "15"))
+PALM_TEMP_MAX = float(os.environ.get("PALM_TEMP_MAX", "39"))
+_palm = {"since": None, "last": 0.0}
+
+
+# The Movement board sometimes reports one fixed value (shake_rms ~0.1224) for ~2.5 s with the hand
+# still. Real shaking gives varying values, so a reading inside this narrow band is dropped as a glitch.
+SHAKE_GLITCH = (float(os.environ.get("SHAKE_GLITCH_LO", "0.121")), float(os.environ.get("SHAKE_GLITCH_HI", "0.124")))
+
+
+def palm_only(f: dict) -> dict:
+    now = time.time()
+    sh = f.get("shake_rms")
+    if sh is not None and SHAKE_GLITCH[0] <= sh <= SHAKE_GLITCH[1]:
+        f = {**f, "shake_rms": None}
+    if f.get("touch"):
+        _palm["last"] = now
+        _palm["since"] = _palm["since"] or now
+    elif now - _palm["last"] > 0.5:
+        _palm["since"] = None
+    if _palm["since"] is None or now - _palm["since"] < THERMO_SETTLE_S:
+        return {**f, "humidity": None, "temp_c": None}
+    # The Thermo sometimes jumps in whole 10 degree steps (30 -> 80 C) with humidity jumping alongside.
+    # No palm is outside this range, so drop the whole reading rather than learn or score a glitch.
+    t = f.get("temp_c")
+    if t is None or not (PALM_TEMP_MIN <= t <= PALM_TEMP_MAX):
+        return {**f, "humidity": None, "temp_c": None}
+    return f
+
+
 def compute_state():
     f = read_features()
     if f:
+        f = palm_only(f)
         recent_features.append(f)
         baseline.add(f)
     s = smoothed() if f else None
@@ -571,9 +636,14 @@ def state():
 
 
 @app.post("/calibrate")
-def calibrate():
+def calibrate(mode: str | None = None):
+    """No mode: learn live from the next 30 s with a hand on the pad. mode=synthetic: the synthetic calm profile."""
+    if mode == "synthetic":
+        use_synthetic_baseline()
+        return {"ok": True, "baseline": "synthetic", "stats": baseline.stats}
     baseline.reset()
-    return {"ok": True}
+    baseline.kind = "live"
+    return {"ok": True, "baseline": "live"}
 
 
 def _store(fn, *args):
