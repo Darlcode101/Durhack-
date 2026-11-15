@@ -282,10 +282,13 @@ def smoothed():
 
 # ------------------------------------------------------------------ YubiKey presence
 def yubikey_loop():
-    from fido2.hid import CtapHidDevice
+    # list_descriptors() reads the device list without opening anything. CtapHidDevice.list_devices()
+    # opened every /dev/hidraw* and never closed them: 1,000+ leaked handles after ~1h50, then
+    # "Too many open files" and the dashboard stopped answering.
+    from fido2.hid import list_descriptors
     while True:
         try:
-            present = any(getattr(d.descriptor, "vid", None) == 0x1050 for d in CtapHidDevice.list_devices())
+            present = any(getattr(d, "vid", None) == 0x1050 for d in list_descriptors())
         except Exception:
             present = False
         with lock:
