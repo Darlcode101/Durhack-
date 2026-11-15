@@ -45,7 +45,7 @@ NONCE_TTL_S = 120
 
 NORMAL, STEP_UP, DURESS = "N", "S", "D"
 SEVERITY = {NORMAL: 0, STEP_UP: 1, DURESS: 2}
-STEP_UP_AT, DURESS_AT = 40, 70  # Gemini score 0..100; must match yuseal_mcu.h
+STEP_UP_AT, DURESS_AT = 40, 70  # model score 0..100; must match yuseal_mcu.h
 
 
 # ---------------------------------------------------------------- helpers
@@ -113,7 +113,7 @@ def features_hash(features) -> bytes:
 
 
 def decide_status(score: int, veto: bool) -> str:
-    """The one decision rule. Gemini can raise the alarm, never lower it. Fail closed."""
+    """The one decision rule. The model can raise the alarm, never lower it. Fail closed."""
     if veto:
         return DURESS
     if not isinstance(score, int) or isinstance(score, bool) or score < 0 or score > 100:
@@ -125,10 +125,10 @@ def decide_status(score: int, veto: bool) -> str:
     return NORMAL
 
 
-def gemini_to_score(gemini: dict | None) -> int:
-    """Turn fusion_gemini's reply into the 0..100 integer the STM32 takes. -1 = no usable verdict."""
+def model_to_score(model: dict | None) -> int:
+    """Turn the edge model's reply (edge_model.py) into the 0..100 integer the STM32 takes. -1 = no usable verdict."""
     try:
-        s = float(gemini["duress_score"])
+        s = float(model["duress_score"])
     except (TypeError, KeyError, ValueError):
         return -1
     return round(s * 100) if 0.0 <= s <= 1.0 else -1
@@ -137,6 +137,66 @@ def gemini_to_score(gemini: dict | None) -> int:
 def mcu_keys(k_mcu: bytes) -> tuple[bytes, bytes]:
     """(k_rel, k_tag). k_rel never leaves the STM32; k_tag is shared with the verifier."""
     return hmac256(k_mcu, b"YS3/release-key"), hmac256(k_mcu, b"YS3/tag-key")
+
+
+def mcu_profile_key(k_mcu: bytes) -> bytes:
+    """The AES-256 key that encrypts the profile (baseline and model) at rest. Derived on the STM32,
+    never stored on Linux. Not tied to an approval, because the baseline is learned all day."""
+    return hmac256(k_mcu, b"YS3/profile-key")
+
+
+# ---------------------------------------------------------------- the STM32's per-hour baseline
+BL_SENSORS = ("humidity", "moisture", "shake_rms", "temp_c")   # this order, as in baseline_mcu.h
+BL_HOURS, BL_CAP, BL_MIN_N = 24, 1000, 20
+BL_HOUR_BYTES = len(BL_SENSORS) * 18
+
+
+class HourBaseline:
+    """Python twin of yuseal::HourBaseline: per hour of day and sensor, a rolling mean and variance.
+    Exact for the first BL_CAP samples, then a rolling window of about BL_CAP samples."""
+
+    def __init__(self):
+        self.s = [[[0, 0.0, 0.0] for _ in BL_SENSORS] for _ in range(BL_HOURS)]   # n, mean, var
+
+    def add(self, hour: int, v) -> None:
+        if not 0 <= hour < BL_HOURS:
+            return
+        for st, x in zip(self.s[hour], v):
+            st[0] = min(st[0] + 1, BL_CAP)
+            alpha = 1.0 / st[0]
+            delta = x - st[1]
+            st[1] += alpha * delta
+            st[2] = (1.0 - alpha) * (st[2] + alpha * delta * delta)
+
+    def z(self, hour: int, v) -> list[float] | None:
+        """z-scores of v against this hour's baseline, or None if the hour has too little data."""
+        if not 0 <= hour < BL_HOURS:
+            return None
+        out = []
+        for st, x in zip(self.s[hour], v):
+            if st[0] < BL_MIN_N:
+                return None
+            sd, floor = st[2] ** 0.5, 1e-3 * (1.0 + abs(st[1]))
+            out.append((x - st[1]) / (sd if sd > floor else floor))
+        return out
+
+    def count(self, hour: int) -> int:
+        return self.s[hour][0][0] if 0 <= hour < BL_HOURS else 0
+
+    def export_hour(self, hour: int) -> bytes:
+        import struct
+        return b"".join(struct.pack("<Hdd", n, m, var) for n, m, var in self.s[hour])
+
+    def import_hour(self, hour: int, raw: bytes) -> bool:
+        import struct
+        if not 0 <= hour < BL_HOURS or len(raw) != BL_HOUR_BYTES:
+            return False
+        new = [list(struct.unpack("<Hdd", raw[18 * i:18 * i + 18])) for i in range(len(BL_SENSORS))]
+        if any(n > BL_CAP or not (var >= 0) or m != m or var == float("inf") or abs(m) == float("inf")
+               for n, m, var in new):
+            return False
+        self.s[hour] = new
+        return True
 
 
 def mcu_tag(k_tag: bytes, status: str, digest: bytes, click_age: int, grip: int, features) -> bytes:
@@ -150,6 +210,8 @@ class SoftMcu:
 
     def __init__(self, k_mcu: bytes):
         self._k_rel, self._k_tag = mcu_keys(k_mcu)
+        self._k_prof = mcu_profile_key(k_mcu)
+        self.baseline = HourBaseline()
         self._arms: list[int] = []
         self._pressed = self._have_click = self._click_grip = False
         self._down = self._click_ms = 0
@@ -186,6 +248,9 @@ class SoftMcu:
     def tick(self, now_ms: int):
         if self.state == self.ARMED and now_ms - self._arm_ms > SESSION_MS:
             self._clear()
+
+    def profile_key(self) -> bytes:
+        return self._k_prof
 
     def unlock_salt(self) -> bytes | None:
         return hmac256(self._k_rel, b"unlock-salt") if self.state == self.ARMED else None

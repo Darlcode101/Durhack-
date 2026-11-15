@@ -16,9 +16,9 @@ STEP_UP_AT = 0.4
 DURESS_AT = 0.7
 
 
-def decide(rules: dict, gemini: dict | None) -> dict:
-    # Gemini can only raise risk: take the max, never let it lower the rules score.
-    g = gemini["duress_score"] if gemini else 0.0
+def decide(rules: dict, model: dict | None) -> dict:
+    # The model can only raise risk: take the max, never let it lower the rules score.
+    g = model["duress_score"] if model else 0.0
     score = max(rules["score"], g)
     if rules.get("explicit_duress") or score >= DURESS_AT:
         outcome = "duress"
@@ -30,7 +30,7 @@ def decide(rules: dict, gemini: dict | None) -> dict:
         "outcome": outcome,
         "score": round(score, 2),
         "rule_signals": rules["signals"],
-        "gemini": gemini,
+        "model": model,
     }
 
 

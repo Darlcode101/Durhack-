@@ -13,10 +13,10 @@
 │  sketch.ino    glue: click tap, sensors,   approve.py   one approval, step by step
 │                Bridge calls                yuseal.py    envelope + crypto + owner check
 │       ▲                                    yubikey_auth.py  YubiKey over USB
-│       │ Bridge (remote calls)              camera.py, fusion_gemini.py  Gemini
+│       │ Bridge (remote calls)              camera.py, edge_model.py  Edge Impulse
 │       └────────────────────────────────────────┘
 │  owns: click tap, Movement,              owns: USB hub → YubiKey + camera + mic,
-│        Thermo, touch D2, moisture A1,           Wi-Fi → Gemini
+│        Thermo, touch D2, moisture A1,           the Edge Impulse model, on the board
 │        tag key
 └────────────────────────────────────────────────────────────────────────┘
                                    │ envelope
@@ -39,14 +39,14 @@
 | `app/python/verify_cli.py` | Laptop, Python | A tiny reference verifier for trying it: `enrol`, `nonce`, `check` | Done |
 | `app/python/yubikey_auth.py` | Linux, Python | `RealYubiKey`: the real YubiKey over USB | Written, **not yet run on hardware** |
 | `app/python/main.py` | Linux, Python | `enrol` and `approve` commands, wires everything together | Written, not run on hardware |
-| `app/python/fusion_gemini.py`, `camera.py` | Linux, Python | Gemini call, camera frame (as before) | Existing code. `gemini_fn` in `main.py` calls them |
+| `app/python/edge_model.py`, `camera.py` | Linux, Python | The on-device Edge Impulse model (one `<user>.eim` each), camera frame | `model_fn` in `main.py` calls them. Needs a trained model per person ([EDGE-IMPULSE.md](EDGE-IMPULSE.md)) |
 
 **Your actual coding work** is therefore small and concentrated. In order:
 
 1. Make the four `VERIFY` items in `sketch.ino` work on the real board (§5).
 2. Make `RealYubiKey` work on the real YubiKey (§5).
-3. Wave 2: feed real sensor windows to Gemini (`gemini_fn`) and tune the onboard veto limits (`onboard_veto` in `approve.py`).
-4. Wave 3: dashboard and Tiger Data; the mouse shell.
+3. Wave 2: feed real sensor windows to the Edge Impulse model (`model_fn`) and tune the onboard veto limits (`onboard_veto` in `approve.py`).
+4. Wave 3: dashboard and local store; the mouse shell.
 5. Wave 4: readout protection, SLH-DSA root, Solana.
 
 You never have to write cryptography, only call it.
@@ -62,7 +62,7 @@ pip install -r app/python/requirements.txt fastapi httpx
 cd app/python && python3 -m unittest test_yuseal -v
 ```
 
-**Test:** 52 tests pass. (The C++ tests need `g++`; they're skipped without it.) If this fails on your laptop, stop and fix it before touching hardware.
+**Test:** 57 tests pass. (The C++ tests need `g++`; they're skipped without it.) If this fails on your laptop, stop and fix it before touching hardware.
 
 ### Wave 1: skeleton (19:30 to 23:30)
 
@@ -77,20 +77,20 @@ cd app/python && python3 -m unittest test_yuseal -v
 | 7 | **Step 6, basic route:** YubiKey plugged into the hub | Make `RealYubiKey` work (§5, item 4). Run `python3 main.py enrol jonah > package.json` and click once (no touch if the key allows it, §5 item 4), then `python3 verify_cli.py enrol jonah package.json` | Prints `enrolled jonah` |
 | 8 | **Milestone 1** | `python3 main.py approve jonah '{"action":"transfer","amount":"10","asset":"GBP","to":"0xA1B2…"}' --nonce <nonce> > envelope.json`, then `python3 verify_cli.py check envelope.json request.json` | click with your palm on the mouse within a few seconds; the check prints `"public": "accepted"` and `"verdict": "normal"` |
 | 9 | | Repeat with a shaking hand, or a second face in the camera | The check still prints `"public": "accepted"`, but `"verdict": "duress"` |
-| 10 | | Unplug the Wi-Fi from the board (or unset `GEMINI_API_KEY`) and approve normally | The verdict is `duress`: no Gemini verdict means duress |
+| 10 | | Unplug the Wi-Fi from the board (or remove the model file and stop the dashboard) and approve normally | The verdict is `duress`: no model verdict means duress |
 
-**Done when** rows 8, 9 and 10 pass. That is the Wave 1 demo, and it's the whole core idea: calm approves, coerced and "no Gemini" both hold, and from outside they look identical. Commit and tag `wave-1`.
+**Done when** rows 8, 9 and 10 pass. That is the Wave 1 demo, and it's the whole core idea: calm approves, coerced and "no model" both hold, and from outside they look identical. Commit and tag `wave-1`.
 
 ### Wave 2: real signals (23:30 to 03:30)
 
 | Hardware step | Code step | Test |
 |---|---|---|
 | Sensors into the cardboard grip; tape every joint | None | A loose wire mid-demo trips the veto; tape it |
-| **All-day baseline** ([BASELINE.md](BASELINE.md)): STM32 computes a per-minute row (grip fraction, 4 to 12 Hz tremor from quiet windows only, humidity delta, moisture, still fraction); the dashboard writes it to Tiger Data | Rows appear every minute only while the hand is on a still-enough mouse; no raw data in the table |
-| Baseline lookup by hour of day, with fallbacks | The dashboard returns the hour bucket (median and spread), falls back to the whole day and then the population prior, and passes it to Gemini | The dashboard shows the baseline filling in; sparse hours fall back |
-| One-minute calm baseline | In `main.py enrol`, record `capture_window(30)`-style readings into `device.json`; send to Tiger Data | Baseline row appears in Tiger Data |
-| Camera and microphone on the hub | `gemini_fn` in `main.py` already grabs a frame; add the mic features to the summary | `gemini_fn` returns `duress_score` for a calm and a shaky approval |
-| Calm vs. shaking approvals | Put each reading as a **delta from the baseline** in `gemini_fn`'s summary | Calm gives a low score, shaking and a second face give a high one, with reasons |
+| **All-day baseline** ([BASELINE.md](BASELINE.md)): STM32 computes a per-minute row (grip fraction, 4 to 12 Hz tremor from quiet windows only, humidity delta, moisture, still fraction); the dashboard writes it to the local store | Rows appear every minute only while the hand is on a still-enough mouse; no raw data in the table |
+| Baseline lookup by hour of day, with fallbacks | The dashboard returns the hour bucket (median and spread), falls back to the whole day and then the population prior, and passes it to the on-device model | The dashboard shows the baseline filling in; sparse hours fall back |
+| One-minute calm baseline | In `main.py enrol`, record `capture_window(30)`-style readings into `device.json`; save to the local store | Baseline row appears in the store |
+| Camera and microphone on the hub | `model_fn` in `main.py` already gets a face count from the camera; add the mic features to the vector (`edge_model.FEATURE_NAMES`) | `model_fn` returns `duress_score` for a calm and a shaky approval |
+| Calm vs. shaking approvals | Put each reading as a **delta from the baseline** in the model's feature vector | Calm gives a low score, shaking and a second face give a high one, with reasons |
 | | Tune the limits in `onboard_veto` (`approve.py`) to your real sensors | An unplugged Thermo triggers `veto` |
 | | Try to persist the arming rate-limit history in the STM32's flash (§5, item 5). If it can't, say so in the write-up | After a power cycle the rate limit is still remembered |
 
@@ -111,7 +111,7 @@ cd app/python && python3 -m unittest test_yuseal -v
 | Hardware step | Code step | Test |
 |---|---|---|
 | Sealed shell screws; spare cables | Lock the STM32's debug port and enable readout protection if the toolchain allows | Flash can't be read through the debug port |
-| | Check `openssl version` is 3.5+ on the board; test that TLS to Gemini negotiates `X25519MLKEM768` | `openssl s_client -groups X25519MLKEM768 …` succeeds |
+| | Check `openssl version` is 3.5+ on the board; test that TLS to the verifier negotiates `X25519MLKEM768` | `openssl s_client -groups X25519MLKEM768 …` succeeds |
 | | Rehearse the Binance-replay demo twice; record a backup video | Runs start to finish without touching a laptop, twice |
 | | Stretch: Solana devnet program checks the envelope and releases or freezes funds | A normal approval releases, a duress approval freezes on chain |
 
@@ -122,8 +122,8 @@ The same four roles as the [dev plan](DEV-PLAN.md#who-does-what-team-of-4), now 
 | Role | Files | First job |
 |---|---|---|
 | **1. Microcontroller and sensors** | `sketch.ino` (and `yuseal_mcu.h` only with someone else reviewing) | Rows 1 to 5 of Wave 1: click tap, Qwiic, Bridge calls |
-| **2. Linux side and Gemini** | `main.py`, `approve.py` (`gemini_fn`, `onboard_veto`), `camera.py`, `fusion_gemini.py`, `yubikey_auth.py` | Row 7: `RealYubiKey` on the real key; then `gemini_fn` |
-| **3. Crypto and verifier** | `yuseal.py`, `verify_cli.py`, `tools/provision.py`, Tiger Data | Rows 4 and 6; then the dashboard |
+| **2. Linux side and the model** | `main.py`, `approve.py` (`model_fn`, `onboard_veto`), `camera.py`, `edge_model.py`, `yubikey_auth.py` | Row 7: `RealYubiKey` on the real key; then `model_fn` |
+| **3. Crypto and verifier** | `yuseal.py`, `verify_cli.py`, `tools/provision.py` | Rows 4 and 6; then the dashboard |
 | **4. Build and pitch** | the mouse shell, dashboard look, demo script, video | Print the mouse shell; write the demo script from §6 |
 
 **Review rule:** any change to `yuseal_mcu.h`, `yuseal.py` or the tag format needs the tests to pass and a second person to read it. Everything else can move fast.
@@ -150,7 +150,7 @@ The first time any of these runs, tell the team and tick it off in [PLAN.md](PLA
 4. **The replay.** Send the same envelope again. Rejected (nonce used).
 5. **The coerced approval.** A teammate stands behind you, hand on your shoulder, hand shaking. You click the same way. The requester sees `accepted`. The verifier's verdict is `duress`; the customer's system decides what to do with that.
 6. **The wrong hand.** Someone else uses the mouse. They get a plain "unavailable", try again, and never pass; after a few tries the member locks.
-7. **The language.** Show the Gemini verdict for the calm and the coerced sensor windows side by side: each reading alone means nothing, together they say duress.
+7. **The language.** Show the model's verdict for the calm and the coerced sensor windows side by side: each reading alone means nothing, together they say duress.
 8. **The "it can't be read" moment.** Put the two envelopes next to each other: same shape, same size, nothing to tell them apart.
 
 ## 7. If something goes wrong
@@ -159,7 +159,7 @@ The first time any of these runs, tell the team and tick it off in [PLAN.md](PLA
 - **`arm_approval` keeps returning `0`:** there was no click in the last 1.5 s, the palm wasn't on the grip (touch sensor), the same click was already used, or the arm rate limit (10 per 10 minutes) was hit.
 - **The verifier rejects with "no valid tag":** the verifier's tag key doesn't match the one in `secrets.h`. Re-run `provision.py`, reflash, and re-enrol.
 - **The verifier rejects with "unknown or reused nonce" or "expired":** more than 2 minutes passed, the nonce was already used, or the verifier's state file was lost.
-- **Duress shows up when it shouldn't:** check the veto first (a sensor may be unplugged), then Gemini's reasons. A false alarm costs a delay, never a loss, so leave the fail-closed rule alone.
+- **Duress shows up when it shouldn't:** check the veto first (a sensor may be unplugged), then the model's score. A false alarm costs a delay, never a loss, so leave the fail-closed rule alone.
 
 See [TESTING.md](TESTING.md) for the full test steps.
 

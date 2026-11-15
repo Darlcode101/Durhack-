@@ -1,10 +1,10 @@
 # YuDuino cryptography test cases
 
-Test cases for the **YuSeal cryptography only** ([CRYPTO.md](CRYPTO.md)): the three proofs (YubiKey, STM32 tag, ML-DSA-65), the key store, the nonce, the reference verifier's checks and the audit log. Sensors, the dashboard, Gemini and the owner check are not covered here. The one exception: duress is judged only at the moment of a transaction (cases 2.11 and 5.8). Short flash steps are in [TESTING.md](TESTING.md).
+Test cases for the **YuSeal cryptography only** ([CRYPTO.md](CRYPTO.md)): the three proofs (YubiKey, STM32 tag, ML-DSA-65), the key store, the nonce, the reference verifier's checks and the audit log. Sensors, the dashboard, the Edge Impulse model's training and the owner check are not covered here. The one exception: duress is judged only at the moment of a transaction (cases 2.11 and 5.8). Short flash steps are in [TESTING.md](TESTING.md).
 
 Tick a case only when you saw the expected result. Write the **result, who and when** in the last column, and the exact error text for any failure. **Result key:** `P` pass, `F` fail, `-` not run.
 
-**Status on 2026-11-15 morning:** group 1 is automated and passes on a laptop (52 tests). Groups 2 to 7 have not been run on the board.
+**Status on 2026-11-15 morning:** group 1 is automated and passes on a laptop (57 tests). Groups 2 to 7 have not been run on the board.
 
 ---
 
@@ -14,10 +14,10 @@ Run: `cd app/python && python3 -m unittest test_yuseal -v`. Each row names the t
 
 | ID | Case | Proves | Result |
 |---|---|---|---|
-| 1.0 | Fresh clone, new venv, `pip install -r app/python/requirements.txt`, tests say `OK` (52) | Someone else can run it | |
+| 1.0 | Fresh clone, new venv, `pip install -r app/python/requirements.txt`, tests say `OK` (57) | Someone else can run it | |
 | 1.1 | `test_calm_owner_approval_executes`, `test_no_touch_is_needed` | The happy path verifies all three proofs, with no YubiKey touch | |
 | 1.2 | `test_duress_looks_identical_from_outside_but_holds`, `test_linux_learns_nothing_about_the_status` | The tag hides the status (normal, step-up, duress): same sizes and same salt; only the verifier can read it | |
-| 1.3 | `test_gemini_duress_and_step_up`, `test_fail_closed` | The decision rule: a missing, garbled or out-of-range score, or a veto, means duress | |
+| 1.3 | `test_model_duress_and_step_up`, `test_fail_closed` | The decision rule: a missing, garbled or out-of-range score, or a veto, means duress | |
 | 1.4 | `test_nothing_without_a_click`, `test_click_is_single_use`, `test_no_palm_on_the_grip_no_arm`, `test_session_times_out`, `test_tag_is_one_shot`, `test_rate_limit` | The STM32 releases the salt and tag only for a fresh physical click, once, within its limits | |
 | 1.5 | `test_cannot_swap_request_under_a_real_click`, `test_cannot_arm_for_another_digest_without_a_fresh_click` | A rooted Linux side can't change what a click approves | |
 | 1.6 | `test_cannot_turn_duress_into_normal`, `test_cannot_change_the_attested_sensor_summary`, `test_cannot_backdate_the_click` | A tag can't be moved, edited or back-dated | |
@@ -26,7 +26,9 @@ Run: `cd app/python && python3 -m unittest test_yuseal -v`. Each row names the t
 | 1.9 | `test_verifier_state_round_trips_through_json` | The reference verifier's state (members, nonces, baseline) survives being saved and loaded | |
 | 1.10 | `CppCoreTest` | The real STM32 C++ gives the same salt, tag and attestation bytes as the Python model, and refuses what it refuses | |
 | 1.11 | `LinuxFlowTest`: wrong YubiKey can't unlock, state survives a restart, no click signs nothing | The Linux flow against a fake STM32 | |
-| 1.12 | The same, 10 times in a row | Nothing depends on randomness or timing luck | |
+| 1.13 | `HourBaselineTest`, `ProfileTest`, `LearnerTest`, `test_profile_key_matches`, `test_baseline_matches_python` | The per-hour rolling baseline (C++ and Python agree), the encrypted profile (wrong key or tampering refused), and a 15-minute seeding giving a baseline and training rows | |
+| 1.12 | `EdgeModelTest` | The Edge Impulse integration with a fake model: the input vector, the duress probability becoming the score, and a missing, faulty or nonsense model failing closed | |
+| 1.13 | The same, 10 times in a row | Nothing depends on randomness or timing luck | |
 
 ## 2. The STM32 core on the board
 
@@ -44,7 +46,7 @@ The same C++ the laptop test compiled, now on the real chip.
 | 2.8 | **Bridge String arguments** | `Bridge.call("arm_approval", "00"*32)` then `Bridge.call("seal_approval", "10", "0")` | Returns text, no argument error. If it errors, use the pack-into-one-string fix in `docs/BUILD-FLOW.md` §5 item 1 | |
 | 2.9 | Same answer for every outcome | Seal with scores 0, 50 and 90, and with veto | Always a 64-hex-character tag, same salt each time | |
 | 2.10 | Power cycle | Arm, power-cycle, ask for the salt | `-` (nothing survives a reboot) | |
-| 2.11 | Duress is only judged at a transaction | Leave the app running idle for 5 minutes with the mouse in use, no approval started | No tag is made (`get_attest` and `seal_approval` answer `-`), no Gemini call is counted, and no incident appears; the STM32 only ever decides a status inside an armed approval | |
+| 2.11 | Duress is only judged at a transaction | Leave the app running idle for 5 minutes with the mouse in use, no approval started | No tag is made (`get_attest` and `seal_approval` answer `-`), no model run is counted, and no incident appears; the STM32 only ever decides a status inside an armed approval | |
 
 ## 3. The YubiKey
 
@@ -66,6 +68,7 @@ Run `python3 tools/yk_probe.py` on the board first. It prints which mode works.
 
 | ID | Case | Steps | Expect | Result |
 |---|---|---|---|---|
+| 4.0 | Seed and encrypted profile | `main.py seed jonah 15` with a hand on the mouse, then `grep` `app/python/profile/` for any readable number | A baseline and rows are saved; the files are `YP1` ciphertext only; a reboot restores the baseline | |
 | 4.1 | Enrol | `main.py enrol jonah > package.json`, click once | `package.json` holds public data and the seed; `device.json` has a wrapped key, no plain key | |
 | 4.2 | Plain key never on disk | `grep` the `device.json` and `.env` for the seed | Only the AES-GCM wrapped blob is stored | |
 | 4.3 | Copied file is useless | Copy `device.json` to the laptop and try to unlock with another YubiKey | Fails (`unlock` returns nothing) | |
@@ -84,7 +87,7 @@ The reference verifier is a command line on the laptop: `python3 app/python/veri
 | 5.3 | Status stays hidden | Compare the envelope of a calm and a duress approval | Same keys, same sizes; `check` shows `"verdict": "normal"` vs `"duress"`, both `"public": "accepted"` | |
 | 5.4 | No click | Run approve and do not click | Refused after about 5 s; no envelope is made | |
 | 5.5 | Public answers | Compare what the requester sees for success, a bad signature, a wrong tag and a stale nonce | `accepted` for success (and duress); one identical plain `unavailable` for every failure | |
-| 5.6 | Gemini down | Unset `GEMINI_API_KEY`, approve | The approval completes and `check` shows `"verdict": "duress"` (fails closed) | |
+| 5.6 | No model | Stop the dashboard and install no model, approve | The approval completes and `check` shows `"verdict": "duress"` (fails closed) | |
 | 5.7 | Tag key mismatch | Re-run `provision.py` on the laptop only, then approve | `check` rejects with "no valid tag" (the verifier's key must match the chip's) | |
 | 5.8 | Only a transaction can raise duress | Use the mouse normally (shaky, sweaty, a second person nearby) with no approval running, then run `verify_cli.py nonce` and look at `verifier_state.json` | Nothing is raised or flagged; a duress outcome appears only for an approval made at that moment | |
 

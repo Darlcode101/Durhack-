@@ -11,6 +11,7 @@
 #include <Arduino_RouterBridge.h>
 #include <Arduino_Modulino.h>
 #include "yuseal_mcu.h"   // trusted approval core (docs/CRYPTO.md); tested on a laptop
+#include "baseline_mcu.h"  // rolling per-hour baseline of the body sensors; tested on a laptop
 #include "secrets.h"      // written by tools/provision.py, gitignored: YS_K_MCU
 
 // --- Qwiic chain: Thermo + Movement (+ Buttons only for the bench click, see below) ---
@@ -29,6 +30,7 @@ const int TOUCH_PIN    = 2;   // TTP223-style capacitive touch on the palm rest:
 const int MOISTURE_PIN = A1;  // resistive probe used as a crude sweat/contact proxy
 
 yuseal::Mcu core;
+yuseal::HourBaseline baseline;   // RAM here; Linux keeps an AES-256-GCM encrypted copy and restores it at boot
 bool prevClick = false;
 
 // --- Rolling sensor window (about 0.64 s at 100 Hz). Becomes the ten integer features at arm time. ---
@@ -85,7 +87,7 @@ void computeFeatures(int32_t f[yuseal::N_FEATURES]) {
 }
 
 // Returned to Python as a JSON string so we don't depend on Bridge's type mapping.
-// Used by Linux for the Gemini window and the onboard veto. Never contains the status.
+// Used by Linux for the model window and the onboard veto. Never contains the status.
 String get_features() {
   String s = "{";
   s += "\"temp_c\":"     + String(thermo.getTemperature(), 2) + ",";
@@ -94,6 +96,7 @@ String get_features() {
   s += "\"grip\":"       + String(digitalRead(TOUCH_PIN)) + ",";
   s += "\"touch\":"      + String(digitalRead(TOUCH_PIN)) + ",";   // same as grip; the dashboard reads this name
   s += "\"moisture\":"   + String(analogRead(MOISTURE_PIN)) + ",";
+  s += "\"hold_ms\":"    + String(int(core.lastHoldMs())) + ",";   // length of the last click
   s += "\"state\":"      + String(int(core.state())) + ",";   // 0 idle, 1 armed
   s += "\"i2c\":\""     + String(i2cFound) + "\"";            // addresses found on Wire1 at boot (debug)
   s += "}";
@@ -142,13 +145,60 @@ String get_attest() {
   return core.attest(a) ? toHex(a, yuseal::Mcu::ATTEST_LEN) : String("-");
 }
 
-// Linux passes Gemini's score as a whole number 0..100 (anything else = no usable verdict).
+// Linux passes the model's score as a whole number 0..100 (anything else = no usable verdict).
 // Returns the 32-byte tag as hex, or "-".
 String seal_approval(String scoreStr, String vetoStr) {
   uint8_t tag[32];
   int score = scoreStr.toInt();
   if (!core.seal(score, vetoStr == "1", tag)) return "-";
   return toHex(tag, 32);
+}
+
+// ---------------- the profile (Linux -> STM32). The STM32 reads the sensors itself. ----------------
+// The key that encrypts the profile on the Linux side. Derived here, never stored there.
+String get_profile_key() {
+  uint8_t k[32];
+  core.profileKey(k);
+  return toHex(k, 32);
+}
+
+static void bodyReadings(double v[yuseal::BL_SENSORS]) {   // order: humidity, moisture, shake_rms, temp_c
+  v[0] = thermo.getHumidity();
+  v[1] = analogRead(MOISTURE_PIN);
+  v[2] = shakeRms();
+  v[3] = thermo.getTemperature();
+}
+
+// Adds the CURRENT readings to this hour's baseline, but only while a palm is on the grip.
+// Linux says which hour it is and nothing else, so it cannot feed in readings. "1" or "0".
+String baseline_add(String hourStr) {
+  if (digitalRead(TOUCH_PIN) != HIGH) return "0";
+  double v[yuseal::BL_SENSORS];
+  bodyReadings(v);
+  baseline.add(hourStr.toInt(), v);
+  return "1";
+}
+
+// z-scores of the current readings against this hour's baseline, "z0 z1 z2 z3", or "-" if too little data.
+String baseline_z(String hourStr) {
+  double v[yuseal::BL_SENSORS], z[yuseal::BL_SENSORS];
+  bodyReadings(v);
+  if (!baseline.z(hourStr.toInt(), v, z)) return "-";
+  String s;
+  for (int i = 0; i < yuseal::BL_SENSORS; i++) { if (i) s += " "; s += String(z[i], 4); }
+  return s;
+}
+
+// One hour of statistics as hex (for the encrypted copy), and the same back in after a power cut.
+String baseline_export(String hourStr) {
+  uint8_t b[yuseal::BL_HOUR_BYTES];
+  baseline.exportHour(hourStr.toInt(), b);
+  return toHex(b, yuseal::BL_HOUR_BYTES);
+}
+String baseline_import(String hourStr, String hex) {
+  uint8_t b[yuseal::BL_HOUR_BYTES];
+  if (!fromHex(hex, b, yuseal::BL_HOUR_BYTES)) return "0";
+  return baseline.importHour(hourStr.toInt(), b) ? "1" : "0";
 }
 
 void setup() {
@@ -172,12 +222,18 @@ void setup() {
   for (int i = 0; i < WIN; i++) mag[i] = 1.0;
 
   core.provision(YS_K_MCU);
+  baseline.clear();
 
   Bridge.provide_safe("get_features", get_features);
   Bridge.provide_safe("arm_approval", arm_approval);
   Bridge.provide_safe("get_unlock_salt", get_unlock_salt);
   Bridge.provide_safe("get_attest", get_attest);
   Bridge.provide_safe("seal_approval", seal_approval);
+  Bridge.provide_safe("get_profile_key", get_profile_key);
+  Bridge.provide_safe("baseline_add", baseline_add);
+  Bridge.provide_safe("baseline_z", baseline_z);
+  Bridge.provide_safe("baseline_export", baseline_export);
+  Bridge.provide_safe("baseline_import", baseline_import);   // VERIFY: two String arguments over Bridge
 }
 
 void loop() {

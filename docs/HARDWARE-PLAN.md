@@ -119,7 +119,7 @@ One end-to-end approval, no AI yet:
 6. The terminal prints the averaged sensor readings and face count.
 7. Entering the **duress PIN** (same presses, last one held long: `ABCABCAb`) also shows `OK`, but the verifier logs `hold_and_alert` and nothing would be paid.
 
-When all seven work, the hardware is done. Everything after is software: baseline enrolment and rules (milestone 2), Gemini (milestone 3), then the grip enclosure and demo script (milestone 4).
+When all seven work, the hardware is done. Everything after is software: baseline enrolment and rules (milestone 2), the Edge Impulse model (milestone 3), then the grip enclosure and demo script (milestone 4).
 
 ## Building the mouse
 

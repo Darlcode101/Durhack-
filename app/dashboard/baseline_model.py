@@ -1,10 +1,10 @@
 """How the body sensors are judged against the user's own normal. Pure and deterministic:
 the same readings and baselines always give the same result, so any past verdict can be
-recomputed exactly from what Tiger stored.
+recomputed exactly from what the local store holds.
 
-Two baselines, both from Tiger:
+Two baselines, both from the local store:
   usual   this user's normal for this HOUR OF DAY: 14 days of hand-on-mouse readings from
-          everyday use, gaming and busy days included (continuous aggregate usual_1h). Falls back
+          everyday use, gaming and busy days included (hourly aggregates). Falls back
           to the 30 s session calibration.
   recent  the user's own LAST 20 MINUTES of hand-on-mouse readings. Everyday use always counts;
           readings from a transaction count only if it was judged normal, so a flagged approval

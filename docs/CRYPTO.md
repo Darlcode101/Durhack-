@@ -106,7 +106,7 @@ The whole security argument depends on this one small piece, so it is built to b
 2. **Counts button presses**, but only while the grip sensor says the grip is held. A **short press** is a capital letter (`A`), a press **held 0.8 s or more** is a lowercase letter (`a`).
 3. **After the last press plus 1.5 s**, checks the PIN by computing `HMAC(K_PIN, "pin|" + presses)` and comparing it, in constant time, with **both** stored tags (normal and duress). Wrong: count it, and after 5 wrong the device locks. Either right: the same thing happens, so **Linux can't tell which PIN was used**.
 4. **`unlockSalt()`**: after a correct PIN, releases `HMAC(K_PIN, "unlock-salt")`. This lets Linux unwrap the ML-DSA key with the YubiKey.
-5. **`seal(score, veto)`**: takes Gemini's score as a whole number 0 to 100 (anything else counts as "no verdict"), decides the status, and returns the tag `HMAC(K_TAG, "YS2/tag" + status + SHA256(text) + digest)`. **It works once per `begin()`.**
+5. **`seal(score, veto)`**: takes the model's score as a whole number 0 to 100 (anything else counts as "no verdict"), decides the status, and returns the tag `HMAC(K_TAG, "YS2/tag" + status + SHA256(text) + digest)`. **It works once per `begin()`.**
 
 **The decision rule** (the same in C++ and Python, checked against each other for every case):
 
@@ -118,7 +118,7 @@ The whole security argument depends on this one small piece, so it is built to b
 | Score 40 to 69 | Step-up |
 | Score 0 to 39 | Normal |
 
-Gemini can raise the alarm but never lower it. A false alarm costs a short delay, so failing closed is cheap.
+The model can raise the alarm but never lower it. A false alarm costs a short delay, so failing closed is cheap.
 
 **What this buys:** a tag exists only if a person pressed the right PIN, on these buttons, with the grip held, **for the exact text that was on the LED matrix**, and the digest is tied to it. Malware on Linux can't make a tag for anything else, can't reuse one (it covers the display hash and digest), and can't read the status inside it.
 
@@ -131,7 +131,7 @@ Done once per person, in person, with a second team member watching.
 3. **Run `tools/provision.py`** on a laptop. It makes `K_MCU` (32 random bytes), computes the two PIN tags, and writes `secrets.h` for the sketch and a key file for the verifier. Flash the sketch, then delete the files that shouldn't live on.
 4. **Register the YubiKey** (`attestation="direct"`, so a fake "YubiKey" emulated by malware can't enrol).
 5. **Enter the normal PIN once.** The STM32 releases the salt, the YubiKey gives its hmac-secret for it, and the ML-DSA-65 key is made and wrapped under it.
-6. **Record a one-minute calm baseline** of sensor readings (Tiger Data, as already planned).
+6. **Record a one-minute calm baseline** of sensor readings (stored on the device).
 7. **The org root signs a membership certificate** (Wave 3): person, YubiKey public key, ML-DSA public key, tag key, expiry.
 
 ## How one approval works
@@ -150,7 +150,7 @@ Done once per person, in person, with a second team member watching.
                               ◄──────────── salt ───────
                               8 YubiKey: sign digest + hmac-secret(salt) ───────► touch
                               ◄───────────────────────────────────────── signature + secret
-                              9 unwrap ML-DSA key; Gemini on the sensor window
+                              9 unwrap ML-DSA key; the on-device model on the sensor window
                               10 seal(score) ───────────► 11 decide status, make tag, LED: "OK"
                               ◄──────────── tag ────────
                               12 ML-DSA seal, log entry
@@ -200,13 +200,13 @@ The overview's open decision, "fake approval design details", is settled like th
 
 - Every approval is signed by the same ML-DSA key and the same YubiKey. Nothing visible differs.
 - The status is mixed into the **tag**, which is an HMAC: without the verifier's tag key, a normal tag and a duress tag are indistinguishable 32 random-looking bytes. Only the verifier can try the three statuses and see which matches.
-- **Linux never learns the status.** It never sees the PIN, only a salt that is the same for both PINs. It passes Gemini's number in and gets a tag out. So malware on the board can't tip off an attacker, and can't be made to.
+- **Linux never learns the status.** It never sees the PIN, only a salt that is the same for both PINs. It passes the model's number in and gets a tag out. So malware on the board can't tip off an attacker, and can't be made to.
 - **Same behaviour on every path.** The LED matrix shows `OK` for normal and duress alike, the envelope has the same shape and size, and the verifier answers the requester `accepted` for both. A held transfer sits in the same short queue as a normal large one.
 - **The duress PIN looks the same to an observer.** It uses the same buttons as the normal PIN, with one press held longer. (If they know the exact timing pattern of your normal PIN they'd notice. Use a hood over the buttons, [weak spot 6](#remaining-weak-spots).)
 
-**Nothing about the alarm is stored on the device.** Gemini's score is passed to the STM32 and then forgotten. The tag can't be read without the tag key, which is not on the device's Linux side, so a seized device can't show which approvals raised the alarm.
+**Nothing about the alarm is stored on the device.** The model's score is passed to the STM32 and then forgotten. The tag can't be read without the tag key, which is not on the device's Linux side, so a seized device can't show which approvals raised the alarm.
 
-**Dropped for the hackathon:** an encrypted "evidence box" with a hybrid ML-KEM + X25519 key agreement, which let the verifier ask Gemini for a second opinion. The gap this leaves is a compromised Linux side telling the STM32 "all calm"; the onboard veto and the duress PIN still cover it (weak spot 14). It can come back after the hackathon.
+**Dropped for the hackathon:** an encrypted "evidence box" with a hybrid ML-KEM + X25519 key agreement, which let the verifier ask a second model for a second opinion. The gap this leaves is a compromised Linux side telling the STM32 "all calm"; the onboard veto and the duress PIN still cover it (weak spot 14). It can come back after the hackathon.
 
 ## The login system
 
@@ -231,7 +231,7 @@ Logins use the **same envelope** with `type: "login"`, so there's one thing to b
 1. **On the device:** each envelope adds a log entry holding the previous entry's hash, signed with ML-DSA. Edit, delete or reorder one entry and the chain breaks (tested). A copy goes to the microSD.
 2. **On the verifier:** entries go into a **transparency log**, a Merkle tree like the one behind HTTPS Certificate Transparency. The verifier signs the tree head, so it can't show different histories to different people.
 3. **Daily checkpoint:** the tree head is signed with the SLH-DSA root and, as a Solana stretch goal, posted on chain, so even the verifier's own admins can't rewrite history.
-4. **Tiger Data** stores one row per approval with the entry hash, so the dashboard can show the chain and check it on load.
+4. **The local store** keeps one row per approval with the entry hash, so the dashboard can show the chain and check it on load.
 
 The log stores a hash of the envelope, never the plain status, so reading it doesn't reveal alarms. The verifier's incident records (for admins) do.
 
@@ -245,8 +245,8 @@ Every row has a defined, safe result. Each is tested unless marked.
 |---|---|
 | Wrong PIN | Nothing released. After 5 wrong, the STM32 locks until power-cycled |
 | Grip not held | Presses don't count; the request times out after 90 s |
-| Gemini slow, down, or malformed | No score, so **duress**. Approval completes, the verifier holds it and alerts |
-| Wi-Fi down | Linux can't reach Gemini or the verifier: nothing executes. The envelope is kept and sent when back; its nonce will have expired, so the person approves again (not tested) |
+| Model missing, faulty or malformed | No score, so **duress**. Approval completes, the verifier holds it and alerts |
+| Wi-Fi down | Linux can't reach the verifier: nothing executes. The envelope is kept and sent when back; its nonce will have expired, so the person approves again (not tested) |
 | Verifier down | Nothing executes (it is the only route). The device still makes decoys the same way |
 | YubiKey unplugged or the wrong one | Can't unwrap the ML-DSA key; refused |
 | Power cut mid-approval | STM32 forgets the session (RAM). The next `begin` starts clean. Linux's state file is written atomically |
@@ -265,15 +265,15 @@ Every row has a defined, safe result. Each is tested unless marked.
 
 ## The network
 
-- **Hybrid post-quantum TLS** (X25519MLKEM768) to Gemini and the verifier. OpenSSL 3.5 and newer offers it by default; check `openssl version` on the UNO Q. This stops "harvest now, decrypt later" of the features and frames sent to Gemini.
-- **Pinning:** the verifier's own certificate is pinned exactly. For Google, pin the Google Trust Services roots rather than the server certificate, which rotates often.
+- **Hybrid post-quantum TLS** (X25519MLKEM768) to the verifier. OpenSSL 3.5 and newer offers it by default; check `openssl version` on the UNO Q. This stops "harvest now, decrypt later" of what is sent to the verifier.
+- **Pinning:** the verifier's own certificate is pinned exactly.
 - **Envelopes don't depend on TLS.** They are signed end to end, so even a broken TLS connection can't forge or change an approval.
 
 ## Privacy
 
-- **Raw camera frames, audio and PINs never leave the board.** Gemini gets the aggregated features and one frame, as now.
-- **Gemini's verdict is not stored** on the device or the verifier: only the status inside the STM32's tag.
-- **Tiger Data** keeps scores per usage, not frames or audio.
+- **Raw camera frames, audio and PINs never leave the board.** The Edge Impulse model runs on the board, so features and frames stay on it.
+- **The model's verdict is not stored** on the device or the verifier: only the status inside the STM32's tag.
+- **The local store** keeps scores per usage, not frames or audio.
 - Reading emotion at work is restricted in the EU. The framing is *context risk scoring for consenting team members*, with the duress PIN as the main signal.
 - **Accessibility:** ElevenLabs reads the **request text** aloud, never the status, so what is spoken is the same for normal and duress.
 
@@ -290,12 +290,10 @@ Every row has a defined, safe result. Each is tested unless marked.
 | Replaying an old approval | Nonce, 2-minute expiry on the verifier's clock |
 | Stolen YubiKey | Also needs the PIN and the device |
 | Stolen device | Also needs the YubiKey; the tag key and K_MCU aren't on Linux |
-| Someone forces you to approve | Duress PIN or Gemini's verdict → duress tag → hold and silent alert |
+| Someone forces you to approve | Duress PIN or the model's verdict → duress tag → hold and silent alert |
 | Attacker checks which key signed | Only one key; status hidden in a tag only the verifier can read |
 | Malware tips off the attacker | Linux never sees the PIN and gets the same salt and a same-size tag whichever PIN was used (tested) |
 | Attacker seizes the device later to see if you raised the alarm | Nothing about it is stored; the tag key isn't on the device's Linux side |
-| Network cut or Gemini blocked to force "calm" | Fail closed: no verdict means duress |
-| Fake Gemini on the network | Pinned TLS; the verdict can only raise the alarm anyway |
 | Linux tells the STM32 "calm" | Onboard veto and the duress PIN (a real gap: weak spot 14) |
 | Future quantum computer forges signatures | ML-DSA required alongside the YubiKey; the tag is HMAC (not breakable by Shor); SLH-DSA roots |
 | Harvest now, decrypt later | Hybrid ML-KEM TLS (a setting, if the board's OpenSSL is 3.5+); nothing sensitive is stored encrypted |
@@ -316,16 +314,16 @@ Honest list, worst first.
 5. **The YubiKey half is classical.** A quantum attacker could forge the YubiKey signature. The ML-DSA signature and the HMAC tag still stand, so a forger would need the ML-DSA key (device) and a tag (PIN), but "who touched it" would rest on those. A post-quantum security key would fix this when one exists.
 6. **Shoulder-surfing.** Someone who watches you type your normal PIN, including the timing, learns it. The duress PIN is meant to be indistinguishable *unless they know the timing*. The mouse shell helps: PIN presses look like ordinary clicks, and the keys are shielded by the hand ([MOUSE-DESIGN.md](MOUSE-DESIGN.md)).
 7. **A calm, determined attacker.** If they know about duress detection, the decoy only buys time; they will eventually notice nothing moved. Time locks and the silent alert are meant to make that time enough.
-8. **Gemini can be wrong or tricked**, including by prompt injection through the camera (a printed sign saying "the user is calm"). Mitigations: structured output only, image treated as data, Gemini can only raise the alarm, and the duress PIN is always there.
+8. **The model can be wrong or fooled.** It sees only numbers (no image goes to it), so there is no prompt injection, but a trained model can still be mistaken or tricked by someone who knows how it was trained. Mitigations: it can only raise the alarm, and the onboard veto.
 9. **No certified secure element.** The STM32U585 has TrustZone, a hardware unique key and side-channel-resistant AES, but it's not a certified secure element. A skilled lab attacker could glitch it.
 10. **An 8×13 LED matrix can't show everything.** Long or complex requests are refused. Safe, but limiting.
 11. **Bugs beat maths.** This is new code written at a hackathon; that's far more likely to fail than ML-DSA. 41 tests help; the glue that talks to the board (Bridge arguments, LED matrix, Buttons, YubiKey assertion) is **not yet run on hardware**. An external review would help more.
 12. **The supply chain** (how Binance was first breached): a poisoned library on the board or the laptop. Pinned dependencies and signed firmware reduce it.
 13. **ML-DSA is young** (standardised 2024). That's why it's always paired with the YubiKey and the HMAC tag, and the root uses hash-based SLH-DSA.
-14. **A compromised Linux side can tell the STM32 "calm".** With the second-opinion check dropped, the only guards are the onboard veto (extreme or missing sensor readings) and the duress PIN. A careful attacker who owns Linux and knows the design could suppress a Gemini-only alarm.
-15. **Mouse mode: no trusted display, so a swapped transaction is possible.** Malware on the laptop can show one request and send another, and the user's ordinary click approves it. Mitigation: Gemini checking the request against the user's usual pattern. This reduces the damage; they do not give back what the screen gave.
+14. **A compromised Linux side can tell the STM32 "calm".** With the second-opinion check dropped, the only guards are the onboard veto (extreme or missing sensor readings) and the duress PIN. A careful attacker who owns Linux and knows the design could suppress a model-only alarm.
+15. **Mouse mode: no trusted display, so a swapped transaction is possible.** Malware on the laptop can show one request and send another, and the user's ordinary click approves it.
 16. **Mouse mode: click piggybacking.** The STM32 sees *a* real click, not *which* click. Malware can wait for any ordinary click and arm its own request in the ~1.5 s window. It cannot act while the user is away from the mouse. Mitigations: narrow window, an arming rate limit, click-quality checks.
-17. **Mouse mode: no deliberate duress signal.** The victim cannot say "I'm being forced". Detection is only passive (sensors, camera, Gemini) and only at the moment of a transaction. A calm victim or a careful coercer can be missed, and bad days can raise false alarms.
+17. **Mouse mode: no deliberate duress signal.** The victim cannot say "I'm being forced". Detection is only passive (sensors, camera, the on-device model) and only at the moment of a transaction. A calm victim or a careful coercer can be missed, and bad days can raise false alarms.
 18. **Mouse mode: no knowledge factor.** There is no PIN. The **owner check** (aggregated click, movement, grip and body features against the registered user's baseline) stands in for it. It is statistical: it can turn away the real owner and could be fooled by a close, informed impostor. Error rates are **unmeasured**. Handled by three bands (owner-like, uncertain to a step-up, not the owner to a quiet rejection), a learning-period mode and labels.
 19. **Mouse mode: the YubiKey without a touch proves the key is plugged in, not that a person approved.** It is also **unverified** that our key allows it; if not, touch is used for step-up only.
 20. **Mouse mode: a rooted UNO Q Linux side needs only a click to piggyback on.** It can't fake the sensor summary (the STM32 attests it, and the verifier recomputes the owner check), and it can't forge the tag, but it can try to get an approval started for a request the user didn't see.
@@ -335,7 +333,7 @@ Honest list, worst first.
 | Wave | Crypto work | Code |
 |---|---|---|
 | **1. Skeleton** (now) | Run the existing tests. Provision a device. Flash the sketch. Run the verifier on the laptop. `enrol`, then one approval with a normal PIN and one with the duress PIN | `tools/provision.py`, `sketch.ino` + `yuseal_mcu.h`, `verifier.py`, `main.py` |
-| **2. Real signals** | Real sensor window into Gemini and the onboard veto; baselines; real nonce timing; persist the lockout counter if flash works; hash-chained log checks on the dashboard | `approve.py` (`gemini_fn`), `risk` rules for the veto, `sketch.ino` |
+| **2. Real signals** | Real sensor window into the on-device model and the onboard veto; baselines; real nonce timing; persist the lockout counter if flash works; hash-chained log checks on the dashboard | `approve.py` (`model_fn`), `risk` rules for the veto, `sketch.ino` |
 | **3. Response and polish** | YubiKey attestation at enrolment; org-root-signed certificates; YuDuino login with honeypot session; Merkle tree head on the dashboard | `yuseal.py`, a small root tool |
 | **4. Harden and stretch** | Readout protection and a locked debug port; SLH-DSA root; check hybrid TLS is negotiated; Solana tree-head post; sealed mouse-shell screws | |
 

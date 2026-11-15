@@ -12,7 +12,7 @@ YuDuino is only the authenticator. The customer's system sends a request and a n
 
 Flow: a request arrives -> the person's ordinary click on "process transaction" is on the STM32's
 switch tap -> arm the STM32 with the approval's digest (it refuses unless a real click with the
-palm on the grip came within 1.5 s) -> salt -> YubiKey -> Gemini -> STM32 seals -> envelope.
+palm on the grip came within 1.5 s) -> salt -> YubiKey -> on-device model -> STM32 seals -> envelope.
 Linux never learns the duress result: it gets an opaque tag it can't read.
 """
 from __future__ import annotations
@@ -23,6 +23,7 @@ import os
 import time
 
 import yuseal as ys
+from userprofile import hour_z
 
 
 class Refused(Exception):
@@ -127,14 +128,14 @@ def enrol(*, bridge, yk, state: DeviceState, user: str, device: str, rp_id: str,
 
 # ---------------------------------------------------------------- one approval
 def approve(*, bridge, yk, state: DeviceState, request: dict, nonce: str, rp_id: str,
-            gemini_fn=lambda window: None, sleep=time.sleep, timeout_s: float = 5) -> dict:
+            model_fn=lambda window, context=None: None, sleep=time.sleep, timeout_s: float = 5) -> dict:
     """Returns {"envelope": the envelope}, for the customer's verifier to check.
 
     Duress is judged only here, at the moment of a transaction; nothing runs continuously.
 
-    `gemini_fn(window)` takes the sensor readings sampled right after the click and returns
-    fusion_gemini's dict (or None, which fails closed to duress). Only Gemini scores; the STM32
-    decides and tags.
+    `model_fn(window, context)` takes the sensor readings sampled right after the click and returns the
+    on-device Edge Impulse model's dict (see edge_model.py), or None, which fails closed to duress.
+    Only the model scores; the STM32 decides and tags.
     """
     user, device = state.data["user"], state.data["device"]
     core = ys.build_core(request, service=rp_id, approver=user, device=device, nonce=nonce)
@@ -148,8 +149,8 @@ def approve(*, bridge, yk, state: DeviceState, request: dict, nonce: str, rp_id:
     if pq_key is None:
         raise Refused("wrong YubiKey")
     window = _collect_window(bridge, sleep)
-    gemini = gemini_fn(window)                                      # may be None: fails closed
-    score = ys.gemini_to_score(gemini)
+    verdict = model_fn(window, hour_z(bridge, time.localtime().tm_hour))   # may be None: fails closed
+    score = ys.model_to_score(verdict)
     veto = onboard_veto(window)
     tag = bridge.call("seal_approval", str(score), "1" if veto else "0")
     if tag == "-":

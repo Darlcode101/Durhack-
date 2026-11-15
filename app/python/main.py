@@ -7,6 +7,10 @@ customer's own system sends a request and a nonce, and verifies the envelope tha
     python3 main.py [--yk MODE] approve <user> '<request json>' --nonce <nonce>
                                                  one approval; prints the envelope (JSON). e.g.
         '{"action":"transfer","amount":"10","asset":"GBP","to":"0xA1..."}'
+    python3 main.py learn <user> [minutes]       learn the user's normal (all day if no minutes): the STM32's
+                                                 per-hour baseline plus one private training row a minute
+    python3 main.py seed <user> [minutes]        the same, 15 minutes by default: a quick seeding for a demo
+    python3 main.py import-model <user> <file.eim>   install the generic Edge Impulse model into the user's encrypted profile
 
 --yk MODE (or env YK_MODE): fido (default, no touch), fido-touch, or hmac-sha1 (fallback, see
 tools/setup_yk_hmac.py). Run `python3 tools/yk_probe.py` first to see which one your key allows.
@@ -27,56 +31,22 @@ load_dotenv()
 import requests
 
 import approve as ap
+import userprofile as prof
 import camera
 import yuseal as ys
-from fusion_gemini import gemini_score
+from bridge import StmBridge
+from edge_model import edge_score
 from yubikey_auth import make_yubikey
-
-try:
-    from arduino.app_utils import Bridge  # only inside the App Lab container
-except ImportError:
-    Bridge = None
 
 RP_ID = os.environ.get("FIDO_RP_ID", "yuduino.local")
 STATE_PATH = os.environ.get("DEVICE_STATE", os.path.join(os.path.dirname(__file__), "device.json"))
 
 
-LIVE_DIR = os.environ.get("APPLAB_LIVE", os.path.expanduser("~/ArduinoApps/durhack-sensors/live"))
-
-
-class _Bridge:
-    """Calls the STM32. Inside the App Lab container it uses Bridge directly. Outside (where the
-    YubiKey is reachable) it goes through app/dashboard/applab_relay.py, which must be running."""
-
-    def call(self, name, *args):
-        if Bridge is not None:
-            return str(Bridge.call(name, *args))  # VERIFY: argument passing and return types on the UNO Q
-        rpc = os.path.join(LIVE_DIR, "rpc")
-        if not os.path.isdir(rpc):
-            sys.exit(f"{rpc} not found: start the App Lab sensor app (applab_relay.py) first, "
-                     "or set APPLAB_LIVE to its live/ folder")
-        rid = f"{time.time_ns()}"
-        req, res = os.path.join(rpc, rid + ".req"), os.path.join(rpc, rid + ".res")
-        with open(req + ".tmp", "w") as f:
-            json.dump({"name": name, "args": list(args)}, f)
-        os.replace(req + ".tmp", req)
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            if os.path.exists(res):
-                with open(res) as f:
-                    out = json.load(f)
-                os.remove(res)
-                if not out["ok"]:
-                    raise RuntimeError(out["error"])
-                return out["result"]
-            time.sleep(0.02)
-        raise RuntimeError(f"no answer from the relay for {name}: is the App Lab app running?")
-
-
-def gemini_fn(window):
-    """The transaction's duress check. Prefer the live dashboard's (two learned baselines from Tiger,
-    the camera tie-break, Gemini only when the sensors are unsure); it returns fusion_gemini's format.
-    Falls back to a direct Gemini call if the dashboard isn't running."""
+def model_fn(window, context=None, user=None):
+    """The transaction's duress check, all on the board. Prefer the live dashboard's (the learned
+    baselines, the camera tie-break, the Edge Impulse model when the sensors are unsure); it returns
+    the same format as edge_model. If the dashboard isn't running, ask that person's Edge Impulse
+    model directly. No model and no dashboard means no verdict, which fails closed to duress."""
     try:
         r = requests.post(os.environ.get("DASHBOARD_URL", "http://127.0.0.1:8080") + "/api/assess",
                           params={"label": "approval", "seconds": 2}, timeout=20)
@@ -84,11 +54,15 @@ def gemini_fn(window):
             return r.json()
     except Exception:
         pass
-    jpeg, faces = camera.grab()
-    if not jpeg or not window:
+    if not window:
         return None
-    last = {k: v for k, v in window[-1].items() if k != "state"}
-    return gemini_score(jpeg, {**last, "face_count": faces, "readings": len(window)})
+    _, faces = camera.grab()
+    profile = prof.Profile.from_bridge(StmBridge())
+    return edge_score(window, {**(context or {}), "faces": faces}, user, profile)
+
+
+def _progress(lr):
+    print(f"  {lr.added} samples, {lr.rows} minute rows", flush=True)
 
 
 def main():
@@ -102,21 +76,41 @@ def main():
         i = argv.index("--nonce")
         nonce = argv[i + 1]
         del argv[i:i + 2]
-    if len(argv) < 2 or argv[0] not in ("enrol", "approve") or (argv[0] == "approve" and (len(argv) < 3 or not nonce)):
+    cmds = ("enrol", "approve", "learn", "seed", "import-model")
+    if len(argv) < 2 or argv[0] not in cmds or (argv[0] == "approve" and (len(argv) < 3 or not nonce)) \
+            or (argv[0] == "import-model" and len(argv) < 3):
         sys.exit(__doc__)
+    if argv[0] in ("learn", "seed", "import-model"):
+        import learner
+        user, profile = argv[1], prof.Profile.from_bridge(StmBridge())
+        if argv[0] == "import-model":
+            profile.import_model(user, argv[2])
+            print(f"encrypted into {profile.dir}; now delete the plaintext {argv[2]}")
+        else:   # learn <user> [minutes]   or   seed <user> [minutes]  (a quick 15-minute seeding)
+            minutes = float(argv[2]) if len(argv) > 2 else (15.0 if argv[0] == "seed" else None)
+            n = profile.restore_baseline(StmBridge())
+            print(f"learning{'' if minutes is None else f' for {minutes:g} min'} (restored {n}/24 hours). "
+                  "Use the mouse normally with a hand on it.", flush=True)
+            lr = learner.Learner(StmBridge(), profile)
+            try:
+                lr.run(minutes, _progress)
+            except KeyboardInterrupt:
+                pass
+            print(f"saved: {lr.added} samples, {lr.rows} minute rows")
+        return
     state = ap.DeviceState(STATE_PATH)
     tools_out = os.path.join(os.path.dirname(__file__), "..", "..", "tools", "out")
     if argv[0] == "enrol":
         user = argv[1]
-        pkg = ap.enrol(bridge=_Bridge(), yk=make_yubikey(), state=state, user=user, device="unoq-1", rp_id=RP_ID)
+        pkg = ap.enrol(bridge=StmBridge(), yk=make_yubikey(), state=state, user=user, device="unoq-1", rp_id=RP_ID)
         pkg["k_tag"] = json.load(open(os.path.join(tools_out, "tag_key.json")))["k_tag"]
         if os.environ.get("YK_MODE") == "hmac-sha1":
             pkg["yk_hmac_key"] = json.load(open(os.path.join(tools_out, "yk_hmac_key.json")))["yk_hmac_key"]
         print(json.dumps(pkg))  # public data plus the tag key: give it to the verifier over a trusted channel
     else:
         yk = make_yubikey(ys.unb64(state.data["credential"]))
-        out = ap.approve(bridge=_Bridge(), yk=yk, state=state, request=json.loads(argv[2]), nonce=nonce,
-                         rp_id=RP_ID, gemini_fn=gemini_fn)
+        out = ap.approve(bridge=StmBridge(), yk=yk, state=state, request=json.loads(argv[2]), nonce=nonce,
+                         rp_id=RP_ID, model_fn=lambda w, c=None: model_fn(w, c, user))
         print(json.dumps(out["envelope"]))  # the customer's verifier checks this
 
 

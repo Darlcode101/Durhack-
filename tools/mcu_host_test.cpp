@@ -4,12 +4,15 @@
 //   provision <kmcu hex>
 //   down <grip 0|1> <nowMs>     up <nowMs>     tick <nowMs>
 //   arm <digest hex> <nowMs> <f0> ... <f9>      (prints 1 or 0)
+//   profile        (the profile key, hex)
+//   bl_add <hour> <v0..v3>   bl_z <hour> <v0..v3>   bl_export <hour>   bl_import <hour> <hex>   bl_count <hour>
 //   salt        attest        seal <score> <veto 0|1>        state        sha <text>
 #include <cstdio>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include "yuseal_mcu.h"
+#include "baseline_mcu.h"
 
 static void unhex(const std::string& s, uint8_t* out) {
   for (int i = 0; i < 32; i++) out[i] = uint8_t(std::stoi(s.substr(2 * i, 2), nullptr, 16));
@@ -21,6 +24,8 @@ static void hex(const uint8_t* b, int n = 32) {
 
 int main() {
   yuseal::Mcu mcu;
+  yuseal::HourBaseline bl;
+  bl.clear();
   std::string line;
   while (std::getline(std::cin, line)) {
     std::istringstream in(line);
@@ -58,6 +63,23 @@ int main() {
       if (mcu.seal(score, veto != 0, a)) hex(a); else printf("-\n");
     } else if (cmd == "state") {
       printf("%d %d\n", int(mcu.state()), int(mcu.lastHoldMs()));
+    } else if (cmd == "profile") {
+      mcu.profileKey(a); hex(a);
+    } else if (cmd == "bl_add" || cmd == "bl_z") {
+      int hour; double v[yuseal::BL_SENSORS], z[yuseal::BL_SENSORS];
+      in >> hour;
+      for (int i = 0; i < yuseal::BL_SENSORS; i++) in >> v[i];
+      if (cmd == "bl_add") { bl.add(hour, v); printf("ok\n"); }
+      else if (bl.z(hour, v, z)) { for (int i = 0; i < yuseal::BL_SENSORS; i++) printf("%.10g%c", z[i], i + 1 < yuseal::BL_SENSORS ? ' ' : '\n'); }
+      else printf("-\n");
+    } else if (cmd == "bl_export") {
+      int hour; in >> hour; uint8_t b[yuseal::BL_HOUR_BYTES]; bl.exportHour(hour, b); hex(b, yuseal::BL_HOUR_BYTES);
+    } else if (cmd == "bl_import") {
+      int hour; std::string h; in >> hour >> h; uint8_t b[yuseal::BL_HOUR_BYTES];
+      for (int i = 0; i < yuseal::BL_HOUR_BYTES; i++) b[i] = uint8_t(std::stoi(h.substr(2 * i, 2), nullptr, 16));
+      printf("%d\n", bl.importHour(hour, b) ? 1 : 0);
+    } else if (cmd == "bl_count") {
+      int hour; in >> hour; printf("%d\n", bl.count(hour));
     } else if (cmd == "sha") {
       std::string text; std::getline(in, text);
       if (!text.empty() && text[0] == ' ') text.erase(0, 1);

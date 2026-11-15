@@ -2,7 +2,7 @@ fido2>=2.0
 cryptography>=48  # ML-DSA built in (yuseal.py)
 # liboqs is NOT needed for YuSeal (cryptography>=48 has ML-DSA). Only the old pq_keystore.py uses it:
 # liboqs-python @ git+https://github.com/open-quantum-safe/liboqs-python.git
-google-genai
+edge_impulse_linux  # runs the exported Edge Impulse .eim model on the board (edge_model.py)
 fastapi
 uvicorn
 # OpenCV 5 removed the Haar face detector camera.py uses
@@ -11,4 +11,3 @@ numpy
 requests
 python-dotenv
 httpx
-psycopg[binary]>=3.2  # Tiger Data (TimescaleDB) for the dashboard

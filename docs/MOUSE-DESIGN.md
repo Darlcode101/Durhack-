@@ -24,7 +24,7 @@ Sizes below are approximate. **Measure the real parts before you print.**
 | Where is the UNO Q? | Flat in the base, next to the donor board. |
 | What is on the palm? | The touch pad (grip gate), the moisture pads, and a vented pocket for the Thermo. |
 | Where are the camera and YubiKey? | **Outside the mouse**, in a small **dock** (the Arduino USB-C hub). The YubiKey stays plugged in and is used **without a touch** (see [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md#what-changes-in-the-crypto)). |
-| How is the UNO Q powered, and how does it talk to the outside? | A thin USB-C cable from the dock carries **power**. The UNO Q uses its **own Wi-Fi** to reach Gemini, so no data goes through the laptop. The donor mouse has its own, separate connection. |
+| How is the UNO Q powered, and how does it talk to the outside? | A thin USB-C cable from the dock carries **power**. The UNO Q uses its **own Wi-Fi** to reach the verifier, so no data goes through the laptop. The donor mouse has its own, separate connection. |
 
 ## How the sensors map onto a mouse
 
@@ -101,7 +101,7 @@ Stack, from the bottom: **base plate** with the UNO Q on four M2.5 standoffs (ch
 | 5 | **The camera isn't hidden** | An attacker can see a camera and know someone judges them | The strongest signals (the owner check, physiology) don't depend on the camera |
 | 6 | **Static from your hand (ESD)** | Bare pads on the palm can reset or damage the board | 1 kΩ series resistors on both pad lines; test after shuffling on carpet |
 | 7 | **Heat in a closed shell** | The UNO Q warms the shell and the palm | Thermo far from the board; vent grille; rely on humidity change; baseline per device |
-| 8 | **Wi-Fi is weaker inside a palm** | A failed Gemini call fails closed, so a weak signal looks like an alarm | Check signal with a hand on; keep the antenna end clear |
+| 8 | **Wi-Fi is weaker inside a palm** | A failed call to the verifier fails closed, so a weak signal looks like an alarm | Check signal with a hand on; keep the antenna end clear |
 | 9 | **Always-on collection** | The UNO Q needs power all day, and it collects data you didn't ask for each time | A thin power cable from the dock or a power bank; aggregates only; pause, view and delete controls ([BASELINE.md](BASELINE.md#privacy)) |
 | 10 | **A stolen or borrowed mouse teaches the baseline wrong** | Someone else's hands become "normal" | Samples count only after the owner check and an accepted approval; duress samples are never added ([BASELINE.md](BASELINE.md#keeping-the-baseline-honest-poisoning)) |
 | 11 | **The cable and dock are not secret** | A thick cable to a hub gives it away | Thin USB-C cable; hide the dock behind the monitor |

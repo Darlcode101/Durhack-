@@ -49,7 +49,7 @@ The UNO Q won't fit in a mouse, so it's split in two:
 ### 1. Passive learning (all day)
 - While the touch sensor says the mouse is held, the STM32 computes features every few seconds: tremor, skin conductance, palm temperature and humidity, movement speed, jerkiness, click timing.
 - Only those **summary numbers** are kept. No raw streams, no camera frames.
-- They build **per-user baselines by time of day**: a real time series of thousands of points a day, which is what the Tiger Data plan needs.
+- They build **per-user baselines by time of day**: a real time series of thousands of points a day, which is what the baseline needs.
 
 ### 2. Continuous "is this the owner?" check
 - Mouse movement and clicking are fairly personal (*mouse dynamics*).
@@ -59,7 +59,7 @@ The UNO Q won't fit in a mouse, so it's split in two:
 1. A request arrives.
 2. The user holds the mouse and enters the PIN on the side buttons. The duress PIN is the same presses with one held longer, so an observer sees nothing different.
 3. YubiKey tap.
-4. Gemini compares the approval moment with **the user's last 10–15 minutes of normal use**. "Is Alex more stressed than Alex was five minutes ago?" is a far easier and more accurate question than "is this person stressed?"
+4. The on-device model compares the approval moment with **the user's last 10–15 minutes of normal use**. "Is Alex more stressed than Alex was five minutes ago?" is a far easier and more accurate question than "is this person stressed?"
 5. Real approval or decoy, exactly as in [CRYPTO.md](CRYPTO.md).
 
 ## Why it's better
@@ -75,7 +75,7 @@ The UNO Q won't fit in a mouse, so it's split in two:
   - process and keep it on the device
   - store summaries only
   - let the user see and delete it
-  - send Gemini a summary **only at approval time**, never the all-day stream
+  - give the model a summary **only at approval time**, never the all-day stream
 - **"Only the user knows" must mean the user fully consents.** The same device deployed by an employer would be covert employee surveillance. Pitch it as the user's own protection, owned and controlled by them.
 - **Normal days are noisy.** Deadlines, gaming and caffeine move every signal. Comparing with the last 15 minutes helps, but false alarms will happen, so the response stays a decoy or step-up, never a lockout.
 

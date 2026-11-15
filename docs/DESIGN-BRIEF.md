@@ -31,7 +31,7 @@ Point 6 is as binding as the others. A design that can't be built this weekend i
 - A signature or key is released, never an "OK" message.
 - Cannot be operated remotely: a physical button press is required and the device screen shows exactly what is being approved. **Superseded for mouse mode (2026-11-14):** the trigger is a real click on the mouse's switch, there is no device screen, and the loss is listed in [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md#what-we-lose-read-this).
 - Under duress, a decoy that looks identical to the attacker, which the verifier treats as a silent alarm.
-- Gemini alone does the duress calculation. No reply, a late reply or a malformed reply means the decoy. Pinned HTTPS.
+- The on-device Edge Impulse model alone does the duress calculation. No model, a fault or a malformed output means the decoy.
 - The final decision stays on the STM32.
 - Works without biometrics; sensors only detect duress.
 - Quantum-proof, with interest in symmetric and hash-based options.
@@ -39,7 +39,7 @@ Point 6 is as binding as the others. A design that can't be built this weekend i
 - The verifier can refuse but never approve.
 - Simple, multipurpose parts. Keep the prototype simple.
 
-**The team's existing code** (`app/python`, `app/sketch`): YubiKey over python-fido2, an encrypted ML-DSA key store, a Gemini call with a structured schema, a sketch that sends sensor features **and the typed PIN** to Linux.
+**The team's existing code** (`app/python`, `app/sketch`): YubiKey over python-fido2, an encrypted ML-DSA key store, a duress score call, a sketch that sends sensor features **and the typed PIN** to Linux.
 
 ## 3. Who we are defending against
 
@@ -86,7 +86,7 @@ For each attacker the design must state: what stops them, what they can still do
 - State must survive lost messages and power cuts without getting stuck or reusing anything.
 
 **Failure modes** (each needs a defined, safe outcome)
-- Wi-Fi down; Gemini slow, down or returning nonsense; verifier down.
+- Wi-Fi down; the model missing, faulty or returning nonsense; verifier down.
 - YubiKey unplugged mid-approval; wrong YubiKey.
 - Wrong PIN; five wrong PINs; grip released.
 - Power cut between any two steps.
