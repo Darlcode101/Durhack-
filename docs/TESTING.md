@@ -1,5 +1,7 @@
 # How to test YuDuino
 
+The full list of cryptography test cases, with a place to record results, is in **[TEST-CASES.md](TEST-CASES.md)**. This page is the short path.
+
 Three levels. Do them in order. Level 1 needs only a laptop. YuDuino is a zero-input mouse: nobody types or presses anything but the mouse's own click, so there is no PIN to choose.
 
 ## Tonight's flash-and-test checklist (about 45 minutes)
