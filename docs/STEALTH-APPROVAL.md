@@ -33,7 +33,7 @@ This page says how that works, what the crypto now looks like, and, just as impo
 
 The person did one thing: the click they were going to make anyway.
 
-**Does clicking "Process transaction" start the check? Yes, with one catch.** The *physical click* is the trigger, and the STM32 has to see it on the real button. The check itself (sensors, baseline, camera, Gemini) is what runs "in the background". The catch is that the STM32 cannot tell *which* click it was, only that a hand was clicking. That is the biggest new weak point (below).
+**Does clicking "Process transaction" start the check? Yes, with one catch.** The *physical click* is the trigger, and the STM32 has to see it on the real button. The check itself (sensors, baseline, camera, Gemini) is what runs "in the background", and it runs **only at the moment of a transaction**: everyday use is learned from but never judged for duress. The catch is that the STM32 cannot tell *which* click it was, only that a hand was clicking. That is the biggest new weak point (below).
 
 ## What the STM32 does now
 
@@ -54,7 +54,7 @@ Same small trusted core ([`yuseal_mcu.h`](../app/sketch/yuseal_mcu.h) today, cha
 | What the STM32 tag covers | status, hash of the text on the matrix, digest | status, digest, **click age**, grip |
 | Key release | salt after the correct PIN | salt after **arm with a recent click and palm** |
 | YubiKey | signature over the digest, **touch required** | signature or hmac-secret **without a touch** (see below) |
-| Duress signal | duress PIN **or** Gemini | **Gemini and the onboard veto only** |
+| Duress signal | duress PIN **or** Gemini | **Gemini and the onboard veto only, judged only at the moment of a transaction** |
 | Who is it? | the PIN, plus a YubiKey touch | **The owner check**: the guardian compares the STM32-attested click, movement, grip and body features with the registered user's baseline, and quietly rejects other hands ([OWNER-CHECK.md](OWNER-CHECK.md)) |
 | Lockout | 5 wrong PINs | **Rate limit on arming** |
 | Request display | LED matrix, trusted | **None** |
@@ -94,7 +94,7 @@ This is not as strong as v2. In plain words:
 
 1. **No trusted display, so no protection against a swapped transaction.** In v2 the LED matrix showed exactly what was signed on a screen the laptop didn't control, so malware could not change "pay 10 to Alice" into "pay 10,000 to Mallory" without the person seeing. **Now the only screen is the laptop's.** Malware on the laptop can show Alice and send Mallory, and the user's normal click approves it. *This breaks Jonah's earlier hard rule* (2026-11-11) that the device screen shows exactly what is being approved.
 2. **The trigger can't tell which click it was.** The STM32 sees a real click, not "the click on Process transaction". Malware can **wait for any ordinary click** (the user clicks all day) and arm a request of its own within the ~1.5 s window. It can't act while the user is away from the mouse, but it can ride their clicks.
-3. **No deliberate duress signal.** The victim cannot say "I'm being forced". Detection is purely passive: Gemini reading the sensors and one camera frame. A calm or well-trained victim, a coercer who is careful, or an ordinary bad day on the sensors can all go the wrong way. Errors cut both ways: missed duress and false alarms.
+3. **No deliberate duress signal.** The victim cannot say "I'm being forced". Detection is purely passive and happens only at the moment of a transaction: Gemini reading the sensors and one camera frame. A calm or well-trained victim, a coercer who is careful, or an ordinary bad day on the sensors can all go the wrong way. Errors cut both ways: missed duress and false alarms.
 4. **No PIN, so no knowledge factor.** Anyone who can grip the mouse and click while the YubiKey is in the dock can *start* an approval. The **owner check** is what stands in for the PIN, and it is statistical: it can wrongly reject the real owner and can wrongly accept a determined, informed impostor. We haven't measured its error rates.
 5. **YubiKey without a touch** proves the key is plugged in, not that a person approved.
 6. **A compromised UNO Q Linux side is more dangerous.** In v2 a rooted Linux still needed the PIN and the displayed text. Now it only needs a click to piggyback on.
@@ -120,7 +120,7 @@ These are also in [CRYPTO.md](CRYPTO.md#remaining-weak-spots):
 
 - **A:** swapped transaction, no trusted display.
 - **B:** click piggybacking (the STM32 can't tell which click).
-- **C:** no deliberate duress signal; purely passive detection.
+- **C:** no deliberate duress signal; purely passive detection, only at the moment of a transaction.
 - **D:** no knowledge factor; the owner check is only statistical (false rejects and false accepts, unmeasured so far).
 - **E:** YubiKey without touch is possession only (and **unverified** that our key allows it).
 - **F:** a rooted UNO Q Linux side now needs only a click to piggyback on.
