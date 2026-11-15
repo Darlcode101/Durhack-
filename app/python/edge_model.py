@@ -1,7 +1,7 @@
 """The on-device duress model: an Edge Impulse model running on the UNO Q's Linux side.
 
 Nothing leaves the board: no cloud call, no frame sent anywhere. At the moment of a transaction
-(and only then) the window of readings taken right after the click becomes one flat feature vector,
+(and only then) the last minute of readings plus those taken right after the click become one flat feature vector,
 the model returns class probabilities, and the probability of the duress class is the duress score.
 The STM32 still takes that score (0..100), applies the veto and the decision rule, and tags it.
 
@@ -38,7 +38,7 @@ def _mean(xs):
 
 
 def feature_vector(window: list[dict], context: dict | None = None) -> list[float]:
-    """Readings sampled right after the click (the STM32 `get_features` dicts) plus optional context
+    """Readings from the last minute and right after the click (the STM32 `get_features` dicts) plus optional context
     from the camera and the personal baseline (faces, others_close, sweat_z, move_z; missing = 0)."""
     ctx = context or {}
 

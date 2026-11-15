@@ -765,6 +765,8 @@ class LearnerTest(unittest.TestCase):
         self.mcu = ys.SoftMcu(os.urandom(32))
         self.bridge = FakeBridge(self.mcu)
         self.profile = up.Profile(lambda: self.mcu.profile_key(), self.tmp)
+        self.recent = os.path.join(self.tmp, "recent.json")
+        learner.RECENT_PATH = self.recent
         self.t = [1_000_000.0]
         self.lr = learner.Learner(self.bridge, self.profile, clock=lambda: self.t[0], sleep=lambda s: self.t.__setitem__(0, self.t[0] + s))
 
@@ -789,6 +791,28 @@ class LearnerTest(unittest.TestCase):
             self.t[0] += 1
         self.assertEqual((self.lr.added, self.lr.buf), (0, []))
         self.assertFalse(self.lr.flush_minute())                     # too little hand time: no row
+
+    def test_the_last_minute_is_kept_for_the_transaction_and_no_more(self):
+        import learner
+        self.lr.run(minutes=3)
+        w = learner.recent_window(self.t[0], self.recent)
+        self.assertTrue(55 <= len(w) <= 61)                          # one minute, not the whole run
+        self.assertTrue(all(self.t[0] - r["t"] <= 60 for r in w))
+        self.assertEqual(learner.recent_window(self.t[0] + 120, self.recent), [])   # stale: ignored
+        self.assertEqual(learner.recent_window(self.t[0], self.recent + ".none"), [])
+
+    def test_the_transaction_scores_the_last_minute_against_the_baseline(self):
+        import learner
+        self.lr.run(minutes=2)
+        learner.RECENT_PATH = self.recent
+        old = time.time
+        time.time = lambda: self.t[0]
+        try:
+            w = ap._scoring_window([{"temp_c": 30}])
+        finally:
+            time.time = old
+        self.assertGreater(len(w), 50)
+        self.assertEqual(w[-1], {"temp_c": 30})                      # the post-click readings come last
 
     def test_the_training_file_is_encrypted_at_rest(self):
         self.lr.run(minutes=3)

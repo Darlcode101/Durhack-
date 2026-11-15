@@ -58,6 +58,7 @@ The baseline moves: hands are different at 9 am and at 11 pm, after coffee, afte
 
 - **Only aggregate features leave the STM32.** No raw acceleration, no cursor movement, no clicks, no keystrokes and nothing about *what* the person is doing on the computer. The mouse has no idea what the screen shows.
 - **No camera frames or audio in the baseline.** Those are used only during an approval, as now, and not stored.
+- **The transaction window is the last minute.** At a transaction the last minute of features is scored against the user's per-hour baseline (one window for owner and duress; a longer one would dilute a sudden change). It is kept in RAM only.
 - **Method.** The STM32 keeps a per-sensor, per-hour rolling mean and variance (count capped at 1000, so old habits fade slowly). Linux keeps one feature row per minute, raw samples discarded. See [EDGE-IMPULSE.md](EDGE-IMPULSE.md).
 - **Per-user and consented.** Each team member agrees to it; the person can **see their own data, pause collection and delete it**. Reading emotion at work is restricted in some places (for example the EU), so the framing stays *context risk scoring for consenting people*.
 - **Retention:** minute rows for about 30 days, then only the hourly aggregates (kept for months). Compression keeps it small.

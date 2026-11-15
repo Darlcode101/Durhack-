@@ -82,6 +82,13 @@ def _collect_window(bridge, sleep, n: int = 5, gap_s: float = 0.1) -> list[dict]
     return window
 
 
+def _scoring_window(live: list[dict]) -> list[dict]:
+    """The last minute of readings the learner recorded, then the readings taken right after the click.
+    With no recorder running it is just the short live sample."""
+    import learner
+    return learner.recent_window(time.time()) + live
+
+
 def _attest(bridge) -> bytes:
     raw = bridge.call("get_attest")
     if raw == "-":
@@ -133,7 +140,7 @@ def approve(*, bridge, yk, state: DeviceState, request: dict, nonce: str, rp_id:
 
     Duress is judged only here, at the moment of a transaction; nothing runs continuously.
 
-    `model_fn(window, context)` takes the sensor readings sampled right after the click and returns the
+    `model_fn(window, context)` takes the last minute of sensor readings plus those right after the click and returns the
     on-device Edge Impulse model's dict (see edge_model.py), or None, which fails closed to duress.
     Only the model scores; the STM32 decides and tags.
     """
@@ -148,10 +155,11 @@ def approve(*, bridge, yk, state: DeviceState, request: dict, nonce: str, rp_id:
     pq_key = ys.unlock(state.data["keystore"], secret)
     if pq_key is None:
         raise Refused("wrong YubiKey")
-    window = _collect_window(bridge, sleep)
+    live = _collect_window(bridge, sleep)           # right after the click: the veto and the hold time
+    window = _scoring_window(live)                  # the last minute, scored against the per-hour baseline
     verdict = model_fn(window, hour_z(bridge, time.localtime().tm_hour))   # may be None: fails closed
     score = ys.model_to_score(verdict)
-    veto = onboard_veto(window)
+    veto = onboard_veto(live)
     tag = bridge.call("seal_approval", str(score), "1" if veto else "0")
     if tag == "-":
         raise Refused("STM32 would not seal (session ended)")

@@ -137,12 +137,12 @@ app/
   python/
     main.py             entry point: `enrol`, `approve`, `learn`, `seed`, `import-model`
     userprofile.py      the encrypted per-user profile (AES-256-GCM, key derived by the STM32): baseline copy, training rows, model
-    learner.py          learns while the mouse is used: one feature row a minute, raw samples discarded
+    learner.py          learns while the mouse is used: one feature row a minute, raw samples discarded; keeps the last minute in RAM for the transaction check
     bridge.py           the Linux side's link to the STM32 calls
     approve.py          the Linux side of one approval and of enrolment
     yuseal.py           the envelope, request rules, verifier checks and owner check, key store, audit log
     verify_cli.py       a tiny reference verifier for trying it: `enrol`, `nonce`, `check`
-    test_yuseal.py      73 tests, including the real C++ core
+    test_yuseal.py      75 tests, including the real C++ core
     yubikey_auth.py     YubiKey over USB (CTAP2); `RealYubiKey` for YuSeal
     camera.py           USB camera + Haar face count (frames kept in memory only)
     edge_model.py       the on-device Edge Impulse model: sensor window → duress score
@@ -204,7 +204,7 @@ Only derived numbers are stored, and only on the board (no frames, no PINs, no k
 
 ## Status
 
-**The crypto, the STM32 core, the owner check and the Linux flow are tested on a laptop (73 tests).** On the UNO Q (14–15 November, with the earlier strong-mode sketch):
+**The crypto, the STM32 core, the owner check and the Linux flow are tested on a laptop (75 tests).** On the UNO Q (14–15 November, with the earlier strong-mode sketch):
 
 | Verified on the board | Notes |
 |---|---|

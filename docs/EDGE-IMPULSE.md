@@ -5,7 +5,7 @@ The duress judgement is made by an **Edge Impulse model that runs on the UNO Q's
 ## The design
 
 - **A generic model, personalised on the device.** Edge Studio trains one *generic* anomaly model on **synthetic** calm data only, never on a real person's data. Each mouse personalises it locally: the features it scores include the user's own reading against **their own per-hour mean and spread** (the STM32's rolling baseline), so the same model means "unusual for this person". Real user data never leaves the device. Studio is used only for the generic model.
-- **Only at a transaction.** The model runs once, on the window of readings taken right after the click. Everyday use is learned from (the baseline) but never judged.
+- **Only at a transaction.** The model runs once, on **the last minute of readings** (plus the readings taken right after the click), scored against the user's per-hour baseline. One minute is short enough that a sudden change isn't averaged away. The last minute is kept in RAM only by the learner (`python3 main.py learn <user>`, which runs all day) and overwritten every second; with no learner running, only the short live sample is scored. Everyday use is learned from (the baseline) but never judged.
 - **The STM32 still decides.** The score goes to the STM32 as a whole number 0 to 100; the STM32 applies the veto and the decision rule (below 40 normal, 40 to 69 step-up, 70 and over duress) and makes the tag. The model can raise the alarm but never lower it.
 - **Fails closed.** No model, a model fault or an out-of-range output means no verdict, which counts as duress.
 - **Encrypted at rest.** The baseline copy, the training rows and the installed model are AES-256-GCM encrypted under a key the STM32 derives (`HMAC(K_MCU, "YS3/profile-key")`). The key is never stored on Linux, so a stolen board reveals nothing. The model is decrypted into RAM only to run.
@@ -14,7 +14,7 @@ The duress judgement is made by an **Edge Impulse model that runs on the UNO Q's
 
 1. While the palm is on the grip, the STM32 reads the sensors itself and folds each reading into a **per-sensor, per-hour running mean and variance** (24 hours × humidity, moisture, shake, temperature). The count is capped at 1000 so old habits fade slowly. Linux only supplies the hour.
 2. Linux condenses each minute into **one feature row** (the `FEATURE_NAMES` vector) and discards the raw samples. Rows are kept encrypted on the board.
-3. At a transaction, the window's features are normalised against that hour's baseline (`hour_z_*`) and passed to the model with the camera's face count. The score combines the model's output and the z-scores.
+3. At a transaction, the last minute's features are normalised against that hour's baseline (`hour_z_*`) and passed to the model with the camera's face count. The score combines the model's output and the z-scores.
 4. A baseline needs 20 samples in an hour before its z-scores count.
 
 Seed a demo quickly: `python3 main.py seed <user> 15` (15 minutes with a hand on the mouse). Learn all day with `python3 main.py learn <user>`.

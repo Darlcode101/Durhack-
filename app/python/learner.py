@@ -9,10 +9,36 @@ Every few minutes the baseline is also saved, encrypted, so it survives a power 
 from __future__ import annotations
 
 import json
+import os
 import time
 
 import edge_model as em
 import userprofile as up
+
+
+# The last minute of readings, for the transaction check. RAM only (tmpfs): it is gone at reboot and
+# is overwritten every second, so it never holds more than 60 s.
+RECENT_PATH = os.environ.get("RECENT_PATH", "/dev/shm/yuduino_recent.json")
+WINDOW_S = 60
+
+
+def save_recent(samples: list[dict], now: float, path: str | None = None) -> None:
+    path = path or RECENT_PATH
+    keep = [s for s in samples if now - s["t"] <= WINDOW_S]
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(keep, f)
+    os.replace(tmp, path)
+
+
+def recent_window(now: float, path: str | None = None) -> list[dict]:
+    """The readings of the last minute that the learner recorded (hand on the mouse, no approval in
+    progress); [] when it is not running or the file is stale."""
+    try:
+        with open(path or RECENT_PATH) as f:
+            return [s for s in json.load(f) if now - s["t"] <= WINDOW_S]
+    except Exception:
+        return []
 
 
 class Learner:
@@ -21,6 +47,7 @@ class Learner:
         self.bridge, self.profile, self.clock, self.sleep = bridge, profile, clock, sleep
         self.minute_s, self.persist_s = minute_s, persist_s
         self.buf: list[dict] = []
+        self.recent: list[dict] = []
         self.rows = 0
         self.added = 0
         self._minute_at = self._persist_at = clock()
@@ -36,6 +63,11 @@ class Learner:
             if up.learn_tick(self.bridge, hour):
                 self.added += 1
             self.buf.append(f)
+            self.recent = [r for r in self.recent if self.clock() - r["t"] <= WINDOW_S] + [{**f, "t": self.clock()}]
+            try:
+                save_recent(self.recent, self.clock())
+            except OSError:
+                pass                                   # no tmpfs: the transaction falls back to a live sample
         now = self.clock()
         if now - self._minute_at >= self.minute_s:
             self.flush_minute(hour)
