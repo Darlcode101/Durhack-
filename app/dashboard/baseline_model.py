@@ -3,10 +3,14 @@ the same readings and baselines always give the same result, so any past verdict
 recomputed exactly from what Tiger stored.
 
 Two baselines, both from Tiger:
-  usual   this user's normal for this HOUR OF DAY: 14 days of calm, hand-on-mouse readings
-          (continuous aggregate baseline_1h). Falls back to the 30 s session calibration.
-  recent  the user's own LAST 20 MINUTES (calm, hand-on-mouse readings only; never alarms,
-          so an alarm can't teach the model that pressure is normal).
+  usual   this user's normal for this HOUR OF DAY: 14 days of hand-on-mouse readings from
+          everyday use, gaming and busy days included (continuous aggregate usual_1h). Falls back
+          to the 30 s session calibration.
+  recent  the user's own LAST 20 MINUTES of hand-on-mouse readings. Everyday use always counts;
+          readings from a transaction count only if it was judged normal, so a flagged approval
+          can't teach the model that pressure is normal.
+
+Nothing is ever raised outside a transaction: everyday readings are learned from, never judged.
 
 The idea: a run, a sleepless night or a lot of coffee shift your WHOLE state gradually, so
 they show against "usual" but not against "recent". Coercion is a SUDDEN change at the moment
@@ -96,7 +100,10 @@ def recent_from_rows(rows, now):
             returned_at = r[0]
         prev = r[0]
     start = max(now - RECENT_WINDOW_S - RECENT_SKIP_S, returned_at or 0)
-    window = [r for r in rows if start <= r[0] < now - RECENT_SKIP_S and r[4] == "NORMAL"]
+    # Everyday (background) use always counts, gaming included: it IS this person's recent state.
+    # Readings taken during a transaction only count if that transaction was judged normal.
+    usable = lambda r: (len(r) > 5 and r[5] != "approval") or r[4] == "NORMAL"
+    window = [r for r in rows if start <= r[0] < now - RECENT_SKIP_S and usable(r)]
     since = [r for r in rows if r[0] >= (returned_at or now - 10 * 60) and r[0] >= now - 10 * 60]
     idx = {"humidity": 1, "moisture": 2, "shake_rms": 3}
     return {

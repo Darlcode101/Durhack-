@@ -142,6 +142,15 @@
     <div class="r"><div class="v num" id="v-score">–</div><div class="l">Risk score</div></div>
   </div>
 
+  <div class="sh"><h2>Transactions</h2><span class="aside">Only a transaction is checked. Everyday use is learned from, never flagged.</span></div>
+  <div class="card">
+    <div class="row noicon">
+      <span class="dot" id="tx-dot"></span>
+      <div class="main"><div class="title" id="tx-title">No transactions checked yet</div><div class="sub" id="tx-sub"></div></div>
+      <div class="trail"><button class="link" id="tx-test">Test a transaction</button></div>
+    </div>
+  </div>
+
   <div class="sh"><h2>Signals</h2><span class="aside"><span id="base-text"></span> · <button class="link" id="learn">Re-learn normal</button></span></div>
   <div class="tiles" id="tiles"></div>
   <div class="foot" id="learn-note"></div>
@@ -213,20 +222,41 @@ function tile(iconId, color, name, value, unit, caption, valueClass) {
 
 function renderLive(s) {
   lastLive = Date.now();
-  const tone = s.verdict === "DURESS" ? "red" : s.verdict === "WATCH" ? "orange" : "green";
-  $("badge").style.background = `var(--${tone})`;
-  $("badge").innerHTML = icon(s.verdict === "NORMAL" ? "i-shield" : "i-alert", 28);
-  $("v-title").textContent = s.verdict === "NORMAL" ? "No signs of duress" : s.verdict === "WATCH" ? "Something looks unusual" : "Possible duress";
-  $("v-reason").textContent = s.signals.length ? s.signals.join(", ").replace(/^./, (c) => c.toUpperCase()) + "." : "Everything is within your normal range.";
+  const inTx = s.mode === "approval";
+  const tone = !inTx ? "gray" : s.verdict === "DURESS" ? "red" : s.verdict === "WATCH" ? "orange" : "green";
+  const wouldBe = s.verdict === "NORMAL" ? "approved" : s.verdict === "WATCH" ? "sent to a second approver" : "flagged as possible duress";
+  $("badge").style.background = inTx ? `var(--${tone})` : "var(--blue)";
+  $("badge").innerHTML = icon(inTx && s.verdict !== "NORMAL" ? "i-alert" : "i-shield", 28);
+  $("v-title").textContent = !inTx ? "Monitoring" : s.verdict === "NORMAL" ? "Checking transaction: looks normal"
+    : s.verdict === "WATCH" ? "Checking transaction: something looks unusual" : "Checking transaction: possible duress";
+  $("v-reason").textContent = !inTx
+    ? `No transaction in progress, so nothing is raised. A transaction right now would be ${wouldBe}.`
+    : s.signals.length ? s.signals.join(", ").replace(/^./, (c) => c.toUpperCase()) + "." : "Everything is within your normal range.";
   const A = s.assessment || {};
   const path = s.decided_by === "sensors"
     ? "Decided by the body sensors. The camera and Gemini weren’t needed."
     : s.baseline_ready ? "The body sensors were unsure, so the camera and Gemini made the call."
                        : "Still learning your normal, so the camera and Gemini are making the call.";
   const expl = (A.explanations || []).map((e) => e.replace(/^./, (c) => c.toUpperCase()) + ".").join(" ");
-  $("v-path").textContent = expl ? `${path} ${expl}` : path;
+  // Outside a transaction nothing is decided (and Gemini is never asked), so only explain the readings.
+  $("v-path").textContent = inTx ? (expl ? `${path} ${expl}` : path) : expl;
   $("v-score").textContent = fmt(s.score);
-  $("v-score").className = "v num" + (s.verdict === "NORMAL" ? "" : ` t-${tone}`);
+  $("v-score").className = "v num" + (!inTx || s.verdict === "NORMAL" ? "" : ` t-${tone}`);
+  $("v-score").nextElementSibling.textContent = inTx ? "Risk score" : "Background score";
+
+  // Transactions panel: in progress, or the last result.
+  const tx = s.approval || {}, last = tx.last;
+  const txTone = (v) => v === "DURESS" ? "on-red" : v === "WATCH" ? "on-orange" : "on-green";
+  if (tx.active) {
+    $("tx-dot").className = "dot on-orange";
+    $("tx-title").textContent = `Checking a transaction… ${tx.elapsed} s`;
+    $("tx-sub").textContent = "Sensors first; the camera and Gemini only if they’re unsure.";
+  } else if (last) {
+    $("tx-dot").className = "dot " + txTone(last.verdict);
+    $("tx-title").textContent = `${last.outcome}`;
+    const why = (last.signals || []).join(", ");
+    $("tx-sub").textContent = `${ago(last.t)} · score ${fmt(last.score)} · decided by ${last.decided_by === "sensors" ? "the body sensors" : "the camera and Gemini"}${why ? " · " + why : ""}`;
+  }
 
   const f = s.features || {}, r = s.baseline_ready, g = s.gemini;
   const peopleCap = !s.camera_ok ? "Camera offline"
@@ -419,6 +449,12 @@ $("seg").onclick = (e) => {
   loadHistory();
 };
 $("learn").onclick = () => fetch("/calibrate", { method: "POST" });
+$("tx-test").onclick = async () => {
+  const b = $("tx-test"); b.disabled = true; b.textContent = "Checking…";
+  try { await fetch("/api/assess?label=test&seconds=3", { method: "POST" }); } catch (e) { /* shown by the panel */ }
+  b.disabled = false; b.textContent = "Test a transaction";
+  loadIncidents();
+};
 $("incidents").onclick = async (e) => {
   const b = e.target.closest("button[data-t]"); if (!b) return;
   b.disabled = true;

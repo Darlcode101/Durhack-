@@ -25,7 +25,8 @@ BASE_COLUMNS = ("time", "device", "verdict", "score", "local_score", "gemini_sco
                 "yubikey", "gemini_latency")
 # Extra columns, each written only if the service accepted the ALTER TABLE that adds it.
 EXTRA_COLUMNS = [("decision column", ("decided_by",)),                       # "sensors" or "camera"
-                 ("assessment columns", ("body_score", "explanation", "baseline"))]  # baseline = jsonb snapshot
+                 ("assessment columns", ("body_score", "explanation", "baseline")),  # baseline = jsonb snapshot
+                 ("mode column", ("mode",))]   # "background" (everyday use) or "approval" (a transaction)
 COLUMNS = BASE_COLUMNS + tuple(c for _, cols in EXTRA_COLUMNS for c in cols)
 
 SCHEMA = [
@@ -46,17 +47,27 @@ SCHEMA = [
     ("incident labels", """
      ALTER TABLE incidents ADD COLUMN IF NOT EXISTS label text,
                            ADD COLUMN IF NOT EXISTS labelled_at timestamptz"""),
+    ("mode column", "ALTER TABLE readings ADD COLUMN IF NOT EXISTS mode text"),
+    ("approvals table", """
+     CREATE TABLE IF NOT EXISTS approvals (
+       time timestamptz NOT NULL, device text NOT NULL, label text, verdict text NOT NULL,
+       score real, decided_by text, body_score real, signals text[], explanation text,
+       gemini_reasoning text, seconds real)"""),
+    ("approvals hypertable", "SELECT create_hypertable('approvals', by_range('time', INTERVAL '30 days'), if_not_exists => TRUE)"),
+    ("retire old baseline aggregate", "DROP MATERIALIZED VIEW IF EXISTS baseline_1h CASCADE"),
+    # Everyday use (background) always counts towards "usual", including gaming or a busy day;
+    # a transaction only counts if it was judged normal, so a flagged approval never becomes normal.
     ("personal baseline aggregate", """
-     CREATE MATERIALIZED VIEW IF NOT EXISTS baseline_1h
+     CREATE MATERIALIZED VIEW IF NOT EXISTS usual_1h
      WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
      SELECT time_bucket('1 hour', time) AS bucket, device,
             avg(humidity) AS humidity, stddev_samp(humidity) AS humidity_sd,
             avg(moisture) AS moisture, stddev_samp(moisture) AS moisture_sd,
             avg(shake_rms) AS shake, stddev_samp(shake_rms) AS shake_sd, count(*) AS n
-     FROM readings WHERE touch IS TRUE AND verdict = 'NORMAL'
+     FROM readings WHERE touch IS TRUE AND (mode IS DISTINCT FROM 'approval' OR verdict = 'NORMAL')
      GROUP BY bucket, device WITH NO DATA"""),
     ("personal baseline refresh policy", """
-     SELECT add_continuous_aggregate_policy('baseline_1h', start_offset => INTERVAL '3 days',
+     SELECT add_continuous_aggregate_policy('usual_1h', start_offset => INTERVAL '3 days',
             end_offset => INTERVAL '1 hour', schedule_interval => INTERVAL '15 minutes', if_not_exists => TRUE)"""),
     ("incidents table", """
      CREATE TABLE IF NOT EXISTS incidents (
@@ -165,7 +176,15 @@ def _flush(conn):
     while _ops:
         op = _ops[0]
         ts = datetime.fromtimestamp(op[1], timezone.utc)
-        if op[0] == "open":
+        if op[0] == "approval":
+            r = op[3]
+            if status["features"].get("approvals hypertable") is True:
+                conn.execute("""INSERT INTO approvals (time, device, label, verdict, score, decided_by, body_score,
+                                  signals, explanation, gemini_reasoning, seconds)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                             (ts, DEVICE, op[2], r["verdict"], r["score"], r["decided_by"], r.get("body_score"),
+                              r.get("signals") or [], r.get("explanation"), r.get("reasoning"), r.get("seconds")))
+        elif op[0] == "open":
             conn.execute("INSERT INTO incidents (time, device, verdict, peak_score, signals, gemini_reasoning) "
                          "VALUES (%s, %s, %s, %s, %s, %s)", (ts, DEVICE, op[2], op[3], op[4], op[5]))
         else:
@@ -286,7 +305,7 @@ def usual_for_hour(hour: int) -> dict | None:
     {key: (mean, sd, n)}, pooled from the baseline_1h continuous aggregate."""
     import baseline_model as bm
     rows = query(f"""SELECT humidity, humidity_sd, moisture, moisture_sd, shake, shake_sd, n
-                     FROM baseline_1h
+                     FROM usual_1h
                      WHERE device = %s AND bucket > now() - INTERVAL '14 days'
                        AND extract(hour FROM bucket AT TIME ZONE '{TZ}') = %s""", (DEVICE, hour))
     if not rows:
@@ -297,10 +316,18 @@ def usual_for_hour(hour: int) -> dict | None:
 
 
 def recent_rows(minutes: int = 30) -> list:
-    """Hand-on-mouse readings from the last `minutes`, oldest first: (t, humidity, moisture, shake, verdict)."""
-    return query(f"""SELECT extract(epoch FROM time)::float8, humidity, moisture, shake_rms, verdict
+    """Hand-on-mouse readings from the last `minutes`, oldest first:
+    (t, humidity, moisture, shake, verdict, mode)."""
+    mode = "mode" if status["features"].get("mode column") is True else "NULL"
+    return query(f"""SELECT extract(epoch FROM time)::float8, humidity, moisture, shake_rms, verdict, {mode}
                      FROM readings WHERE device = %s AND touch IS TRUE AND time > now() - INTERVAL '{int(minutes)} minutes'
                      ORDER BY time""", (DEVICE,))
+
+
+def record_approval(t: float, label: str | None, result: dict):
+    """One row per transaction check (queued with the other writes)."""
+    if URL:
+        _ops.append(("approval", t, label, result))
 
 
 def false_alarms_near_hour(hour: int) -> int:

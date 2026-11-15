@@ -77,6 +77,16 @@ def _guardian():
 
 
 def gemini_fn(window):
+    """The transaction's duress check. Prefer the live dashboard's (two learned baselines from Tiger,
+    the camera tie-break, Gemini only when the sensors are unsure); it returns fusion_gemini's format.
+    Falls back to a direct Gemini call if the dashboard isn't running."""
+    try:
+        r = requests.post(os.environ.get("DASHBOARD_URL", "http://127.0.0.1:8080") + "/api/assess",
+                          params={"label": "approval", "seconds": 2}, timeout=20)
+        if r.status_code == 200 and "duress_score" in r.json():
+            return r.json()
+    except Exception:
+        pass
     jpeg, faces = camera.grab()
     if not jpeg or not window:
         return None

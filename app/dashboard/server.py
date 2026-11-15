@@ -260,13 +260,14 @@ def gemini_loop():
     When the sensors are clearly normal or clearly alarming, no frame leaves the board."""
     last_call = 0.0
     while True:
-        time.sleep(1)
+        time.sleep(0.25)
         with lock:
             raw = cam["raw"]
             state = dict(current_state)
-        if not state.get("uncertain"):
+        # Only during a transaction: everyday use (gaming, a busy day) never sends a frame anywhere.
+        if state.get("mode") != "approval" or not state.get("uncertain"):
             continue
-        if time.time() - last_call < GEMINI_EVERY_S:
+        if time.time() - last_call < GEMINI_EVERY_S and last_call >= approval.get("start", 0):
             continue
         if not raw or not os.environ.get("GEMINI_API_KEY"):
             continue
@@ -397,21 +398,35 @@ def compute_state():
             signals.append(f"{name} ({z:+.1f}σ)")
     explanations = a["explanations"] if a else []
 
+    with lock:
+        if approval["active"] and time.time() - approval["start"] > APPROVAL_MAX_S:
+            approval["active"] = False          # abandoned window: drop it without a verdict
+        mode = "approval" if approval["active"] else "background"
     uncertain = body is None or CLEAR_NORMAL_BELOW <= body < CLEAR_DURESS_FROM
     # Gemini's answer only counts if it was given during this uncertain spell.
     if uncertain and "since" not in _uncertain:
         _uncertain["since"] = time.time()
     if not uncertain:
         _uncertain.clear()
-    g_fresh = (uncertain and g["result"] is not None and g["at"] >= _uncertain.get("since", 0)
+    g_fresh = (mode == "approval" and uncertain and g["result"] is not None
+               and g["at"] >= max(_uncertain.get("since", 0), approval["start"])
                and time.time() - g["at"] < 3 * GEMINI_EVERY_S + 10)
     g_score = g["result"]["duress_score"] if g_fresh else None
 
     verdict, score, path, reasons = decide(body, c, g_score, others_conf)
     signals = signals + [r for r in reasons if r not in signals]
 
+    if mode == "approval":
+        with lock:
+            approval["samples"].append({
+                "verdict": verdict, "score": round(score, 2), "decided_by": path, "signals": list(signals),
+                "explanation": "; ".join(explanations) or None, "body_score": body,
+                "reasoning": (g["result"] or {}).get("reasoning") if g_fresh else None})
+
     st = {
-        "t": time.time(), "verdict": verdict, "score": round(score, 2),
+        "t": time.time(), "verdict": verdict, "score": round(score, 2), "mode": mode,
+        "approval": {"active": mode == "approval", "elapsed": round(time.time() - approval["start"], 1) if mode == "approval" else None,
+                     "label": approval["label"] if mode == "approval" else None, "last": approval["last"]},
         "local_score": round(body, 2) if body is not None else None, "body_score": body,
         "decided_by": path, "uncertain": uncertain, "signals": signals if verdict != "NORMAL" or path == "camera" else [],
         "camera_ok": c["ok"], "fps": c["fps"], "faces": c["faces"], "others": others_conf,
@@ -429,8 +444,8 @@ def compute_state():
                        "recent_n": (L.get("recent") or {}).get("n", 0), "hour": L.get("hour"),
                        "false_alarms": L.get("false_alarms", 0), "learn_error": L.get("error")},
         "yubikey": yk,
-        "gemini": {"score": g_score, "fresh": g_fresh, "needed": uncertain, "latency": g["latency"],
-                   "error": g["error"] if uncertain else None,
+        "gemini": {"score": g_score, "fresh": g_fresh, "needed": uncertain and mode == "approval", "latency": g["latency"],
+                   "error": g["error"] if uncertain and mode == "approval" else None,
                    "calls": g["calls"], "model": os.environ.get("GEMINI_MODEL"),
                    "signals": (g["result"] or {}).get("signals") if g_fresh else None,
                    "reasoning": (g["result"] or {}).get("reasoning") if g_fresh else None},
@@ -444,7 +459,6 @@ def compute_state():
 
 
 # ------------------------------------------------------------------ Tiger Data
-incident = {"start": None, "peak": 0.0, "verdict": None}
 _last_store = 0.0
 
 
@@ -469,19 +483,51 @@ def store(st, s):
             # Enough to recompute this verdict: which baseline, the z-scores and each signal's state.
             "body_score": st["body_score"],
             "explanation": "; ".join(st["assessment"]["explanations"]) or None,
-            "baseline": json.dumps({k: st["assessment"][k] for k in ("kind", "tolerance", "returned_s", "groups")})})
-    reason = st["gemini"]["reasoning"]
-    if st["verdict"] != "NORMAL":
-        if incident["start"] is None:
-            incident.update(start=st["t"], peak=st["score"], verdict=st["verdict"])
-            tiger.incident_open(st["t"], st["verdict"], st["score"], st["signals"], reason)
-        elif st["score"] > incident["peak"] or (st["verdict"] == "DURESS" and incident["verdict"] != "DURESS"):
-            incident.update(peak=max(incident["peak"], st["score"]),
-                            verdict="DURESS" if st["verdict"] == "DURESS" else incident["verdict"])
-            tiger.incident_update(incident["start"], st["verdict"], st["score"], st["signals"], reason, ended=False)
-    elif incident["start"] is not None:
-        tiger.incident_update(incident["start"], "NORMAL", 0.0, [], None, ended=True)
-        incident.update(start=None, peak=0.0, verdict=None)
+            "baseline": json.dumps({k: st["assessment"][k] for k in ("kind", "tolerance", "returned_s", "groups")}),
+            "mode": st["mode"]})
+    # Incidents are no longer opened from everyday readings: only a transaction can raise one
+    # (see finish_approval). Gaming, exercise or a stressful day are learned from, never flagged.
+
+
+# ------------------------------------------------------------------ transactions
+# Only a transaction is judged. Everyday readings feed the learned baseline and the live view,
+# but nothing is raised from them and no frame is sent to Gemini.
+APPROVAL_MAX_S = 20
+approval = {"active": False, "start": 0.0, "label": None, "samples": [], "last": None}
+_RANK = {"NORMAL": 0, "WATCH": 1, "DURESS": 2}
+OUTCOME = {"NORMAL": "Approved", "WATCH": "Second approver needed", "DURESS": "Decoy sent, team alerted"}
+
+
+def start_approval(label: str | None = None) -> float:
+    with lock:
+        approval.update(active=True, start=time.time(), label=label, samples=[])
+        return approval["start"]
+
+
+def finish_approval() -> dict | None:
+    """The transaction's verdict: the most serious state seen during its window."""
+    with lock:
+        if not approval["active"]:
+            return approval["last"]
+        samples, start, label = list(approval["samples"]), approval["start"], approval["label"]
+        approval["active"] = False
+    if not samples:
+        result = {"verdict": "WATCH", "score": 0.5, "decided_by": "none", "signals": ["no readings during the transaction"],
+                  "reasoning": None, "explanation": None, "body_score": None}
+    else:
+        worst = max(samples, key=lambda x: (_RANK[x["verdict"]], x["score"]))
+        reasoning = next((x["reasoning"] for x in reversed(samples) if x["reasoning"]), None)
+        result = {k: worst[k] for k in ("verdict", "score", "decided_by", "signals", "explanation", "body_score")}
+        result["reasoning"] = reasoning
+    result.update(t=start, label=label, seconds=round(time.time() - start, 1), outcome=OUTCOME[result["verdict"]],
+                  duress_score=result["score"])
+    with lock:
+        approval["last"] = result
+    tiger.record_approval(start, label, result)
+    if result["verdict"] != "NORMAL":
+        tiger.incident_open(start, result["verdict"], result["score"], result["signals"], result["reasoning"])
+        tiger.incident_update(start, result["verdict"], result["score"], result["signals"], result["reasoning"], ended=True)
+    return result
 
 
 def fusion_loop():
@@ -548,6 +594,33 @@ def api_normal():
 @app.get("/api/incidents")
 def api_incidents():
     return _tiger(tiger.incidents)
+
+
+@app.post("/api/approval/start")
+def api_approval_start(label: str | None = None):
+    return {"started": start_approval(label)}
+
+
+@app.post("/api/approval/finish")
+def api_approval_finish():
+    return JSONResponse(finish_approval() or {"error": "no transaction in progress"})
+
+
+@app.post("/api/assess")
+def api_assess(label: str | None = None, seconds: float = 3.0):
+    """One-shot transaction check for app/python/main.py: opens a window, gathers `seconds` of
+    readings (plus Gemini if the sensors are unsure, up to 12 s), and returns the verdict in
+    fusion_gemini's format (duress_score, signals, reasoning) plus verdict/decided_by/outcome."""
+    start_approval(label)
+    time.sleep(max(1.0, min(seconds, 10.0)))
+    deadline = time.time() + 12
+    while time.time() < deadline:   # sensors unsure: wait for Gemini to break the tie
+        with lock:
+            st = dict(current_state)
+        if not st.get("uncertain") or st.get("gemini", {}).get("fresh") or st.get("gemini", {}).get("error"):
+            break
+        time.sleep(0.25)
+    return JSONResponse(finish_approval())
 
 
 @app.post("/api/incidents/label")
