@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>YuDuino Live Demo</title>
+<style>
+  :root {
+    --bg: #f2f2f7; --card: #ffffff; --fill: rgba(120, 120, 128, .12); --sep: rgba(60, 60, 67, .18);
+    --label: #000000; --label2: rgba(60, 60, 67, .6); --label3: rgba(60, 60, 67, .3);
+    --blue: #007aff; --green: #34c759; --orange: #ff9500; --red: #ff3b30; --gray: #8e8e93;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #000000; --card: #1c1c1e; --fill: rgba(118, 118, 128, .24); --sep: rgba(84, 84, 88, .55);
+      --label: #ffffff; --label2: rgba(235, 235, 245, .6); --label3: rgba(235, 235, 245, .3);
+      --blue: #0a84ff; --green: #30d158; --orange: #ff9f0a; --red: #ff453a; --gray: #8e8e93;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--label); }
+  body { font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+         -webkit-font-smoothing: antialiased; letter-spacing: -.01em; }
+  .num { font-variant-numeric: tabular-nums; }
+  main { max-width: 1400px; margin: 0 auto; padding: 24px 24px 48px; }
+  @media (max-width: 640px) { main { padding: 16px 16px 32px; } }
+  .top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  h1 { font-size: 28px; font-weight: 700; letter-spacing: -.02em; margin: 0; }
+  h1 span { color: var(--label2); font-weight: 600; }
+  .health { display: flex; gap: 14px; font-size: 14px; color: var(--label2); flex-wrap: wrap; }
+  .health b { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--gray); }
+  .card { background: var(--card); border-radius: 16px; padding: 18px 20px; }
+  .ctitle { font-size: 13px; font-weight: 600; color: var(--label2); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 10px; }
+
+  /* the last payment, side by side: what the screen showed / what really happened */
+  .result { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  @media (max-width: 760px) { .result { grid-template-columns: 1fr; } }
+  .result .big { font-size: 34px; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; }
+  .result .sub { color: var(--label2); margin-top: 6px; font-size: 15px; }
+  .result .card { border-left: 6px solid var(--gray); }
+  .tone-green { border-left-color: var(--green) !important; } .tone-green .big { color: var(--green); }
+  .tone-orange { border-left-color: var(--orange) !important; } .tone-orange .big { color: var(--orange); }
+  .tone-red { border-left-color: var(--red) !important; } .tone-red .big { color: var(--red); }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; }
+  @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
+  .cam { position: relative; background: #000; border-radius: 12px; overflow: hidden; aspect-ratio: 4 / 3; }
+  .cam img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .cam .off { position: absolute; inset: 0; display: grid; place-items: center; color: #aaa; font-size: 15px; }
+  .cam .off[hidden] { display: none; }
+  .people { margin-top: 12px; font-size: 18px; font-weight: 600; }
+  .people small { display: block; font-size: 14px; font-weight: 400; color: var(--label2); margin-top: 2px; }
+
+  .risk { display: flex; align-items: baseline; gap: 12px; }
+  .risk .v { font-size: 64px; font-weight: 700; letter-spacing: -.03em; line-height: 1; }
+  .risk .l { color: var(--label2); font-size: 15px; }
+  .bar { position: relative; height: 12px; border-radius: 6px; margin: 16px 0 6px;
+         background: linear-gradient(90deg, var(--green) 0 25%, var(--orange) 25% 75%, var(--red) 75% 100%); opacity: .9; }
+  .bar i { position: absolute; top: -5px; width: 4px; height: 22px; border-radius: 2px; background: var(--label); transform: translateX(-2px); transition: left .3s; }
+  .bands { display: grid; grid-template-columns: 25% 50% 25%; font-size: 12px; color: var(--label2); }
+  .bands span:nth-child(2) { text-align: center; } .bands span:last-child { text-align: right; }
+  .why { margin-top: 12px; font-size: 15px; min-height: 21px; }
+
+  .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+  .tile { background: var(--fill); border-radius: 12px; padding: 12px 14px; }
+  .tile .k { font-size: 13px; color: var(--label2); }
+  .tile .v { font-size: 24px; font-weight: 700; margin-top: 2px; }
+  .tile .s { font-size: 13px; color: var(--label2); margin-top: 2px; min-height: 18px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th { text-align: left; font-size: 13px; font-weight: 600; color: var(--label2); padding: 0 10px 8px 0; }
+  td { padding: 10px 10px 10px 0; border-top: .5px solid var(--sep); vertical-align: top; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .p-green { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
+  .p-orange { background: color-mix(in srgb, var(--orange) 18%, transparent); color: var(--orange); }
+  .p-red { background: color-mix(in srgb, var(--red) 18%, transparent); color: var(--red); }
+  .tablewrap { overflow-x: auto; }
+  .empty { color: var(--label2); padding: 8px 0; }
+  .foot { color: var(--label2); font-size: 13px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <h1>YuDuino <span>· live demo</span></h1>
+    <div class="health" id="health"></div>
+  </div>
+
+  <div class="result">
+    <div class="card" id="shown-card">
+      <div class="ctitle">What the payment screen showed</div>
+      <div class="big" id="shown">No payment yet</div>
+      <div class="sub" id="shown-sub">Make a payment on the payment screen.</div>
+    </div>
+    <div class="card" id="real-card">
+      <div class="ctitle">What really happened</div>
+      <div class="big" id="real">–</div>
+      <div class="sub" id="real-sub"></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="ctitle">Camera · on the board, nothing leaves it</div>
+      <div class="cam"><img id="cam" alt="Live camera"><div class="off" id="cam-off">Camera starting…</div></div>
+      <div class="people" id="people">–<small></small></div>
+    </div>
+    <div class="card">
+      <div class="ctitle" id="risk-title">Risk if a payment were made now</div>
+      <div class="risk"><div class="v num" id="score">–</div><div class="l" id="verdict"></div></div>
+      <div class="bar"><i id="needle" style="left:0%"></i></div>
+      <div class="bands"><span>Body sensors: approve</span><span>Unsure: the camera decides</span><span>Body sensors: duress</span></div>
+      <div class="why" id="why"></div>
+      <div class="tiles">
+        <div class="tile"><div class="k">Sweat</div><div class="v num" id="t-sweat">–</div><div class="s" id="t-sweat-s"></div></div>
+        <div class="tile"><div class="k">Shaking</div><div class="v num" id="t-move">–</div><div class="s" id="t-move-s"></div></div>
+        <div class="tile"><div class="k">Hand on the mouse</div><div class="v" id="t-hand">–</div><div class="s" id="t-hand-s"></div></div>
+        <div class="tile"><div class="k">Baseline</div><div class="v" id="t-base">–</div><div class="s" id="t-base-s"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="ctitle">Payments</div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Time</th><th>Payment</th><th>Screen showed</th><th>Really</th><th>Decided by</th><th>Why</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+    <div class="empty" id="empty">No payments yet.</div>
+    <div class="foot">Every decision is made on the board from fixed rules, and logged with its readings so it can be recomputed. A decoy receipt looks identical to a real one; only a detail the account holder chose differs.</div>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const fmt = (x, d = 2) => (x == null || isNaN(x)) ? "–" : Number(x).toFixed(d);
+const clock = (t) => new Date(t * 1000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const REAL = { NORMAL: ["Approved", "green"], WATCH: ["Second approver needed", "orange"], DURESS: ["Duress", "red"], NO_CLICK: ["Not confirmed on the mouse", "red"] };
+const BY = { sensors: "Body sensors", camera: "Camera tie-break", none: "No readings", mouse: "STM32: no button-C press with a hand on the pad" };
+const zText = (z) => z == null ? "no baseline" : z < 1.5 ? "normal for you" : z < 3 ? "raised" : "well above normal";
+const money = (a) => { const n = parseFloat(a); return isNaN(n) ? a : "£" + n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+let lastPay = null;
+
+async function pollState() {
+  try {
+    const s = await (await fetch("/state", { cache: "no-store" })).json();
+    $("health").innerHTML = [["Sensors", s.sensors_ok], ["Camera", s.camera_ok], ["YubiKey", s.yubikey]]
+      .map(([n, ok]) => `<span><b style="background:var(${ok ? "--green" : "--red"})"></b>${n}</span>`).join("");
+
+    const tx = s.approval || {};
+    $("risk-title").textContent = tx.active ? `Checking the payment… ${tx.elapsed ?? 0} s` : "Risk if a payment were made now";
+    $("score").textContent = fmt(s.score);
+    const [vt] = REAL[s.verdict] || ["–"];
+    $("verdict").textContent = s.uncertain ? "unsure, asking the camera" : vt.toLowerCase();
+    $("needle").style.left = Math.max(0, Math.min(100, (s.score || 0) * 100)) + "%";
+    const a = s.assessment || {};
+    const notes = (a.explanations || []).concat(s.signals || []);
+    $("why").textContent = notes.length ? notes.join(" · ") : (s.decided_by === "sensors" ? "Body readings are normal for you." : "");
+
+    const g = a.groups || {}, sw = g.sweat, mv = g.movement;
+    $("t-sweat").textContent = s.sweat_z == null ? "–" : `${fmt(s.sweat_z, 1)}σ`;
+    $("t-sweat-s").textContent = sw && sw.state === "recovering" ? "easing off, like after exercise" : zText(s.sweat_z);
+    $("t-move").textContent = s.move_z == null ? "–" : `${fmt(s.move_z, 1)}σ`;
+    $("t-move-s").textContent = mv && mv.state === "recovering" ? "easing off, like after exercise" : zText(s.move_z);
+    const f = s.features || {};
+    $("t-hand").textContent = s.touch ? "Yes" : "No";
+    $("t-hand-s").textContent = f.moisture != null ? `palm moisture ${fmt(f.moisture, 0)} · humidity ${fmt(f.humidity, 0)}%` : "";
+    $("t-base").textContent = s.baseline_ready ? (a.kind ? a.kind.replace(" + last 20 min", "") : "ready") : `learning ${Math.round((s.baseline_progress || 0) * 100)}%`;
+    $("t-base-s").textContent = a.returned_s != null ? `back at the mouse ${Math.round(a.returned_s / 60)} min ago` : (a.kind && a.kind.includes("last 20 min") ? "plus your last 20 minutes" : "");
+
+    const others = s.others || 0;
+    $("people").innerHTML = (!s.camera_ok ? "Camera offline"
+      : s.over_shoulder ? `Someone over your shoulder · ${Math.round(s.dwell)} s`
+      : s.watching ? `Someone watching your screen · ${Math.round(s.dwell)} s`
+      : others ? `${others} other ${others === 1 ? "person" : "people"} nearby, not watching`
+      : s.faces ? "Just you" : "Nobody in view")
+      + `<small>Over the shoulder = close, facing the screen, for 3 s or more. Passers-by never count.</small>`;
+  } catch (e) { /* keep the last values */ }
+  setTimeout(pollState, 500);
+}
+
+async function pollPayments() {
+  try {
+    const list = await (await fetch("/api/payments", { cache: "no-store" })).json();
+    $("empty").hidden = list.length > 0;
+    $("rows").innerHTML = list.map((p) => {
+      const [rt, rc] = REAL[p.verdict] || ["–", "orange"];
+      const why = (p.signals || []).join(", ");
+      return `<tr><td class="num">${clock(p.t)}</td><td>${esc(money(p.amount))} → ${esc(p.to)}</td>
+        <td><span class="pill p-${p.shown === "real" ? "green" : "red"}">${p.shown === "real" ? "Real receipt" : "Decoy receipt"}</span></td>
+        <td><span class="pill p-${rc}">${rt}</span> <span class="num" style="color:var(--label2)">${fmt(p.score)}</span></td>
+        <td>${BY[p.decided_by] || esc(p.decided_by)}</td><td>${esc(why)}</td></tr>`;
+    }).join("");
+    const p = list[0];
+    if (p && (!lastPay || p.id !== lastPay.id)) {
+      lastPay = p;
+      const real = p.shown === "real";
+      $("shown").textContent = real ? "Payment sent" : "Payment sent (decoy)";
+      $("shown-sub").textContent = real
+        ? `Real receipt: “Payment sent successfully” · ${money(p.amount)} to ${p.to}`
+        : `Shown as “Payment sent Successfully”: identical to the attacker, but the capital S tells the account holder it’s fake. No money moved.`;
+      $("shown-card").className = "card tone-" + (real ? "green" : "red");
+      const [rt, rc] = REAL[p.verdict] || ["–", "orange"];
+      $("real").textContent = real ? "Approved" : `${rt} · team alerted`;
+      $("real-sub").textContent = `${BY[p.decided_by] || p.decided_by} · risk ${fmt(p.score)}${(p.signals || []).length ? " · " + p.signals.join(", ") : ""}`;
+      $("real-card").className = "card tone-" + rc;
+    }
+  } catch (e) { /* retry */ }
+  setTimeout(pollPayments, 1200);
+}
+
+let camURL = null;
+async function pollCam() {
+  try {
+    const r = await fetch("/frame.jpg", { cache: "no-store" });
+    if (r.ok) {
+      const url = URL.createObjectURL(await r.blob());
+      $("cam").src = url; if (camURL) URL.revokeObjectURL(camURL); camURL = url; $("cam-off").hidden = true;
+    }
+  } catch (e) { /* keep the last frame */ }
+  setTimeout(pollCam, document.hidden ? 1000 : 140);
+}
+pollState(); pollPayments(); pollCam();
+</script>
+</body>
+</html>

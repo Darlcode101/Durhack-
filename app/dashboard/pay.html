@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Send Money</title>
+<style>
+  :root {
+    --bg: #f2f2f7; --card: #ffffff; --fill: rgba(120, 120, 128, .12); --sep: rgba(60, 60, 67, .18);
+    --label: #000000; --label2: rgba(60, 60, 67, .6); --blue: #007aff; --green: #34c759;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #000000; --card: #1c1c1e; --fill: rgba(118, 118, 128, .24); --sep: rgba(84, 84, 88, .55);
+      --label: #ffffff; --label2: rgba(235, 235, 245, .6); --blue: #0a84ff; --green: #30d158;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--label); }
+  body { font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+         -webkit-font-smoothing: antialiased; }
+  main { max-width: 440px; margin: 0 auto; padding: 40px 16px; }
+  .brand { font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--label2); }
+  h1 { font-size: 30px; font-weight: 700; letter-spacing: -.02em; margin: 4px 0 24px; }
+  .card { background: var(--card); border-radius: 14px; overflow: hidden; }
+  label { display: block; padding: 12px 16px; border-bottom: .5px solid var(--sep); }
+  label:last-child { border-bottom: 0; }
+  label span { display: block; font-size: 13px; color: var(--label2); margin-bottom: 2px; }
+  input { width: 100%; border: 0; background: transparent; color: var(--label); font: inherit; font-size: 17px; outline: none; padding: 0; }
+  button { width: 100%; margin-top: 20px; border: 0; border-radius: 12px; padding: 15px; font: inherit; font-size: 17px;
+           font-weight: 600; background: var(--blue); color: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  button.plain { background: var(--fill); color: var(--blue); }
+  .hint { font-size: 13px; color: var(--label2); text-align: center; margin-top: 12px; }
+  .wait { text-align: center; padding: 48px 16px; }
+  .spin { width: 34px; height: 34px; border: 3px solid var(--fill); border-top-color: var(--blue); border-radius: 50%;
+          margin: 0 auto 18px; animation: r 0.9s linear infinite; }
+  @keyframes r { to { transform: rotate(360deg); } }
+  .tick { width: 64px; height: 64px; border-radius: 50%; background: var(--green); margin: 8px auto 16px;
+          display: grid; place-items: center; }
+  .done { text-align: center; padding: 24px 16px 8px; }
+  .done .amt { font-size: 40px; font-weight: 700; letter-spacing: -.02em; }
+  .rows { margin-top: 16px; }
+  .rows div { display: flex; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: .5px solid var(--sep); font-size: 15px; }
+  .rows div span:first-child { color: var(--label2); }
+  .rows div span:last-child { text-align: right; overflow-wrap: anywhere; }
+  .word { font-weight: 600; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">Demo Bank</div>
+  <h1 id="h">Send money</h1>
+
+  <form id="form" autocomplete="off">
+    <div class="card">
+      <label><span>To</span><input id="to" value="J. Smith" required></label>
+      <label><span>Amount (£)</span><input id="amount" value="250.00" inputmode="decimal" required></label>
+      <label><span>Reference</span><input id="reference" value="Rent"></label>
+    </div>
+    <button id="send" type="submit">Send</button>
+  </form>
+
+  <div id="wait" class="card wait" hidden>
+    <div class="spin"></div>
+    <div style="font-weight:600">Processing payment…</div>
+  </div>
+
+  <div id="done" hidden>
+    <div class="card">
+      <div class="done">
+        <div class="tick"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+        <div style="font-size:17px; font-weight:600" id="d-head">Payment sent</div>
+        <div class="amt" id="d-amt"></div>
+      </div>
+      <div class="rows">
+        <div><span>To</span><span id="d-to"></span></div>
+        <div><span>Reference</span><span id="d-ref"></span></div>
+        <div><span>Transaction ID</span><span id="d-id"></span></div>
+        <div><span>Time</span><span id="d-time"></span></div>
+      </div>
+    </div>
+    <button class="plain" id="again" type="button">Send another payment</button>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+function show(which) { ["form", "wait", "done"].forEach((k) => { $(k).hidden = k !== which; }); }
+
+$("form").onsubmit = async (e) => {
+  e.preventDefault();
+  const body = { to: $("to").value, amount: $("amount").value, reference: $("reference").value };
+  show("wait"); $("h").textContent = "Sending";
+  let r = null;
+  try {
+    const res = await fetch("/api/pay", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (res.ok) r = await res.json();
+  } catch (err) { /* fall through */ }
+  if (!r) { show("form"); $("h").textContent = "Send money"; alert("Something went wrong. Try again."); return; }
+  const amt = parseFloat(r.amount);
+  $("d-amt").textContent = isNaN(amt) ? r.amount : "£" + amt.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  $("d-to").textContent = r.to; $("d-ref").textContent = r.reference || "–"; $("d-id").textContent = r.id;
+  $("d-time").textContent = new Date(r.time * 1000).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
+  $("d-head").textContent = "Payment sent" + (r.word ? " " + r.word : "");
+  show("done"); $("h").textContent = "Done";
+};
+$("again").onclick = () => { show("form"); $("h").textContent = "Send money"; };
+</script>
+</body>
+</html>

@@ -34,6 +34,7 @@ import cv2  # noqa: E402
 import uvicorn  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
 
 import edge_model  # noqa: E402
 
@@ -71,6 +72,7 @@ YUNET_MODEL = os.path.join(HERE, "models", "face_detection_yunet_2023mar.onnx")
 DETECT_SIZE = tuple(int(v) for v in os.environ.get("DETECT_SIZE", "640x480").split("x"))
 NEAR_RATIO = float(os.environ.get("NEAR_RATIO", "0.4"))
 SHOULDER_DWELL_S = float(os.environ.get("SHOULDER_DWELL_S", "3"))
+SHOULDER_MEMORY_S = float(os.environ.get("SHOULDER_MEMORY_S", "20"))   # someone who watched in the last 20 s still counts
 
 
 def _facing(f) -> bool:
@@ -126,6 +128,7 @@ def camera_loop():
         cap.read()
     last = time.time()
     shoulder_since = shoulder_seen = None   # someone close AND facing the screen, continuously
+    shoulder_at = 0.0                       # last time someone was over the shoulder
     while True:
         ok, frame = cap.read()
         if not ok:
@@ -160,6 +163,8 @@ def camera_loop():
             shoulder_since = shoulder_seen = None
         dwell = now - shoulder_since if shoulder_since else 0.0
         over_shoulder = dwell >= SHOULDER_DWELL_S
+        if over_shoulder:
+            shoulder_at = now
 
         for i, (x, y, w, h, facing) in enumerate(uniq):
             is_near = i > 0 and w >= NEAR_RATIO * user_w
@@ -180,7 +185,7 @@ def camera_loop():
         with lock:
             cam.update(jpeg=ann.tobytes(), raw=raw.tobytes(), faces=len(uniq),
                        others=near, far=max(0, len(uniq) - 1 - near), ok=True,
-                       watching=watching, dwell=round(dwell, 1), over_shoulder=over_shoulder,
+                       watching=watching, dwell=round(dwell, 1), over_shoulder=over_shoulder, shoulder_at=shoulder_at,
                        user_facing=uniq[0][4] if uniq else None,
                        fps=round(0.8 * cam["fps"] + 0.2 / max(1e-3, now - last), 1))
             recent_others.append(near)
@@ -329,11 +334,13 @@ def decide(body, c, g_score, others):
     # Uncertain (or no baseline yet): ask the camera, then the model.
     reasons = ["body signals borderline" if body is not None else "no personal baseline yet"]
     base = body if body is not None else 0.4
-    shoulder = c["over_shoulder"]
+    # Over the shoulder now, or at any point in the last SHOULDER_MEMORY_S (an attacker watches you
+    # type the payment, then may step back as you confirm).
+    shoulder = c["over_shoulder"] or time.time() - c.get("shoulder_at", 0.0) < SHOULDER_MEMORY_S
     g_alarm = g_score is not None and g_score >= DURESS_AT
     g_concern = g_score is not None and g_score >= WATCH_AT
     if shoulder:
-        reasons.append(f"someone watching over your shoulder for {c['dwell']:.0f}s")
+        reasons.append("someone watching over your shoulder" if not c["over_shoulder"] else f"someone watching over your shoulder for {c['dwell']:.0f}s")
     if g_concern:
         reasons.append(f"the model sees possible coercion ({g_score:.2f})")
     if shoulder and g_concern:
@@ -617,6 +624,10 @@ def api_assess(label: str | None = None, seconds: float = 3.0):
     """One-shot transaction check for app/python/main.py: opens a window, gathers `seconds` of
     readings (plus the on-board model if the sensors are unsure, up to 12 s), and returns the verdict in
     edge_model's format (duress_score, signals, reasoning) plus verdict/decided_by/outcome."""
+    return JSONResponse(_assess(label, seconds))
+
+
+def _assess(label, seconds):
     start_approval(label)
     time.sleep(max(1.0, min(seconds, 10.0)))
     deadline = time.time() + 12
@@ -626,7 +637,107 @@ def api_assess(label: str | None = None, seconds: float = 3.0):
         if not st.get("uncertain") or st.get("edge", {}).get("fresh") or st.get("edge", {}).get("error"):
             break
         time.sleep(0.25)
-    return JSONResponse(finish_approval())
+    return finish_approval()
+
+
+# ------------------------------------------------------------------ payment page (the customer's side, demo)
+# Anything but a clean NORMAL gets a decoy receipt. It looks exactly like the real one: same page,
+# same JSON shape, same fields. The only difference is one word in the headline ("Payment sent <word>").
+# The real receipt uses the user's word (YUDUINO_TELL in .env); a decoy uses YUDUINO_DECOY, or by default
+# the same word with its first letter's case flipped (successfully -> Successfully). An attacker
+# sees "Payment sent" either way; only the user knows which spelling is theirs.
+def _decoy_word(tell: str) -> str:
+    d = os.environ.get("YUDUINO_DECOY", "").strip()
+    if d and d != tell:
+        return d
+    flipped = tell[:1].swapcase() + tell[1:]
+    return flipped if flipped != tell else tell + "."
+
+
+class Payment(BaseModel):
+    to: str = ""
+    amount: str = ""
+    reference: str = ""
+
+
+@app.get("/pay")
+def pay_page():
+    with open(os.path.join(HERE, "pay.html")) as f:
+        return HTMLResponse(f.read())
+
+
+CLICK_WAIT_S = float(os.environ.get("CLICK_WAIT_S", "5"))
+
+
+def _wait_for_click(digest_hex: str):
+    """Arm the STM32 with this payment's digest. It accepts only after a real button-C press with the
+    palm on the pad in the last 1.5 s, decided in its trusted core; Linux never sees the press itself.
+    Returns the bridge (armed, must be sealed) or None if no such click came in time."""
+    from bridge import StmBridge
+    b = StmBridge()
+    deadline = time.time() + CLICK_WAIT_S
+    while time.time() < deadline:
+        try:
+            if b.call("arm_approval", digest_hex) == "1":
+                return b
+        except (Exception, SystemExit):
+            pass
+        time.sleep(0.1)
+    return None
+
+
+@app.post("/api/pay")
+def api_pay(p: Payment):
+    """Silent: the page only says "Processing payment". The owner presses button C (to anyone
+    watching, an ordinary mouse click) with a palm on the pad; then the board checks them for a few
+    seconds. No press within CLICK_WAIT_S means the payment silently doesn't go through: decoy."""
+    import hashlib
+    receipt = {"to": p.to[:60], "amount": p.amount[:20], "reference": p.reference[:40],
+               "id": "TXN-" + os.urandom(4).hex().upper()}
+    digest = hashlib.sha256(json.dumps(receipt, sort_keys=True).encode()).hexdigest()
+    armed = _wait_for_click(digest)
+    if armed is None:
+        r = {"t": time.time(), "verdict": "NO_CLICK", "score": 1.0, "decided_by": "mouse",
+             "signals": ["no button-C press with a hand on the mouse"], "explanation": None,
+             "body_score": None, "seconds": CLICK_WAIT_S}
+    else:
+        r = {}
+        try:
+            r = _assess("payment", 3) or {}
+        finally:
+            score = r.get("score")
+            try:   # always end the STM32's session, or it stays armed and refuses the next click
+                armed.call("seal_approval", str(round(score * 100) if score is not None else -1), "0")
+            except (Exception, SystemExit):
+                pass
+    genuine = r.get("verdict") == "NORMAL"
+    tell = os.environ.get("YUDUINO_TELL", "").strip()
+    word = (tell if genuine else _decoy_word(tell)) if tell else None
+    if not genuine:   # the dashboard (security team's view) records what really happened
+        with lock:
+            if approval.get("last") is r:
+                r["outcome"] = "Decoy receipt shown, team alerted"
+    receipt.update(time=time.time(), word=word)
+    with lock:   # for the judges' page: what the screen showed vs what really happened (never the word)
+        payments.append({"t": r.get("t", receipt["time"]), "to": receipt["to"], "amount": receipt["amount"],
+                         "id": receipt["id"], "shown": "real" if genuine else "decoy",
+                         **{k: r.get(k) for k in ("verdict", "score", "decided_by", "signals", "explanation", "body_score", "seconds")}})
+    return receipt
+
+
+payments = collections.deque(maxlen=20)
+
+
+@app.get("/api/payments")
+def api_payments():
+    with lock:
+        return JSONResponse(list(payments)[::-1])
+
+
+@app.get("/demo")
+def demo_page():
+    with open(os.path.join(HERE, "demo.html")) as f:
+        return HTMLResponse(f.read())
 
 
 @app.post("/api/incidents/label")
