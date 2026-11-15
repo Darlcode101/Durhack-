@@ -275,6 +275,8 @@ def smoothed():
         v = [r[k] for r in recent_features if r.get(k) is not None]
         out[k] = round(sum(v) / len(v), 4) if v else None
     out["shake_rms"] = max((r.get("shake_rms") or 0) for r in recent_features)  # peaks matter
+    if not out.get("touch"):
+        out.update(humidity=None, temp_c=None, moisture=None)
     return out
 
 
@@ -445,6 +447,8 @@ def palm_only(f: dict) -> dict:
         _palm["since"] = _palm["since"] or now
     elif now - _palm["last"] > 0.5:
         _palm["since"] = None
+    if not f.get("touch") and now - _palm["last"] > 0.5:
+        f = {**f, "moisture": None}            # sweat readings only count with a hand on the pad
     if _palm["since"] is None or now - _palm["since"] < THERMO_SETTLE_S:
         return {**f, "humidity": None, "temp_c": None}
     # The Thermo sometimes jumps in whole 10 degree steps (30 -> 80 C) with humidity jumping alongside.
@@ -476,7 +480,10 @@ def compute_state():
     synthetic = getattr(baseline, "kind", None) == "synthetic"
     usual_ref = None if synthetic else L.get("usual")
     recent_ref = None if synthetic else L.get("recent")
-    a = bm.assess(s, usual_ref, recent_ref, _session_ref(), L.get("tolerance", 1.0)) if s else None
+    # The moisture probe reads 0 until skin happens to touch it, then ~100+: contact, not sweat. Unless
+    # SWEAT_USE_MOISTURE=1 it is shown and stored but left out of the score (sweat = palm humidity).
+    scored = s if (not s or os.environ.get("SWEAT_USE_MOISTURE") == "1") else {**s, "moisture": None}
+    a = bm.assess(scored, usual_ref, recent_ref, _session_ref(), L.get("tolerance", 1.0)) if s else None
     body = a["body"] if a else None
     sweat_z = a["groups"]["sweat"]["z"] if a and a["groups"].get("sweat") else None
     move_z = a["groups"]["movement"]["z"] if a and a["groups"].get("movement") else None
@@ -556,6 +563,9 @@ def store_reading(st, s):
     if st["t"] - _last_store >= 1.0:
         _last_store = st["t"]
         f = s or {}
+        hand = bool(f.get("touch"))
+        if not hand:   # sweat (humidity, temperature, moisture) is only stored with a hand on the pad
+            f = {**f, "humidity": None, "temp_c": None, "moisture": None}
         store.record({
             "time": datetime.fromtimestamp(st["t"], timezone.utc),
             "device": store.DEVICE, "verdict": st["verdict"], "score": st["score"],
@@ -563,7 +573,7 @@ def store_reading(st, s):
             "faces": st["faces"], "close_people": st["others"], "far_people": st["far"],
             "humidity": f.get("humidity"), "temp_c": f.get("temp_c"), "shake_rms": f.get("shake_rms"),
             "moisture": f.get("moisture"), "touch": bool(f.get("touch")) if f else None,
-            "sweat_z": st["sweat_z"], "move_z": st["move_z"], "yubikey": st["yubikey"],
+            "sweat_z": st["sweat_z"] if hand else None, "move_z": st["move_z"], "yubikey": st["yubikey"],
             "edge_latency": st["edge"]["latency"] if st["edge"]["fresh"] else None,
             "decided_by": st["decided_by"],
             # Enough to recompute this verdict: which baseline, the z-scores and each signal's state.
