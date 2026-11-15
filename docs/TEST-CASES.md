@@ -1,6 +1,6 @@
 # YuDuino cryptography test cases
 
-Test cases for the **YuSeal cryptography only** ([CRYPTO.md](CRYPTO.md)): the three proofs (YubiKey, STM32 tag, ML-DSA-65), the key store, the nonce, the guardian's checks and the audit log. Sensors, the dashboard, Gemini and the owner check are not covered here. Short flash steps are in [TESTING.md](TESTING.md).
+Test cases for the **YuSeal cryptography only** ([CRYPTO.md](CRYPTO.md)): the three proofs (YubiKey, STM32 tag, ML-DSA-65), the key store, the nonce, the guardian's checks and the audit log. Sensors, the dashboard, Gemini and the owner check are not covered here. The one exception: duress is judged only at the moment of a transaction (cases 2.11 and 5.10). Short flash steps are in [TESTING.md](TESTING.md).
 
 Tick a case only when you saw the expected result. Write the **result, who and when** in the last column, and the exact error text for any failure. **Result key:** `P` pass, `F` fail, `-` not run.
 
