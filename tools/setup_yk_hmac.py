@@ -1,18 +1,18 @@
 """Fallback setup, only if tools/yk_probe.py says FIDO2 needs a touch. Run ONCE on the board
-(where the YubiKey is plugged in; tools/out/ must then also be on the guardian's side):
+(where the YubiKey is plugged in; tools/out/ must then also be on the verifier's side):
 
     pip install yubikey-manager
     python3 tools/setup_yk_hmac.py
 
 It programs the YubiKey's slot 2 with a random HMAC-SHA1 challenge-response key that needs NO touch
 (this REPLACES whatever is in slot 2: if you use it for something, pass --slot 1 only if slot 1 is free)
-and writes tools/out/yk_hmac_key.json (secret, gitignored) for the guardian. Then:
+and writes tools/out/yk_hmac_key.json (secret, gitignored) for the verifier. Then:
 
     python3 app/python/main.py --yk hmac-sha1 enrol <name>
 
-Weaker than FIDO2: there is no public-key signature, so the guardian holds this key and could fake
+Weaker than FIDO2: there is no public-key signature, so the verifier holds this key and could fake
 the YubiKey proof (but not the STM32 tag or the ML-DSA signature). Delete tools/out/ afterwards
-from the laptop once it is on the guardian.
+from the laptop once it is on the verifier.
 """
 import argparse
 import json

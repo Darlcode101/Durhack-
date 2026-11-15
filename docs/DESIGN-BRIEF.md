@@ -36,7 +36,7 @@ Point 6 is as binding as the others. A design that can't be built this weekend i
 - Works without biometrics; sensors only detect duress.
 - Quantum-proof, with interest in symmetric and hash-based options.
 - Every action traceable to who authorised it.
-- The Vultr guardian can lock and alert but never approve.
+- The verifier can refuse but never approve.
 - Simple, multipurpose parts. Keep the prototype simple.
 
 **The team's existing code** (`app/python`, `app/sketch`): YubiKey over python-fido2, an encrypted ML-DSA key store, a Gemini call with a structured schema, a sketch that sends sensor features **and the typed PIN** to Linux.
@@ -51,7 +51,7 @@ Rank every design choice against these, strongest first.
 | **In the room, coercing the user** | Sight of the device, the screen, the button presses; may know how YuDuino works; may know the user's normal PIN from watching | A real approval; to know whether an alarm was raised |
 | **Later, with the seized device** | The board, the SD card, time, maybe lab equipment | Proof the victim raised the alarm; keys for future forgery |
 | **On the network** | Can block, delay, replay and read traffic; can record it for a future quantum computer | Force a "calm" verdict; replay approvals; read biometric features |
-| **Insider or hacked guardian** | The server, its keys and database | Approve something; rewrite history; learn who raised alarms |
+| **Insider or hacked verifier** | The server, its keys and database | Approve something; rewrite history; learn who raised alarms |
 | **Thief** | YubiKey, or device, or a copy of the key file, but not all with the PIN | Any approval |
 | **Future quantum computer** | Breaks P-256, RSA, X25519 | Forge signatures; decrypt recorded traffic |
 | **Supply chain** | A malicious library or firmware build | Any of the above |
@@ -67,7 +67,7 @@ For each attacker the design must state: what stops them, what they can still do
 - Every field in a request must be either shown or refused. Nothing unshown may change what happens.
 
 **Duress**
-- Who learns that duress was signalled? List every component and say whether it knows. The fewer the better; ideally only the STM32 and the guardian.
+- Who learns that duress was signalled? List every component and say whether it knows. The fewer the better; ideally only the STM32 and the verifier.
 - Can anyone tell a duress approval from a normal one by key, size, timing, structure, screen, sound, network traffic, or what happens in the next minute?
 - The attacker may watch the PIN being typed. How does the duress PIN avoid looking different?
 - What if the attacker cuts the network, unplugs a sensor, or puts a sign in front of the camera?
@@ -86,7 +86,7 @@ For each attacker the design must state: what stops them, what they can still do
 - State must survive lost messages and power cuts without getting stuck or reusing anything.
 
 **Failure modes** (each needs a defined, safe outcome)
-- Wi-Fi down; Gemini slow, down or returning nonsense; guardian down.
+- Wi-Fi down; Gemini slow, down or returning nonsense; verifier down.
 - YubiKey unplugged mid-approval; wrong YubiKey.
 - Wrong PIN; five wrong PINs; grip released.
 - Power cut between any two steps.

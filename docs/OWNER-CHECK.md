@@ -25,16 +25,16 @@ The *combination* is the point. Any one of these can be copied or is shared by m
 1. **Per-user, per-hour baseline** for every feature (median and spread), built from the person's own all-day use ([BASELINE.md](BASELINE.md), stored in Tiger Data).
 2. **Recent window:** the last few minutes of quiet-hand features plus the moment of the click.
 3. **Distance from the owner:** for each feature, how far the window is from the person's usual (robust z-score, each capped so one odd feature can't dominate), then a weighted combination into one number. This is plain, explainable statistics for the hackathon. A learned model (for example one-class) can replace it later.
-4. **Continuity:** the guardian also tracks whether the hand has been **continuously the same**. If the palm leaves the pad for more than a few seconds, a new hand may have picked it up, and **trust restarts from low** and has to be earned again over a minute or more of matching quiet data. Someone grabbing the mouse and immediately clicking gets no benefit of the doubt.
+4. **Continuity:** the verifier also tracks whether the hand has been **continuously the same**. If the palm leaves the pad for more than a few seconds, a new hand may have picked it up, and **trust restarts from low** and has to be earned again over a minute or more of matching quiet data. Someone grabbing the mouse and immediately clicking gets no benefit of the doubt.
 5. **Three bands, not one cut-off:**
 
 | Band | Meaning | Outcome |
 |---|---|---|
 | **Owner-like** | Close to the person's usual for this hour, with continuity | Carry on to the normal checks |
-| **Uncertain** | In between, or not enough history yet for this hour | **Step-up**: second approver (or a deliberate YubiKey touch) |
+| **Uncertain** | In between, or not enough history yet for this hour | **Step-up**: returned to the customer's system to handle |
 | **Not the owner** | Clearly different, or continuity broken | **Rejected quietly** (below) |
 
-**Where it runs.** The STM32 **attests** the features: the tag covers a hash of the feature summary and the envelope carries the summary (a dozen numbers). The **guardian recomputes** the distance from those attested numbers and the Tiger Data baseline itself. So **a compromised Linux side cannot claim "it's the owner"**, and it cannot replay a recording of the owner's data without physically feeding the sensors. (Gemini's duress score still travels through Linux, as before.)
+**Where it runs.** The STM32 **attests** the features: the tag covers a hash of the feature summary and the envelope carries the summary (a dozen numbers). The **verifier recomputes** the distance from those attested numbers and the Tiger Data baseline itself. So **a compromised Linux side cannot claim "it's the owner"**, and it cannot replay a recording of the owner's data without physically feeding the sensors. (Gemini's duress score still travels through Linux, as before.)
 
 ## How a rejection looks to an impostor
 
@@ -43,22 +43,22 @@ The impostor must never learn *why* it failed, and must never see anything that 
 - **Unknown hand:** a plain, ordinary-looking failure ("temporarily unavailable, try again"). Same text, same delay as any other transient failure. **Not** "wrong person".
 - **Duress:** still the decoy: the requester is told "accepted" and nothing executes, as in [CRYPTO.md](CRYPTO.md). The two cases are handled differently on purpose: a coerced person's attacker should believe it worked, while an impostor should keep retrying in vain.
 - **No score, no hint, no timing difference** is returned on any path. (If the outcome leaked how close the attempt was, an attacker could hill-climb toward the owner's profile.)
-- **After several unknown-hand rejections in a few minutes**, the guardian locks that person's approvals and **alerts the owner or the security contact** ("unrecognised hand using your mouse"). The attacker keeps seeing the same ordinary failures.
+- **After several unknown-hand rejections in a few minutes**, the verifier locks that person's approvals and records an alert for the customer's system to read. The attacker keeps seeing the same ordinary failures.
 - Each rejected attempt is **logged** with the attested features, so there is evidence of who tried and when.
 
 ## The false-reject problem (the real owner turned away)
 
 It will happen. Hands change: cold or sweaty, an injury, a glove, a new chair, a bad night, a stressful hour. Stress also looks like duress, so these can pile up. What we do:
 
-1. **The uncertain band is a step-up, not a rejection.** Most "not quite right" cases land on a **second approver** (a teammate approves) or a deliberate YubiKey touch, so the owner is slowed down, not locked out.
+1. **The uncertain band is a step-up, not a rejection.** Most "not quite right" cases land on a step-up result, so the owner is slowed down, not locked out.
 2. **A learning period.** Until there are enough hours of data for a given hour of day, the owner check is **advisory only**: it records and flags but doesn't reject. This stops a first-day lockout, which matters for the hackathon.
-3. **Labels teach it.** When a second approver or the owner says "that was me", the window is labelled and added to the baseline (and tunes the thresholds in Tiger Data). Over time, false rejects fall.
-4. **A recovery path.** If a real owner is rejected, they can re-verify with the second approver; repeated rejections of the owner trigger a human review rather than a silent lockout.
+3. **Labels teach it.** When the owner says "that was me", the window is labelled and added to the baseline (and tunes the thresholds in Tiger Data). Over time, false rejects fall.
+4. **A recovery path.** If a real owner is rejected, the customer's system decides how they re-verify; repeated rejections of the owner trigger a human review rather than a silent lockout.
 5. **Thresholds are set conservatively and measured.** See the test below.
 
 ## What it does *not* do
 
-- It is **not a strong secret.** A close, informed, determined impostor (someone who studies the owner and knows what is measured) might get through. It raises the cost of casual and unknowing attackers a lot, and the rest of the stack (guardian limits, step-up, YubiKey, audit log) still applies.
+- It is **not a strong secret.** A close, informed, determined impostor (someone who studies the owner and knows what is measured) might get through. It raises the cost of casual and unknowing attackers a lot, and the rest of the stack (step-up, YubiKey, audit log) still applies.
 - It does **not** replace the YubiKey. The credential is still the owner's; the owner check just says whether the hand using it matches.
 - It cannot protect against the owner being **coerced** (the right hand under duress); that is the duress score's job, and it has no deliberate signal ([STEALTH-APPROVAL.md](STEALTH-APPROVAL.md)).
 - **Privacy:** it needs aggregated behavioural data about a person. Consent, pause, view and delete controls apply ([BASELINE.md](BASELINE.md#privacy)).
@@ -77,7 +77,7 @@ Do this before putting any weight on it. It is quick and gives real numbers.
 | Step | What | Test |
 |---|---|---|
 | 1 | STM32 computes the per-minute click, movement, grip and body features; MAC-attests them | A tampered feature fails the tag check |
-| 2 | Guardian stores them in Tiger Data and builds per-hour baselines | The dashboard shows an hourly profile |
-| 3 | Guardian computes the distance, the three bands and continuity | A second person gets "uncertain" or "not the owner"; the owner gets "owner-like" |
-| 4 | Quiet rejection, lock after repeats, and the alert | Repeated tries give identical failures and one alert |
+| 2 | Verifier stores them in Tiger Data and builds per-hour baselines | The dashboard shows an hourly profile |
+| 3 | Verifier computes the distance, the three bands and continuity | A second person gets "uncertain" or "not the owner"; the owner gets "owner-like" |
+| 4 | Quiet rejection, lock after repeats, and the alert | Repeated tries give identical failures and a recorded alert |
 | 5 | Learning-period mode, labels and the recovery path | A new user is never rejected on day one |

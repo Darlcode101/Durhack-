@@ -26,7 +26,7 @@ Use that, or "to our knowledge, nothing combines these". Do **not** say "nothing
 ## What is genuinely different (defensible, with the caveat above)
 
 1. **No input at all, and no visible authenticator.** Mouse authentication research mostly reads cursor data in software; biometric mice need a deliberate touch. We found none that is **hidden, input-free and gates a cryptographic signature**.
-2. **Hardware-attested sensing.** The STM32 MACs the sensor summary into the tag, and the guardian recomputes the owner check from it, so **endpoint malware can't replay or fabricate** the behavioural data. We didn't find mouse-dynamics work that attests its features this way.
+2. **Hardware-attested sensing.** The STM32 MACs the sensor summary into the tag, and the verifier recomputes the owner check from it, so **endpoint malware can't replay or fabricate** the behavioural data. We didn't find mouse-dynamics work that attests its features this way.
 3. **One passive stream for identity and for duress.** Research treats these separately. Ours uses the same data for "is it the owner?" and "are they acting freely?", with different quiet outcomes: an ordinary failure for another hand, a decoy for coercion.
 4. **Misdirection in the logs.** An approval looks like a signature from a generic signer, so an attacker assumes a remote key. We found no equivalent design (but it is hard to search for).
 5. **Zero-input approval tied to post-quantum, hash-chained, named accountability** for an institutional audience.

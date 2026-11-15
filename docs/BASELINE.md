@@ -66,7 +66,7 @@ The baseline moves: hands are different at 9 am and at 11 pm, after coffee, afte
 
 If someone else uses the mouse for days, they would teach it *their* hands. So:
 
-- Samples count toward the baseline only when the **owner check passes with continuity** (the same hand, held continuously) or after an approval the guardian accepted as normal. Other samples are kept in a separate "unverified" bucket and are not used. (There is no PIN any more to prove the owner is present.)
+- Samples count toward the baseline only when the **owner check passes with continuity** (the same hand, held continuously) or after an approval the verifier accepted as normal. Other samples are kept in a separate "unverified" bucket and are not used. (There is no PIN any more to prove the owner is present.)
 - **Samples from a duress approval are never added**, and neither is the hour around one.
 - A person who is being coerced for a long time is a limit we can't remove; there is no deliberate duress signal in mouse mode, so this is a limit we state openly ([STEALTH-APPROVAL.md](STEALTH-APPROVAL.md)).
 
@@ -75,10 +75,10 @@ If someone else uses the mouse for days, they would teach it *their* hands. So:
 | Piece | Where | Wave |
 |---|---|---|
 | Quiet-window filter, band-pass, per-minute features | STM32 (`sketch.ino`) | 2 |
-| Minute rows collected and posted | Linux (`main.py` background logger) to the guardian over HTTPS | 2 |
+| Minute rows collected and posted | Linux (`main.py` background logger) to the dashboard | 2 |
 | Hypertable, hourly continuous aggregates, retention, compression | Tiger Data | 2 |
-| Baseline lookup (hour bucket, fallbacks, prior) | Guardian, passed to Gemini with the verdict request | 2 to 3 |
-| Pause, view and delete my data | Guardian endpoint and dashboard | 3 |
+| Baseline lookup (hour bucket, fallbacks, prior) | Verifier, passed to Gemini with the verdict request | 2 to 3 |
+| Pause, view and delete my data | Dashboard | 3 |
 
 ## For the hackathon
 
