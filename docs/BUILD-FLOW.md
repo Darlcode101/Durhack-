@@ -39,7 +39,7 @@
 | `app/python/verify_cli.py` | Laptop, Python | A tiny reference verifier for trying it: `enrol`, `nonce`, `check` | Done |
 | `app/python/yubikey_auth.py` | Linux, Python | `RealYubiKey`: the real YubiKey over USB | Written, **not yet run on hardware** |
 | `app/python/main.py` | Linux, Python | `enrol` and `approve` commands, wires everything together | Written, not run on hardware |
-| `app/python/edge_model.py`, `camera.py` | Linux, Python | The on-device Edge Impulse model (one `<user>.eim` each), camera frame | `model_fn` in `main.py` calls them. Needs a trained model per person ([EDGE-IMPULSE.md](EDGE-IMPULSE.md)) |
+| `app/python/edge_model.py`, `camera.py` | Linux, Python | The on-device Edge Impulse model (the generic model, installed per user and encrypted), camera frame | `model_fn` in `main.py` calls them. Needs a trained model per person ([EDGE-IMPULSE.md](EDGE-IMPULSE.md)) |
 
 **Your actual coding work** is therefore small and concentrated. In order:
 

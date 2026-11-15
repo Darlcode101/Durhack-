@@ -103,6 +103,7 @@ Wiring and step-by-step bring-up: **[hardware plan](docs/HARDWARE-PLAN.md)**.
 - **[Challenge plan](docs/CHALLENGES.md):** how we target each DurHack track.
 - **[Development plan](docs/DEV-PLAN.md):** build waves, each advancing hardware, cryptography and extensions together, with a demo at the end of every wave.
 - **[Hardware plan](docs/HARDWARE-PLAN.md):** wiring, pins and the bring-up order.
+- **[Edge Impulse model](docs/EDGE-IMPULSE.md):** the generic model trained on synthetic data, personalised on the device by the user's own baseline, the encrypted profile, and the training steps.
 - **[All-day baseline](docs/BASELINE.md):** how the mouse learns each person's normal all day, the privacy limits, filtering out mouse movement, and time-of-day drift.
 - **[Prior art](docs/PRIOR-ART.md):** what already exists (mouse dynamics, biometric and sensor mice, duress detection, decoy wallets, post-quantum keys), what is genuinely different, and what we must not claim.
 - **[Composition](docs/COMPOSITION.md):** the DurHack theme and how YuDuino answers it.
@@ -121,6 +122,7 @@ Wiring and step-by-step bring-up: **[hardware plan](docs/HARDWARE-PLAN.md)**.
 ```
 app/
   sketch/sketch.ino     STM32: click tap and sensors; Bridge calls arm_approval / get_unlock_salt / get_attest / seal_approval / get_features
+    baseline_mcu.h      (in sketch/) the STM32's per-hour rolling baseline (mean and spread per sensor per hour)
     yuseal_mcu.h        (in sketch/) the STM32 trusted core: click, arm, status, tag. Tested on a laptop
     sketch.yaml         library versions App Lab builds with (Modulino 0.10.0 for the newer Thermo)
   bringup/              one small sketch per hardware step (click, Qwiic, DFRobot, core)
@@ -133,11 +135,14 @@ app/
     install_autostart.sh, yuduino-dashboard.service
                         start the sensor app and dashboard at boot; restart the dashboard if it crashes
   python/
-    main.py             entry point: `enrol <user>` and `approve <user> '<request>'`
+    main.py             entry point: `enrol`, `approve`, `learn`, `seed`, `import-model`
+    userprofile.py      the encrypted per-user profile (AES-256-GCM, key derived by the STM32): baseline copy, training rows, model
+    learner.py          learns while the mouse is used: one feature row a minute, raw samples discarded
+    bridge.py           the Linux side's link to the STM32 calls
     approve.py          the Linux side of one approval and of enrolment
     yuseal.py           the envelope, request rules, verifier checks and owner check, key store, audit log
     verify_cli.py       a tiny reference verifier for trying it: `enrol`, `nonce`, `check`
-    test_yuseal.py      57 tests, including the real C++ core
+    test_yuseal.py      73 tests, including the real C++ core
     yubikey_auth.py     YubiKey over USB (CTAP2); `RealYubiKey` for YuSeal
     camera.py           USB camera + Haar face count (frames kept in memory only)
     edge_model.py       the on-device Edge Impulse model: sensor window → duress score
@@ -145,6 +150,7 @@ app/
                         the first scaffold (separate duress key). Superseded by YuSeal; kept for reference
 tools/
   provision.py          makes the STM32's secrets (run once on a laptop)
+  gen_generic_training.py  makes the synthetic training set for the generic Edge Impulse model
   mcu_host_test.cpp     lets the tests drive the real STM32 code on a laptop
   yk_probe.py           run on the board: which YubiKey mode works without a touch
   setup_yk_hmac.py      fallback: program the YubiKey's HMAC-SHA1 slot without touch
@@ -169,7 +175,8 @@ docs/
 5. Install the Python packages on the board: `pip install -r app/python/requirements.txt`
 6. Let your user talk to the YubiKey over USB (`/dev/hidraw*`): add a udev rule for Yubico devices, or run as root while testing.
 7. `cp .env.example .env` and fill in `PROFILE_DIR` and `EI_ANOMALY_LIMIT`, then `python3 main.py import-model <user> generic.eim` (see [Edge Impulse](docs/EDGE-IMPULSE.md)). **Never commit `.env`.**
-8. Enrol once, then approve. The customer's own system sends a request and a one-time nonce (`Verifier.new_nonce()` in `yuseal.py`) and checks the envelope that comes back (`Verifier.check()`); `verify_cli.py` does that from the command line:
+8. Seed the baseline (15 minutes with a hand on the mouse), or run `learn <user>` all day: `python3 app/python/main.py seed jonah 15`.
+9. Enrol once, then approve. The customer's own system sends a request and a one-time nonce (`Verifier.new_nonce()` in `yuseal.py`) and checks the envelope that comes back (`Verifier.check()`); `verify_cli.py` does that from the command line:
    ```bash
    python3 app/python/main.py enrol jonah > package.json
    python3 app/python/verify_cli.py enrol jonah package.json
@@ -197,7 +204,7 @@ Only derived numbers are stored, and only on the board (no frames, no PINs, no k
 
 ## Status
 
-**The crypto, the STM32 core, the owner check and the Linux flow are tested on a laptop (58 tests).** On the UNO Q (14–15 November, with the earlier strong-mode sketch):
+**The crypto, the STM32 core, the owner check and the Linux flow are tested on a laptop (73 tests).** On the UNO Q (14–15 November, with the earlier strong-mode sketch):
 
 | Verified on the board | Notes |
 |---|---|
@@ -206,6 +213,6 @@ Only derived numbers are stored, and only on the board (no frames, no PINs, no k
 | Modulino Thermo, Movement, Buttons | On **`Wire1`**. Needs **Arduino_Modulino 0.10.0**: newer Thermos use a GXHT30C at 0x45, which 0.7.0 can't find |
 | YubiKey 5 over the hub | FIDO2.1 with `hmac-secret`, firmware 5.7.4; readable without sudo via a udev rule |
 | Camera | Frames at 640×480. YuNet (dashboard) finds turned and background faces that Haar misses |
-| Live dashboard | Running on the board as a service (camera, sensors, YubiKey, Edge Impulse model, verdict, local history) |
+| Live dashboard | Ran on the board as a service (camera, sensors, YubiKey, verdict, history), before the move to Edge Impulse and the local store |
 
-**Not yet verified on the board:** the mouse-mode sketch (click tap, `arm_approval` / `get_attest` and other Bridge calls), the YubiKey without a touch over USB, `RealYubiKey` signing, `enrol` / `approve` end to end, and the touch and moisture sensors (no power yet: the shared 3V3 join). The board needs the **USB-C hub's own cable** in its port (not the PD input) to act as USB host for the YubiKey and camera. The unverified calls are listed with fallbacks in [docs/BUILD-FLOW.md](docs/BUILD-FLOW.md#5-things-we-couldnt-check-without-the-board-and-what-to-do-if-they-fail) and marked `VERIFY` in the code. Test steps: [docs/TESTING.md](docs/TESTING.md). Build order: [Wave 1 of the development plan](docs/DEV-PLAN.md#wave-1-skeleton-minimal-end-to-end-prototype).
+**Not yet verified on the board:** the Edge Impulse model and the encrypted profile, the STM32's per-hour baseline and its persistence, the mouse-mode sketch (click tap, `arm_approval` / `get_attest` and other Bridge calls), the YubiKey without a touch over USB, `RealYubiKey` signing, `enrol` / `approve` end to end, and the touch and moisture sensors (no power yet: the shared 3V3 join). The board needs the **USB-C hub's own cable** in its port (not the PD input) to act as USB host for the YubiKey and camera. The unverified calls are listed with fallbacks in [docs/BUILD-FLOW.md](docs/BUILD-FLOW.md#5-things-we-couldnt-check-without-the-board-and-what-to-do-if-they-fail) and marked `VERIFY` in the code. Test steps: [docs/TESTING.md](docs/TESTING.md). Build order: [Wave 1 of the development plan](docs/DEV-PLAN.md#wave-1-skeleton-minimal-end-to-end-prototype).
