@@ -470,7 +470,13 @@ def compute_state():
 
     with lock:
         L = dict(learned)
-    a = bm.assess(s, L.get("usual"), L.get("recent"), _session_ref(), L.get("tolerance", 1.0)) if s else None
+    # With the synthetic profile on, it is the ONLY reference: the stored "usual for this hour" and
+    # "last 20 min" would otherwise take over once enough readings pile up, and those were learned
+    # partly with the Thermo reading room air (humidity ~25% with a tiny spread, so a real palm read +45 sigma).
+    synthetic = getattr(baseline, "kind", None) == "synthetic"
+    usual_ref = None if synthetic else L.get("usual")
+    recent_ref = None if synthetic else L.get("recent")
+    a = bm.assess(s, usual_ref, recent_ref, _session_ref(), L.get("tolerance", 1.0)) if s else None
     body = a["body"] if a else None
     sweat_z = a["groups"]["sweat"]["z"] if a and a["groups"].get("sweat") else None
     move_z = a["groups"]["movement"]["z"] if a and a["groups"].get("movement") else None
