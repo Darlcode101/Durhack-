@@ -44,6 +44,7 @@ The same C++ the laptop test compiled, now on the real chip.
 | 2.8 | **Bridge String arguments** | `Bridge.call("arm_approval", "00"*32)` then `Bridge.call("seal_approval", "10", "0")` | Returns text, no argument error. If it errors, use the pack-into-one-string fix in `docs/BUILD-FLOW.md` §5 item 1 | |
 | 2.9 | Same answer for every outcome | Seal with scores 0, 50 and 90, and with veto | Always a 64-hex-character tag, same salt each time | |
 | 2.10 | Power cycle | Arm, power-cycle, ask for the salt | `-` (nothing survives a reboot) | |
+| 2.11 | Duress is only judged at a transaction | Leave the app running idle for 5 minutes with the mouse in use, no approval started | No tag is made (`get_attest` and `seal_approval` answer `-`), no Gemini call is counted, and no incident appears; the STM32 only ever decides a status inside an armed approval | |
 
 ## 3. The YubiKey
 
@@ -87,6 +88,7 @@ Guardian running on the laptop (`uvicorn guardian:app --host 0.0.0.0 --port 8000
 | 5.7 | Public answers | Compare what the requester sees for success, a bad signature, a wrong tag and a stale nonce | `accepted` for success (and duress); one identical plain `unavailable` for every failure | |
 | 5.8 | Guardian down | Stop the guardian, approve | A clear error, no crash, nothing executed | |
 | 5.9 | Tag key mismatch | Re-run `provision.py` on the laptop only, then approve | Guardian rejects with "no valid tag" (the guardian's key must match the chip's) | |
+| 5.10 | Only a transaction can raise duress | Use the mouse normally (shaky, sweaty, a second person nearby) with no approval running, then check the guardian's output | Nothing is raised or flagged; a duress outcome appears only for an approval made at that moment | |
 
 ## 6. Attacks to try on purpose
 
