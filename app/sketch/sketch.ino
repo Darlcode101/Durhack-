@@ -21,9 +21,11 @@ ModulinoButtons  buttons;
 
 // --- The physical click. Real build: a read-only tap on the donor mouse's left-button line;
 // it idles HIGH (pull-up) and goes LOW while the button is down. Bench build with no donor
-// mouse: uncomment CLICK_FROM_MODULINO_BUTTON to use Modulino button A as the click instead.
+// mouse: uncomment CLICK_FROM_MODULINO_BUTTON to use a Modulino button as the click instead
+// (CLICK_BUTTON picks which: 0 = A, 1 = B, 2 = C).
 const int CLICK_PIN = 3;
 // #define CLICK_FROM_MODULINO_BUTTON
+#define CLICK_BUTTON 2
 
 // --- Analog / digital sensors (power them from 3.3V, not 5V) ---
 const int TOUCH_PIN    = 2;   // TTP223-style capacitive touch on the palm rest: "a hand is on the mouse"
@@ -258,7 +260,7 @@ void loop() {
   // The click edges go straight to the trusted core. Linux never sees them.
 #ifdef CLICK_FROM_MODULINO_BUTTON
   bool click = false;
-  if (buttons.update()) click = buttons.isPressed(0);
+  if (buttons.update()) click = buttons.isPressed(CLICK_BUTTON);
   else click = prevClick;
 #else
   bool click = digitalRead(CLICK_PIN) == LOW;

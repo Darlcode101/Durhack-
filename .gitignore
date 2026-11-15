@@ -37,3 +37,11 @@ app/dashboard/data/
 
 # Encrypted per-user profiles
 app/python/profile/
+
+# Demo wallet state (board only)
+app/wallet/wallet_state.json
+app/wallet/.device_demo.json
+
+# Device secrets: never commit a copy anywhere (e.g. copied next to a bring-up sketch)
+**/secrets.h
+
