@@ -31,7 +31,7 @@ load_dotenv(os.path.join(REPO, ".env"))
 import cv2  # noqa: E402
 import uvicorn  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse  # noqa: E402
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse  # noqa: E402
 
 from fusion_gemini import gemini_score  # noqa: E402
 
@@ -416,6 +416,17 @@ def api_normal():
 @app.get("/api/incidents")
 def api_incidents():
     return _tiger(tiger.incidents)
+
+
+@app.get("/frame.jpg")
+def frame():
+    """Latest annotated frame. The page polls this, so it recovers by itself after a restart
+    (a broken MJPEG <img> stream stays blank until the page is reloaded)."""
+    with lock:
+        jpg = cam["jpeg"]
+    if not jpg:
+        return Response(status_code=503)
+    return Response(jpg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/video.mjpg")

@@ -239,8 +239,9 @@ def normal_by_hour() -> dict:
 
 
 def incidents(limit: int = 25) -> list:
-    rows = query("""SELECT extract(epoch FROM time), verdict, peak_score, signals, gemini_reasoning,
-                           extract(epoch FROM ended_at)
+    # ::float8 because extract() returns numeric (Python Decimal), which JSON can't encode
+    rows = query("""SELECT extract(epoch FROM time)::float8, verdict, peak_score, signals, gemini_reasoning,
+                           extract(epoch FROM ended_at)::float8
                     FROM incidents WHERE device = %s ORDER BY time DESC LIMIT %s""", (DEVICE, limit))
     return [{"t": r[0], "verdict": r[1], "peak": r[2], "signals": r[3] or [], "reasoning": r[4], "ended": r[5]}
             for r in rows]
@@ -252,7 +253,7 @@ def stats() -> dict:
                    (SELECT count(*) FROM incidents WHERE device = %s AND time > now() - INTERVAL '24 hours'),
                    (SELECT count(*) FROM incidents WHERE device = %s AND verdict = 'DURESS'
                                                       AND time > now() - INTERVAL '24 hours'),
-                   (SELECT approximate_row_count('readings')),
+                   (SELECT count(*) FROM readings),   -- exact; approximate_row_count lags until ANALYZE
                    (SELECT hypertable_size('readings')),
                    (SELECT min(time) FROM readings WHERE device = %s)""", (DEVICE,) * 3 + (DEVICE,))[0]
     return {"readings_24h": r[0], "incidents_24h": r[1], "duress_24h": r[2], "total_rows": r[3],

@@ -1,0 +1,18 @@
+# systemd USER service for the live duress dashboard (installed by install_autostart.sh).
+# Starts at boot (the arduino user has linger enabled) and restarts if it ever crashes.
+[Unit]
+Description=YuDuino live duress dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/Durhack-
+ExecStart=%h/durhack-venv/bin/python app/dashboard/server.py
+Restart=always
+RestartSec=5
+# An open browser video stream keeps uvicorn from exiting on SIGTERM, so don't wait long.
+TimeoutStopSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
