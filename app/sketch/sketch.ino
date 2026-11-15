@@ -1,67 +1,45 @@
-// MCU side (STM32 on the UNO Q).
-// Reads all sensors, computes features on the MCU, and exposes them to the
-// Linux side over Bridge. Python POLLS us with Bridge.call("get_features");
-// we never call Python from inside a provide() handler (that can deadlock).
+// MCU side (STM32 on the UNO Q), zero-input mouse mode.
+// The device sits inside an ordinary mouse. Nobody presses anything on it: the person's normal
+// click on "process transaction" reaches us through a READ-ONLY tap on the left-button switch
+// line (a 100 kOhm resistor or a buffer, so the mouse itself is never affected).
+// Python POLLS us with Bridge.call(...); we never call Python from inside a provide() handler.
 //
 // The approval logic lives in yuseal_mcu.h and IS tested (python3 -m unittest test_yuseal).
-// Modulino calls (header, Wire1, getX/Y/Z, Buttons update/isPressed) checked against
-// Arduino_Modulino 0.7.0 and the UNO Q example apps. Remaining VERIFY comments are still open.
+// Everything in this file is board glue and is UNVERIFIED on hardware until the bring-up
+// sketches in app/bringup have been run on the board.
 
 #include <Arduino_RouterBridge.h>
-#include <ArduinoGraphics.h>      // must come before Arduino_LED_Matrix.h
-#include <Arduino_LED_Matrix.h>
 #include <Arduino_Modulino.h>
 #include "yuseal_mcu.h"   // trusted approval core (docs/CRYPTO.md); tested on a laptop
-#include "secrets.h"      // written by tools/provision.py, gitignored: K_MCU-derived PIN tags
+#include "secrets.h"      // written by tools/provision.py, gitignored: YS_K_MCU
 
-// --- Qwiic chain: Thermo + Movement + Buttons all on the one Qwiic port ---
+// --- Qwiic chain: Thermo + Movement (+ Buttons only for the bench click, see below) ---
 ModulinoThermo   thermo;
 ModulinoMovement movement;
 ModulinoButtons  buttons;
 
+// --- The physical click. Real build: a read-only tap on the donor mouse's left-button line;
+// it idles HIGH (pull-up) and goes LOW while the button is down. Bench build with no donor
+// mouse: uncomment CLICK_FROM_MODULINO_BUTTON to use Modulino button A as the click instead.
+const int CLICK_PIN = 3;
+// #define CLICK_FROM_MODULINO_BUTTON
+
 // --- Analog / digital sensors (power them from 3.3V, not 5V) ---
-const int TOUCH_PIN    = 2;   // TTP223-style capacitive touch, digital out
+const int TOUCH_PIN    = 2;   // TTP223-style capacitive touch on the palm rest: "a hand is on the mouse"
 const int MOISTURE_PIN = A1;  // resistive probe used as a crude sweat/contact proxy
 
-// --- Shake (tremor) estimate: RMS of accel magnitude around its mean ---
-const int   WIN = 64;          // ~0.64 s at 100 Hz
+yuseal::Mcu core;
+bool prevClick = false;
+
+// --- Rolling sensor window (about 0.64 s at 100 Hz). Becomes the ten integer features at arm time. ---
+const int   WIN = 64;
 float       mag[WIN];
 int         magIdx = 0;
 unsigned long lastSample = 0;
-
-// --- Button state. Presses go ONLY to the trusted core below, never to Linux. ---
-bool   prevPressed[3] = {false, false, false};
-yuseal::Mcu core;
-
-// --- LED matrix text, scrolled WITHOUT blocking (endText(SCROLL_LEFT) blocks and would starve
-// core.tick and the button reads). We redraw a static frame every 120 ms at a moving x offset.
-// VERIFY on the board: beginText/endText(NO_SCROLL) draws; if it flickers, slow SCROLL_MS.
-ArduinoLED matrix;
-char          shownText[yuseal::MAX_TEXT + 1] = "";
-int           scrollX = 13;
-unsigned long lastScroll = 0;
-const unsigned long SCROLL_MS = 120;
-
-void showText(const char* text) {
-  strncpy(shownText, text, yuseal::MAX_TEXT);
-  shownText[yuseal::MAX_TEXT] = 0;
-  scrollX = 13;
-  Monitor.println(shownText);   // mirror to the serial monitor for debugging
-}
-
-void drawText() {
-  if (!shownText[0] || millis() - lastScroll < SCROLL_MS) return;
-  lastScroll = millis();
-  matrix.beginDraw();
-  matrix.clear();
-  matrix.stroke(0xFFFFFFFF);
-  matrix.textFont(Font_5x7);
-  matrix.beginText(scrollX, 1, 0xFFFFFF);
-  matrix.print(shownText);
-  matrix.endText();             // NO_SCROLL
-  matrix.endDraw();
-  if (--scrollX < -(int)strlen(shownText) * 6) scrollX = 13;   // 5 px glyph + 1 px gap
-}
+float         magPrev = 1.0, moveAbs = 0;   // moveAbs: moving average of |change in accel magnitude|
+uint8_t       stillWin[WIN], gripWin[WIN];  // 1 per sample: "still", "palm on the grip"
+float         impulsePeak = 0;              // biggest jolt in the 60 ms after a click began
+unsigned long impulseUntil = 0;
 
 // Hex addresses that answered on Wire1 at boot, reported in get_features to debug the Qwiic chain.
 char i2cFound[96] = "";
@@ -85,16 +63,37 @@ float shakeRms() {
   return sqrt(acc / WIN);
 }
 
+static int permille(const uint8_t* w) {
+  int n = 0;
+  for (int i = 0; i < WIN; i++) n += w[i];
+  return n * 1000 / WIN;
+}
+
+// The ten features, in the order of yuseal.py FEATURE_NAMES. Scaled integers, so the C++
+// and Python sides hash the same bytes.
+void computeFeatures(int32_t f[yuseal::N_FEATURES]) {
+  f[0] = permille(gripWin);                                   // grip_permille
+  f[1] = int32_t(shakeRms() * 1000);                          // tremor_milli
+  f[2] = int32_t(thermo.getHumidity() * 100);                 // humidity_centi
+  f[3] = int32_t(thermo.getTemperature() * 100);              // temp_centi
+  f[4] = analogRead(MOISTURE_PIN);                            // moisture_raw
+  f[5] = core.lastHoldMs();                                   // click_hold_ms
+  f[6] = permille(stillWin);                                  // still_permille
+  f[7] = int32_t(moveAbs * 1000);                             // move_speed_milli
+  f[8] = int32_t(impulsePeak * 1000);                         // click_impulse_milli
+  f[9] = WIN;                                                 // n_samples
+}
+
 // Returned to Python as a JSON string so we don't depend on Bridge's type mapping.
+// Used by Linux for the Gemini window and the onboard veto. Never contains the status.
 String get_features() {
   String s = "{";
   s += "\"temp_c\":"     + String(thermo.getTemperature(), 2) + ",";
   s += "\"humidity\":"   + String(thermo.getHumidity(), 2) + ",";
   s += "\"shake_rms\":"  + String(shakeRms(), 4) + ",";
-  s += "\"touch\":"      + String(digitalRead(TOUCH_PIN)) + ",";
+  s += "\"grip\":"       + String(digitalRead(TOUCH_PIN)) + ",";
   s += "\"moisture\":"   + String(analogRead(MOISTURE_PIN)) + ",";
-  s += "\"state\":"      + String(int(core.state())) + ",";   // 0 idle, 1 entering PIN, 2 PIN ok, 3 locked
-  s += "\"pin_count\":"  + String(core.pinCount()) + ",";     // how many presses, never which ones
+  s += "\"state\":"      + String(int(core.state())) + ",";   // 0 idle, 1 armed
   s += "\"i2c\":\""     + String(i2cFound) + "\"";            // addresses found on Wire1 at boot (debug)
   s += "}";
   return s;
@@ -120,72 +119,95 @@ static String toHex(const uint8_t* b, size_t n) {
   return s;
 }
 
-// Show `text` on the LED matrix and start waiting for the PIN. Returns "1" or "0".
-String begin_approval(String text, String digestHex) {
+// Linux polls this with the approval's digest. "1" only if a real click with the palm on the
+// grip happened in the last 1.5 s (and we are not armed already or rate limited). Else "0".
+String arm_approval(String digestHex) {
   uint8_t digest[32];
+  int32_t f[yuseal::N_FEATURES];
   if (!fromHex(digestHex, digest, 32)) return "0";
-  if (!core.begin(text.c_str(), digest, millis())) return "0";
-  showText(text.c_str());
-  return "1";
+  computeFeatures(f);
+  return core.arm(digest, millis(), f) ? "1" : "0";
 }
 
-// "-" until a correct PIN (normal or duress, same answer), then the salt for the YubiKey.
+// "-" until armed, then the salt for the YubiKey. The same for every outcome.
 String get_unlock_salt() {
   uint8_t salt[32];
   return core.unlockSalt(salt) ? toHex(salt, 32) : String("-");
 }
 
+// The click age, grip flag and sensor summary the tag will cover, as hex, or "-".
+String get_attest() {
+  uint8_t a[yuseal::Mcu::ATTEST_LEN];
+  return core.attest(a) ? toHex(a, yuseal::Mcu::ATTEST_LEN) : String("-");
+}
+
 // Linux passes Gemini's score as a whole number 0..100 (anything else = no usable verdict).
-// Returns the 32-byte tag as hex, or "-". The matrix then shows OK in every case.
+// Returns the 32-byte tag as hex, or "-".
 String seal_approval(String scoreStr, String vetoStr) {
   uint8_t tag[32];
   int score = scoreStr.toInt();
   if (!core.seal(score, vetoStr == "1", tag)) return "-";
-  showText("OK");
   return toHex(tag, 32);
 }
 
 void setup() {
   Monitor.begin(115200);
   Bridge.begin();
-  matrix.begin();
   Modulino.begin(Wire1);     // UNO Q's Qwiic connector is on Wire1 (as in Arduino's examples)
   scanI2C();
   thermo.begin();
   movement.begin();
+#ifdef CLICK_FROM_MODULINO_BUTTON
   buttons.begin();
-
+#else
+  pinMode(CLICK_PIN, INPUT_PULLUP);
+#endif
   pinMode(TOUCH_PIN, INPUT);
   for (int i = 0; i < WIN; i++) mag[i] = 1.0;
 
-  core.provision(YS_K_MCU, YS_PIN_TAG_NORMAL, YS_PIN_TAG_DURESS, YS_PIN_LEN);
+  core.provision(YS_K_MCU);
 
   Bridge.provide_safe("get_features", get_features);
-  Bridge.provide_safe("begin_approval", begin_approval);
+  Bridge.provide_safe("arm_approval", arm_approval);
   Bridge.provide_safe("get_unlock_salt", get_unlock_salt);
+  Bridge.provide_safe("get_attest", get_attest);
   Bridge.provide_safe("seal_approval", seal_approval);
 }
 
 void loop() {
-  // 100 Hz accel sampling for the shake window
+  bool grip = digitalRead(TOUCH_PIN) == HIGH;
+
+  // 100 Hz accel sampling for the rolling window
   if (millis() - lastSample >= 10) {
     lastSample = millis();
     movement.update();
     float x = movement.getX(), y = movement.getY(), z = movement.getZ();
-    mag[magIdx] = sqrt(x * x + y * y + z * z);
+    float m = sqrt(x * x + y * y + z * z);
+    float d = fabs(m - magPrev);
+    magPrev = m;
+    moveAbs = 0.95f * moveAbs + 0.05f * d;
+    mag[magIdx] = m;
+    stillWin[magIdx] = d < 0.02f;
+    gripWin[magIdx] = grip;
     magIdx = (magIdx + 1) % WIN;
+    if (millis() < impulseUntil && d > impulsePeak) impulsePeak = d;
   }
 
-  // Button edges go straight to the trusted core. A press only counts while the grip is held.
-  bool grip = digitalRead(TOUCH_PIN) == HIGH;
-  if (buttons.update()) {
-    for (int i = 0; i < 3; i++) {
-      bool p = buttons.isPressed(i);
-      if (p && !prevPressed[i]) core.buttonDown(char('A' + i), grip, millis());
-      if (!p && prevPressed[i]) core.buttonUp(millis());
-      prevPressed[i] = p;
-    }
+  // The click edges go straight to the trusted core. Linux never sees them.
+#ifdef CLICK_FROM_MODULINO_BUTTON
+  bool click = false;
+  if (buttons.update()) click = buttons.isPressed(0);
+  else click = prevClick;
+#else
+  bool click = digitalRead(CLICK_PIN) == LOW;
+#endif
+  if (click && !prevClick) {
+    impulsePeak = 0;
+    impulseUntil = millis() + 60;
+    core.clickDown(millis(), grip);
   }
+  if (!click && prevClick) core.clickUp(millis());
+  prevClick = click;
+
   core.tick(millis());
-  drawText();
 }

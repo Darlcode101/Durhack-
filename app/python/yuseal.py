@@ -1,20 +1,24 @@
-"""YuSeal v2: the YuDuino approval envelope. Reference implementation of docs/CRYPTO.md.
+"""YuSeal v3: the YuDuino approval envelope (zero-input mouse mode). Reference implementation of docs/CRYPTO.md.
 
-One approval = one envelope, built from three independent proofs:
+The device is hidden in a mouse and works exactly like a mouse: no screen, no PIN, no gesture.
+The ordinary click on "process transaction" is the trigger. One approval = one envelope, built
+from three independent proofs:
 
-    yk       The YubiKey signs SHA-256(core) when touched.        WHO approved (classical)
-    mcu      The STM32 makes a 32-byte HMAC tag after a correct   THAT a person pressed the PIN for
-             PIN on the real buttons, over the hash of the text   exactly the text on the LED matrix,
-             it showed. The tag secretly encodes the status.      and the hidden status (hash-based)
-    pq_sig   ML-DSA-65 (FIPS 204) from the Linux side over        quantum-safe signature that glues
-             everything above plus the audit-log link.            it all together
+    yk       The YubiKey signs SHA-256(core), no touch.            WHO (classical): possession only
+    mcu      The STM32 makes a 32-byte HMAC tag, but only after a  THAT a real click with a palm on the grip
+             real click on the switch tap. The tag covers the      happened just before, and the sensor
+             status, the request digest, the click age and a       summary the owner check is run on
+             hash of the sensor summary. It secretly encodes
+             the status (normal / step-up / duress).
+    pq_sig   ML-DSA-65 (FIPS 204) from the Linux side over         quantum-safe signature that glues it
+             everything above plus the audit-log link.             all together
 
-The STM32 half is app/sketch/yuseal_mcu.h; `SoftMcu` below is the same logic in Python and
-the tests check the two agree byte for byte.
+The STM32 half is app/sketch/yuseal_mcu.h; `SoftMcu` below is the same logic in Python and the
+tests check the two agree byte for byte.
 
-Who knows the status (normal / step-up / duress)? Only the STM32 and the guardian.
-Linux never sees the PIN and can't read the tag, so malware there can't tell an attacker
-that the alarm was raised, and can't make a tag for something that wasn't on the display.
+Who knows the status? Only the STM32 and the guardian. Who knows whether the hand was the
+owner's? Only the guardian (it recomputes the owner check from the attested features).
+Linux can't forge the tag, can't read it, and can't change the features without breaking it.
 
 Needs only `cryptography>=48` (ML-DSA built in; no liboqs build).
 """
@@ -36,8 +40,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-SUITE = "YS2"  # ML-DSA-65 + ES256 (YubiKey) + HMAC-SHA-256 (STM32) + AES-256-GCM + SHA-256
-PQ_CONTEXT = b"YuDuino/approval/v2"  # FIPS 204 context string: these signatures can't be reused elsewhere
+SUITE = "YS3"  # ML-DSA-65 + ES256 (YubiKey) + HMAC-SHA-256 (STM32) + AES-256-GCM + SHA-256
+PQ_CONTEXT = b"YuDuino/approval/v3"  # FIPS 204 context string: these signatures can't be reused elsewhere
 NONCE_TTL_S = 120
 MAX_TEXT = 96
 
@@ -72,9 +76,10 @@ def hkdf(key: bytes, info: bytes, length: int = 32) -> bytes:
     return HKDF(algorithm=hashes.SHA256(), length=length, salt=None, info=b"YuDuino/" + info).derive(key)
 
 
-# ---------------------------------------------------------------- 1. what the person sees
-# Every field of a request is either shown on the LED matrix or the request is refused.
-# Destinations are shown by NAME from the address book, never as "last few characters":
+# ---------------------------------------------------------------- 1. what a request is allowed to say
+# There is no screen in mouse mode, so the summary is for the guardian and for Gemini (who check
+# the request is sane), not for the person. Every field must be a known one or the request is
+# refused. Destinations are named from the address book, never matched by "last few characters":
 # an attacker can cheaply make an address with a chosen ending.
 SCHEMAS = {
     "transfer": {"action", "amount", "asset", "to"},
@@ -105,15 +110,15 @@ def _label(address_book: dict, address) -> str:
     return _word(label, 12)
 
 
-def render_display(request: dict, address_book: dict[str, str]) -> str:
-    """Build the display text from the raw request. The device and the guardian both run this.
+def render_summary(request: dict, address_book: dict[str, str]) -> str:
+    """Build the one-line summary of a request. The Linux side, Gemini and the guardian all run this.
 
     `address_book` maps address -> label and is signed by the org root. Different requests
-    always give different text, so approving the text is approving the request.
+    always give different text.
     """
     action = request.get("action")
     if action not in SCHEMAS or set(request) != SCHEMAS[action]:
-        raise ValueError("unknown action, or a field that can't be shown; refused")
+        raise ValueError("unknown action, or a field that can't be summarised; refused")
     if action == "transfer":
         amount = str(request["amount"])
         if not re.fullmatch(r"[0-9]{1,9}(\.[0-9]{1,6})?", amount):
@@ -133,20 +138,19 @@ def render_display(request: dict, address_book: dict[str, str]) -> str:
     else:  # add_signer
         text = f"!ADD SIGNER {_word(request['user'])}"
     if len(text) > MAX_TEXT or any(not 0x20 <= ord(c) <= 0x7E for c in text):
-        raise ValueError("request too long to display in full; refused")
+        raise ValueError("request too long to summarise in full; refused")
     return text
 
 
 def build_core(request: dict, address_book: dict, *, service: str, approver: str, device: str, nonce: str) -> tuple[dict, str]:
-    """Returns (core, display_text). No expiry field: the device has no trusted clock,
+    """Returns (core, summary). No expiry field: the device has no trusted clock,
     so the guardian times the nonce it issued."""
-    shown = render_display(request, address_book)
+    shown = render_summary(request, address_book)
     core = {
-        "v": 2, "suite": SUITE, "type": request["action"],
+        "v": 3, "suite": SUITE, "type": request["action"],
         "rp": service,                          # which service this is for (stops relaying to another)
         "who": approver, "device": device,
         "request": b64(sha256(canonical(request))),
-        "display": b64(sha256(shown.encode())),  # the STM32 recomputes this from what it shows
         "nonce": nonce,                          # one-time, issued and timed by the guardian
     }
     return core, shown
@@ -157,9 +161,27 @@ def core_digest(core: dict) -> bytes:
 
 
 # ---------------------------------------------------------------- 2. the STM32 half (model of yuseal_mcu.h)
-def decide_status(duress_pin: bool, score: int, veto: bool) -> str:
+CLICK_WINDOW_MS, SESSION_MS = 1500, 30000
+RATE_MAX, RATE_WINDOW_MS = 10, 600000
+
+# The sensor summary the STM32 attests, all scaled integers (order is fixed; must match the sketch).
+FEATURE_NAMES = ("grip_permille", "tremor_milli", "humidity_centi", "temp_centi", "moisture_raw",
+                 "click_hold_ms", "still_permille", "move_speed_milli", "click_impulse_milli", "n_samples")
+N_FEATURES = len(FEATURE_NAMES)
+ATTEST_LEN = 3 + 4 * N_FEATURES
+
+
+def features_bytes(features) -> bytes:
+    return b"".join(int(v).to_bytes(4, "big", signed=True) for v in features)
+
+
+def features_hash(features) -> bytes:
+    return sha256(b"YS3/features" + features_bytes(features))
+
+
+def decide_status(score: int, veto: bool) -> str:
     """The one decision rule. Gemini can raise the alarm, never lower it. Fail closed."""
-    if duress_pin or veto:
+    if veto:
         return DURESS
     if not isinstance(score, int) or isinstance(score, bool) or score < 0 or score > 100:
         return DURESS
@@ -180,97 +202,84 @@ def gemini_to_score(gemini: dict | None) -> int:
 
 
 def mcu_keys(k_mcu: bytes) -> tuple[bytes, bytes]:
-    """(k_pin, k_tag). k_pin never leaves the STM32; k_tag is shared with the guardian."""
-    return hmac256(k_mcu, b"YS2/pin-key"), hmac256(k_mcu, b"YS2/tag-key")
+    """(k_rel, k_tag). k_rel never leaves the STM32; k_tag is shared with the guardian."""
+    return hmac256(k_mcu, b"YS3/release-key"), hmac256(k_mcu, b"YS3/tag-key")
 
 
-def pin_tag(k_pin: bytes, pin: str) -> bytes:
-    """PINs are strings over A B C (short press) and a b c (press held 0.8 s or more)."""
-    return hmac256(k_pin, b"pin|" + pin.encode())
-
-
-def mcu_tag(k_tag: bytes, status: str, display_hash: bytes, digest: bytes) -> bytes:
-    return hmac256(k_tag, b"YS2/tag" + status.encode() + display_hash + digest)
+def mcu_tag(k_tag: bytes, status: str, digest: bytes, click_age: int, grip: int, features) -> bytes:
+    return hmac256(k_tag, b"YS3/tag" + status.encode() + digest + click_age.to_bytes(2, "big")
+                   + bytes([grip]) + features_hash(features))
 
 
 class SoftMcu:
     """Python twin of yuseal::Mcu, for tests and for running without a board."""
-    LONG_PRESS_MS, SETTLE_MS, SESSION_MS, MAX_WRONG = 800, 1500, 90000, 5
-    IDLE, PIN_ENTRY, PIN_OK, LOCKED = 0, 1, 2, 3
+    IDLE, ARMED = 0, 1
 
-    def __init__(self, k_mcu: bytes, pin: str, duress_pin: str):
-        if pin == duress_pin or len(pin) != len(duress_pin):
-            raise ValueError("PINs must differ and be the same length")
-        self._k_pin, self._k_tag = mcu_keys(k_mcu)
-        self._tag_n, self._tag_d = pin_tag(self._k_pin, pin), pin_tag(self._k_pin, duress_pin)
-        self._pin_len = len(pin)
-        self.wrong = 0
+    def __init__(self, k_mcu: bytes):
+        self._k_rel, self._k_tag = mcu_keys(k_mcu)
+        self._arms: list[int] = []
+        self._pressed = self._have_click = self._click_grip = False
+        self._down = self._click_ms = 0
+        self.last_hold_ms = 0
         self._clear()
 
     def _clear(self):
-        self._pin, self._held, self._duress, self.state, self.text = "", False, False, self.IDLE, ""
+        self.state, self._features = self.IDLE, [0] * N_FEATURES
 
-    def begin(self, text: str, digest: bytes, now_ms: int = 0) -> bool:
-        if self.state == self.LOCKED or not 0 < len(text) <= MAX_TEXT or any(not 0x20 <= ord(c) <= 0x7E for c in text):
+    def click_down(self, now_ms: int, grip_held: bool):
+        if self._pressed:
+            return
+        self._pressed, self._down, self._click_ms = True, now_ms, now_ms
+        self._click_grip, self._have_click = grip_held, True
+
+    def click_up(self, now_ms: int):
+        if self._pressed:
+            self._pressed = False
+            self.last_hold_ms = min(now_ms - self._down, 65535)
+
+    def arm(self, digest: bytes, now_ms: int, features) -> bool:
+        if self.state == self.ARMED or not self._have_click or not self._click_grip or len(features) != N_FEATURES:
             return False
-        self._clear()
-        self.text, self._display_hash, self._digest = text, sha256(text.encode()), digest
-        self._start, self.state = now_ms, self.PIN_ENTRY
+        age = now_ms - self._click_ms
+        if age > CLICK_WINDOW_MS:
+            return False
+        if len(self._arms) == RATE_MAX and now_ms - self._arms[0] < RATE_WINDOW_MS:
+            return False
+        self._arms = (self._arms + [now_ms])[-RATE_MAX:]
+        self._digest, self._features, self._age = digest, [int(v) for v in features], age
+        self._have_click, self._arm_ms, self.state = False, now_ms, self.ARMED
         return True
 
-    def button_down(self, c: str, grip_held: bool, now_ms: int):
-        if self.state != self.PIN_ENTRY or not grip_held or len(self._pin) >= self._pin_len or c not in "ABC":
-            return
-        self._pin += c
-        self._down, self._held = now_ms, True
-
-    def button_up(self, now_ms: int):
-        if not self._held:
-            return
-        self._held = False
-        if self.state == self.PIN_ENTRY and now_ms - self._down >= self.LONG_PRESS_MS:
-            self._pin = self._pin[:-1] + self._pin[-1].lower()
-
     def tick(self, now_ms: int):
-        if self.state in (self.PIN_ENTRY, self.PIN_OK) and now_ms - self._start > self.SESSION_MS:
-            return self._clear()
-        if self.state == self.PIN_ENTRY and len(self._pin) == self._pin_len and now_ms - self._down >= self.SETTLE_MS:
-            if self._held:
-                self.button_up(now_ms)
-            t = pin_tag(self._k_pin, self._pin)
-            n, d = _hmac.compare_digest(t, self._tag_n), _hmac.compare_digest(t, self._tag_d)
-            if n or d:
-                self._duress, self.wrong, self.state, self._pin = d, 0, self.PIN_OK, ""
-            else:
-                self.wrong += 1
-                self._clear()
-                if self.wrong >= self.MAX_WRONG:
-                    self.state = self.LOCKED
+        if self.state == self.ARMED and now_ms - self._arm_ms > SESSION_MS:
+            self._clear()
 
     def unlock_salt(self) -> bytes | None:
-        return hmac256(self._k_pin, b"unlock-salt") if self.state == self.PIN_OK else None
+        return hmac256(self._k_rel, b"unlock-salt") if self.state == self.ARMED else None
+
+    def attest(self) -> bytes | None:
+        if self.state != self.ARMED:
+            return None
+        return self._age.to_bytes(2, "big") + bytes([1]) + features_bytes(self._features)
 
     def seal(self, score: int, veto: bool = False) -> bytes | None:
-        if self.state != self.PIN_OK:
+        if self.state != self.ARMED:
             return None
-        tag = mcu_tag(self._k_tag, decide_status(self._duress, score, veto), self._display_hash, self._digest)
+        tag = mcu_tag(self._k_tag, decide_status(score, veto), self._digest, self._age, 1, self._features)
         self._clear()
         return tag
 
-    def type_pin(self, pin: str, now_ms: int = 1000, grip: bool = True) -> int:
-        """Test helper: press the PIN like a person would. Returns the time afterwards."""
-        for ch in pin:
-            self.button_down(ch.upper(), grip, now_ms)
-            now_ms += 1000 if ch.islower() else 150
-            self.button_up(now_ms)
-            now_ms += 250
-        now_ms += self.SETTLE_MS
-        self.tick(now_ms)
-        return now_ms
+
+def parse_attest(raw: bytes) -> tuple[int, int, list[int]]:
+    if len(raw) != ATTEST_LEN:
+        raise ValueError("bad attestation")
+    return (int.from_bytes(raw[:2], "big"), raw[2],
+            [int.from_bytes(raw[3 + 4 * i:7 + 4 * i], "big", signed=True) for i in range(N_FEATURES)])
 
 
-# ---------------------------------------------------------------- 3. the YubiKey half (classical; who, and a touch)
-def verify_yubikey_assertion(pub: ec.EllipticCurvePublicKey, yk: dict, rp_id: str, challenge: bytes) -> None:
+# ---------------------------------------------------------------- 3. the YubiKey half (classical; possession, no touch)
+def verify_yubikey_assertion(pub: ec.EllipticCurvePublicKey, yk: dict, rp_id: str, challenge: bytes,
+                             require_up: bool = False) -> None:
     """Check a WebAuthn/FIDO2 assertion. Raises on any problem.
 
     Signature is ES256 over authenticatorData || SHA-256(clientDataJSON).
@@ -282,7 +291,9 @@ def verify_yubikey_assertion(pub: ec.EllipticCurvePublicKey, yk: dict, rp_id: st
         raise ValueError("YubiKey signed a different challenge")
     if auth_data[:32] != sha256(rp_id.encode()):
         raise ValueError("YubiKey assertion is for another service")
-    if not auth_data[32] & 0x01:
+    # Mouse mode: nobody touches the YubiKey, so this proves possession only. The physical
+    # factor is the click the STM32 saw. A touch is demanded only if a deployment wants it.
+    if require_up and not auth_data[32] & 0x01:
         raise ValueError("no user presence: YubiKey was not touched")
     pub.verify(unb64(yk["signature"]), auth_data + sha256(client_data), ec.ECDSA(hashes.SHA256()))
 
@@ -306,12 +317,12 @@ class SoftYubiKey:
         return b"soft-credential", self.public_key
 
     def assert_and_secret(self, rp_id: str, challenge: bytes, salt: bytes) -> tuple[dict, bytes]:
-        """One touch gives both the signature over `challenge` and the hmac-secret for `salt`."""
+        """No touch needed (mouse mode); one call gives both the signature over `challenge` and the hmac-secret for `salt`."""
         return self.assert_(rp_id, challenge), self.hmac_secret(salt)
 
-    def assert_(self, rp_id: str, challenge: bytes) -> dict:
+    def assert_(self, rp_id: str, challenge: bytes, touched: bool = False) -> dict:
         self.sign_count += 1
-        auth_data = sha256(rp_id.encode()) + bytes([0x01]) + self.sign_count.to_bytes(4, "big")
+        auth_data = sha256(rp_id.encode()) + bytes([0x01 if touched else 0x00]) + self.sign_count.to_bytes(4, "big")
         client_data = canonical({"type": "webauthn.get", "challenge": b64(challenge),
                                  "origin": f"https://{rp_id}"})
         sig = self._sk.sign(auth_data + sha256(client_data), ec.ECDSA(hashes.SHA256()))
@@ -320,35 +331,78 @@ class SoftYubiKey:
 
 
 # ---------------------------------------------------------------- 4. the Linux key store (ML-DSA key at rest)
-# The ML-DSA seed is wrapped under a key that needs BOTH the YubiKey (hmac-secret, one
-# touch) and the STM32 (the salt it only releases after a correct PIN on the buttons).
-# There is no PIN hash on Linux and Linux never sees the PIN, so a copied file can't be
-# guessed offline, and the wrong-PIN lockout can't be bypassed from Linux.
+# The ML-DSA seed is wrapped under a key from the YubiKey's hmac-secret. The salt for that
+# secret is only released by the STM32 after a real click (it is armed), so a copied file or a
+# stolen YubiKey alone cannot unwrap it, and Linux alone cannot ask for the salt.
 def create_keystore(yk_secret: bytes) -> tuple[dict, mldsa.MLDSA65PrivateKey]:
     seed = os.urandom(32)
     nonce = os.urandom(12)
-    blob = AESGCM(hkdf(yk_secret, b"kek/v2")).encrypt(nonce, seed, b"YuDuino/keystore/v2")
-    return {"v": 2, "wrap": b64(nonce + blob)}, mldsa.MLDSA65PrivateKey.from_seed_bytes(seed)
+    blob = AESGCM(hkdf(yk_secret, b"kek/v3")).encrypt(nonce, seed, b"YuDuino/keystore/v3")
+    return {"v": 3, "wrap": b64(nonce + blob)}, mldsa.MLDSA65PrivateKey.from_seed_bytes(seed)
 
 
 def unlock(store: dict, yk_secret: bytes) -> mldsa.MLDSA65PrivateKey | None:
     raw = unb64(store["wrap"])
     try:
-        seed = AESGCM(hkdf(yk_secret, b"kek/v2")).decrypt(raw[:12], raw[12:], b"YuDuino/keystore/v2")
+        seed = AESGCM(hkdf(yk_secret, b"kek/v3")).decrypt(raw[:12], raw[12:], b"YuDuino/keystore/v3")
     except InvalidTag:
         return None
     return mldsa.MLDSA65PrivateKey.from_seed_bytes(seed)
 
 
+# ---------------------------------------------------------------- 5. the owner check (guardian side)
+# The guardian compares the STM32-attested features with the registered user's own baseline
+# (a median and a spread per feature, kept per hour of day when there is enough data). The
+# baseline is only ever fed by approvals that passed, so an impostor can't teach it their hand.
+OWNER_FEATURES = tuple(range(0, 9))        # everything but n_samples
+LEARNING_MIN = 20                          # fewer samples than this: advisory only, nobody is rejected
+OWNER_LIKE_AT, UNCERTAIN_AT = 60, 35       # owner score 0..100
+OWNER_LIKE, UNCERTAIN, NOT_OWNER, LEARNING = "owner", "uncertain", "not_owner", "learning"
+LOCK_AFTER, LOCK_WINDOW_S = 3, 600         # unknown-hand rejections that lock the member
+
+
+@dataclass
+class Baseline:
+    samples: list = field(default_factory=list)  # list of (hour, feature vector)
+    max_samples: int = 2000
+
+    def add(self, features, hour: int):
+        self.samples = (self.samples + [(hour, list(features))])[-self.max_samples:]
+
+    def _pool(self, hour: int):
+        near = [f for h, f in self.samples if min((h - hour) % 24, (hour - h) % 24) <= 1]
+        return near if len(near) >= LEARNING_MIN else [f for _, f in self.samples]
+
+    def score(self, features, hour: int) -> int | None:
+        """0..100, how much this hand looks like the registered user's. None while learning."""
+        pool = self._pool(hour)
+        if len(pool) < LEARNING_MIN:
+            return None
+        total = 0.0
+        for i in OWNER_FEATURES:
+            col = sorted(f[i] for f in pool)
+            med = col[len(col) // 2]
+            mad = sorted(abs(v - med) for v in col)[len(col) // 2]
+            spread = max(1.4826 * mad, 0.1 * abs(med), 1.0)
+            total += max(0.0, 1.0 - abs(features[i] - med) / (4 * spread))
+        return round(100 * total / len(OWNER_FEATURES))
+
+
+def owner_band(score: int | None) -> str:
+    if score is None:
+        return LEARNING
+    return OWNER_LIKE if score >= OWNER_LIKE_AT else UNCERTAIN if score >= UNCERTAIN_AT else NOT_OWNER
+
+
 # ---------------------------------------------------------------- 6. the envelope
 def _pq_tbs(env: dict) -> bytes:
     return sha256(canonical({"core": env["core"], "yk_sig": sha256(unb64(env["yk"]["signature"])).hex(),
-                             "mcu": env["mcu"], "prev": env["prev"]}))
+                             "mcu": env["mcu"], "attest": env["attest"], "prev": env["prev"]}))
 
 
-def make_envelope(core: dict, yk_assertion: dict, tag: bytes, prev_log_hash: str,
+def make_envelope(core: dict, yk_assertion: dict, tag: bytes, attest: bytes, prev_log_hash: str,
                   pq_key: mldsa.MLDSA65PrivateKey) -> dict:
-    env = {"core": core, "yk": yk_assertion, "mcu": b64(tag), "prev": prev_log_hash}
+    env = {"core": core, "yk": yk_assertion, "mcu": b64(tag), "attest": b64(attest), "prev": prev_log_hash}
     env["pq_sig"] = b64(pq_key.sign(_pq_tbs(env), PQ_CONTEXT))  # hedged (randomised) signing
     return env
 
@@ -359,21 +413,32 @@ class Member:
     yk_pub: ec.EllipticCurvePublicKey
     pq_pub: mldsa.MLDSA65PublicKey
     k_tag: bytes  # shared with that device's STM32
+    baseline: Baseline = field(default_factory=Baseline)
+    unknown_hands: list = field(default_factory=list)  # times of recent not-the-owner rejections
+    locked: bool = False
+
+
+# Every failure answers the requester the same way, so a failed attempt says nothing about why.
+FAIL_PUBLIC = "unavailable"
 
 
 @dataclass
 class Verifier:
-    """The guardian's check, and the only route to "execute". It can refuse or hold. It can't
+    """The guardian's check, and the only route to "execute". It can refuse, hold or lock. It can't
     approve on its own: it can't make the YubiKey or ML-DSA signatures."""
     rp_id: str
     address_book: dict[str, str] = field(default_factory=dict)
     members: dict[str, Member] = field(default_factory=dict)
     open_nonces: dict[str, float] = field(default_factory=dict)
+    alerts: list = field(default_factory=list)  # (who, why); the guardian's response engine reads these
 
     def new_nonce(self, now: float | None = None) -> str:
         n = b64(os.urandom(16))
         self.open_nonces[n] = time.time() if now is None else now
         return n
+
+    def _fail(self, reason: str) -> dict:
+        return {"public": FAIL_PUBLIC, "internal": "reject", "reason": reason}
 
     def check(self, env: dict, request: dict, now: float | None = None) -> dict:
         """Returns {"public": what the requester sees, "internal": the real outcome, "reason"}."""
@@ -381,13 +446,13 @@ class Verifier:
         try:
             core = env["core"]
             m = self.members[core["who"]]
-            if core["v"] != 2 or core["suite"] != SUITE or core["rp"] != self.rp_id:
+            if m.locked:
+                return self._fail("member locked after repeated unknown hands")
+            if core["v"] != 3 or core["suite"] != SUITE or core["rp"] != self.rp_id:
                 raise ValueError("wrong suite or service")
             if core["type"] != request.get("action") or core["request"] != b64(sha256(canonical(request))):
                 raise ValueError("request changed after approval")
-            display_hash = sha256(render_display(request, self.address_book).encode())
-            if core["display"] != b64(display_hash):
-                raise ValueError("what was shown doesn't match the request")
+            render_summary(request, self.address_book)  # refuse anything that can't be summarised
             issued = self.open_nonces.get(core["nonce"])
             if issued is None:
                 raise ValueError("unknown or reused nonce")
@@ -396,23 +461,47 @@ class Verifier:
             digest = core_digest(core)
             verify_yubikey_assertion(m.yk_pub, env["yk"], self.rp_id, digest)
             m.pq_pub.verify(unb64(env["pq_sig"]), _pq_tbs(env), PQ_CONTEXT)
+            click_age, grip, features = parse_attest(unb64(env["attest"]))
+            if grip != 1:
+                raise ValueError("no palm on the grip at the click")
+            if click_age > CLICK_WINDOW_MS:
+                raise ValueError("click too old: not this approval's click")
             # Which status did the STM32 seal? Try all three, in constant time each.
             tag = unb64(env["mcu"])
             hits = [s for s in (NORMAL, STEP_UP, DURESS)
-                    if _hmac.compare_digest(tag, mcu_tag(m.k_tag, s, display_hash, digest))]
+                    if _hmac.compare_digest(tag, mcu_tag(m.k_tag, s, digest, click_age, grip, features))]
             if len(hits) != 1:
-                raise ValueError("no valid tag from the device's buttons and display")
+                raise ValueError("no valid tag from the device's click and sensors")
         except (KeyError, TypeError, ValueError, InvalidSignature) as e:
-            return {"public": "rejected", "internal": "reject", "reason": str(e) or type(e).__name__}
-        del self.open_nonces[core["nonce"]]
+            return self._fail(str(e) or type(e).__name__)
         status = hits[0]
+        hour = time.gmtime(now).tm_hour
+        score = m.baseline.score(features, hour)
+        band = owner_band(score)
+        if band == NOT_OWNER:
+            # A hand that isn't the registered user's. The nonce stays burnt for this attempt.
+            del self.open_nonces[core["nonce"]]
+            m.unknown_hands = [t for t in m.unknown_hands if now - t < LOCK_WINDOW_S] + [now]
+            self.alerts.append((core["who"], "unknown hand"))
+            if len(m.unknown_hands) >= LOCK_AFTER:
+                m.locked = True
+                self.alerts.append((core["who"], "locked after repeated unknown hands"))
+            return {"public": FAIL_PUBLIC, "internal": "reject_unknown_hand", "status": status,
+                    "owner_score": score, "owner_band": band, "reason": "not the registered user's hand"}
+        del self.open_nonces[core["nonce"]]
+        m.unknown_hands.clear()
         # The guardian may only make things stricter, never looser.
         if core["type"] in DANGER_ACTIONS and status == NORMAL:
             status = STEP_UP
+        if band == UNCERTAIN and status == NORMAL:
+            status = STEP_UP
+        if status == NORMAL and band in (OWNER_LIKE, LEARNING):
+            m.baseline.add(features, hour)  # only passed, normal approvals teach the baseline
         internal = {NORMAL: "execute", STEP_UP: "need_second_approver", DURESS: "hold_and_alert"}[status]
         # Normal and duress look the same from outside: both are "accepted" and queued.
         public = "need_second_approver" if status == STEP_UP else "accepted"
-        return {"public": public, "internal": internal, "status": status, "reason": "ok"}
+        return {"public": public, "internal": internal, "status": status, "owner_score": score,
+                "owner_band": band, "reason": "ok"}
 
 
 # ---------------------------------------------------------------- 7. the audit log

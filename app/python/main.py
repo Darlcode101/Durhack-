@@ -1,12 +1,12 @@
 """Linux-side entry point. Everything runs on the UNO Q.
 
-    python3 main.py enrol <user>                     once: YubiKey, PIN check, post-quantum key, guardian
+    python3 main.py enrol <user>                     once: YubiKey, one click, post-quantum key, guardian
     python3 main.py approve <user> '<request json>'  one approval, e.g.
         '{"action":"transfer","amount":"10","asset":"GBP","to":"0xA1..."}'
 
-Run over SSH on the board. The PIN is typed on the Modulino Buttons, never on this keyboard.
-See docs/BUILD-FLOW.md. (The earlier PIN-on-Linux flow is kept in pq_keystore.py / verifier.py
-for reference only.)
+Run over SSH on the board. There is nothing to type or press but the mouse's own click: it
+works like any mouse. See docs/BUILD-FLOW.md. (The earlier PIN-on-Linux flow is kept in
+pq_keystore.py / verifier.py for reference only.)
 """
 import json
 import os
@@ -50,7 +50,7 @@ def gemini_fn(window):
     jpeg, faces = camera.grab()
     if not jpeg or not window:
         return None
-    last = {k: v for k, v in window[-1].items() if k not in ("state", "pin_count")}
+    last = {k: v for k, v in window[-1].items() if k != "state"}
     return gemini_score(jpeg, {**last, "face_count": faces, "readings": len(window)})
 
 

@@ -20,14 +20,14 @@ from fido2.server import Fido2Server
 from fido2.webauthn import AttestedCredentialData
 
 RP_ID = os.environ.get("FIDO_RP_ID", "duress-auth.local")
-UV = "discouraged"  # touch only; the Modulino button PIN is the knowledge factor
+UV = "discouraged"  # no YubiKey PIN. Mouse mode has no knowledge factor at all (see docs/CRYPTO.md weak spots)
 
 _server = Fido2Server({"id": RP_ID, "name": "Duress-aware login"}, attestation="none")
 
 
 class _Prompt(UserInteraction):
     def prompt_up(self):
-        print("[yubikey] touch your YubiKey…")  # TODO: also show on the LED matrix
+        print("[yubikey] key asked for a touch")  # mouse mode wants NO touch: see RealYubiKey
 
     def request_pin(self, permissions, rp_id):
         return os.environ.get("YUBIKEY_FIDO_PIN")  # only used if the key insists on a PIN
@@ -102,6 +102,13 @@ class RealYubiKey:
     authenticatorData, clientDataJSON and signature, which the guardian re-checks. python-fido2's
     get_assertion() takes the challenge in the options; the origin must be https://<RP_ID> and
     RP_ID must equal the guardian's service ID (FIDO_RP_ID in .env, same on both).
+
+    MOUSE MODE: nobody touches the key, so the assertion must be made with user presence OFF
+    (CTAP2 get_assertion option up=false). python-fido2's Fido2Client does not expose that, so on
+    the board this likely needs Ctap2(dev).get_assertion(..., options={"up": False}) directly,
+    and whether the hmac-secret is still returned without a touch must be checked on the
+    YubiKey 5 NFC. If the key insists on a touch, the YubiKey is a pure presence prompt and
+    this design needs a rethink: say so rather than hide it.
     """
 
     def __init__(self, credential_data: bytes | None = None):

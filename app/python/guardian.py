@@ -8,12 +8,15 @@ re-enrolling); Wave 3 persists it.
 
     POST /nonce                       -> {"nonce": ...}
     POST /enrol/{user}                -> registers a member (called once by `main.py enrol`)
-    POST /approve  {envelope, request} -> {"public": "accepted" | "need_second_approver" | "rejected"}
+    POST /approve  {envelope, request} -> {"public": "accepted" | "need_second_approver" | "unavailable"}
 
-The real outcome (execute / hold_and_alert) goes to `on_outcome`, never back to the requester.
+Every failure (bad signature, wrong tag, not the registered user's hand, locked) answers the same
+"unavailable", so an attacker who tries again and again learns nothing. The real outcome
+(execute / hold_and_alert / reject_unknown_hand) goes to `on_outcome`, never back to the requester.
 """
 import json
 import os
+import time
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import mldsa
@@ -43,6 +46,7 @@ class Enrol(BaseModel):
     yk_pub_der: str       # YubiKey credential public key, base64 (SubjectPublicKeyInfo DER)
     pq_pub: str           # ML-DSA-65 public key, base64
     k_tag: str            # from tools/provision.py
+    seed: list[list[int]] = []  # the supervised enrolment click's sensor summary(ies): the first baseline
 
 
 class Approve(BaseModel):
@@ -63,6 +67,9 @@ def enrol(user: str, e: Enrol):
         serialization.load_der_public_key(ys.unb64(e.yk_pub_der)),
         mldsa.MLDSA65PublicKey.from_public_bytes(ys.unb64(e.pq_pub)),
         ys.unb64(e.k_tag))
+    for f in e.seed:
+        if len(f) == ys.N_FEATURES:
+            verifier.members[user].baseline.add(f, time.gmtime().tm_hour)
     return {"ok": True}
 
 
@@ -71,5 +78,7 @@ def approve(a: Approve):
     result = verifier.check(a.envelope, a.request)
     if result["internal"] != "reject":
         on_outcome(result, a.envelope)
+    while verifier.alerts:
+        print("[guardian] ALERT:", verifier.alerts.pop(0))  # responder._silent_alert in Wave 3
     return {"public": result["public"]}
 
