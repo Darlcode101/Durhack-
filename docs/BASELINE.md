@@ -2,7 +2,7 @@
 
 **The idea (Jonah, 2026-11-14):** a mouse is held for hours every day. So the device can quietly learn what *this person's* hand normally feels like, instead of relying on a single one-minute enrolment. That fixes the hardest problem in duress detection: not having enough data to say what "irregular" means.
 
-The mouse therefore does two jobs: it **hides the device**, and it **feeds the baseline**. See [MOUSE-DESIGN.md](MOUSE-DESIGN.md) for the hardware and [CHALLENGES.md](CHALLENGES.md#4-mlh-best-use-of-tiger-data) for how Tiger Data fits.
+The mouse therefore does two jobs: it **hides the device**, and it **feeds the baseline**. The baseline is only learned from all day: **duress is judged only at the moment of a transaction**, never from everyday use. See [MOUSE-DESIGN.md](MOUSE-DESIGN.md) for the hardware and [CHALLENGES.md](CHALLENGES.md#4-mlh-best-use-of-tiger-data) for how Tiger Data fits.
 
 ## What this changes
 

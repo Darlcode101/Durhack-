@@ -7,7 +7,8 @@ Inputs, all passive (no buttons, no user input):
   * sensors (STM32 -> App Lab relay -> live/features.json): sweat (moisture + palm humidity),
     movement (Modulino Movement shake), grip (touch), palm temperature
   * YubiKey: plugged in or not (presence only; no touch is requested)
-  * Gemini: every few seconds, one frame + a summary of the above -> duress score with reasons
+  * Gemini: ONLY during a transaction, and only when the sensors are unsure: one frame + a summary
+    of the above -> duress score with reasons. Everyday use is learned from, never judged or flagged.
 
 Sensor signals are judged against the user's OWN normal, learned for 30 s at start (or on
 "Learn my normal"). Frames are kept in memory only, never written to disk.

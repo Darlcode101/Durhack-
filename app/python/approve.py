@@ -145,6 +145,8 @@ def approve(*, bridge, yk, guardian, state: DeviceState, request: dict, address_
             gemini_fn=lambda window: None, sleep=time.sleep, timeout_s: float = 5) -> dict:
     """Returns {"public": what the requester may be told, "envelope": the envelope}.
 
+    Duress is judged only here, at the moment of a transaction; nothing runs continuously.
+
     `gemini_fn(window)` takes the sensor readings sampled right after the click and returns
     fusion_gemini's dict (or None, which fails closed to duress). Only Gemini scores; the STM32
     decides and tags.

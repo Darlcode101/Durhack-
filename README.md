@@ -17,7 +17,7 @@ The main audience is **Marshall Wace** (the hedge fund), whose challenge is **"N
 Design change (2026-11-14): the whole device now lives **inside a normal-working mouse**. The user does **nothing extra**: no PIN, no gesture, no screen. They click "Process transaction" like any button, the STM32 sees that **real physical click**, and the check runs silently from sensor data.
 
 - **Hidden.** Nothing about it looks like an authenticator. [docs/MOUSE-DESIGN.md](docs/MOUSE-DESIGN.md)
-- **It learns you all day.** A mouse is held for hours, so it builds a rich, per-hour baseline of your grip, tremor, sweat and temperature in Tiger Data, which fixes the "not enough data to know what's irregular" problem. [docs/BASELINE.md](docs/BASELINE.md)
+- **It learns you all day.** A mouse is held for hours, so it builds a rich, per-hour baseline of your grip, tremor, sweat and temperature in Tiger Data, which fixes the "not enough data to know what's irregular" problem. This is learning only: nothing is judged or flagged from everyday use, and duress is checked **only at the moment of a transaction**. [docs/BASELINE.md](docs/BASELINE.md)
 - **It knows whose hand it is.** The guardian compares aggregated click, movement, grip and body features with the **YubiKey's registered user** and **quietly rejects anyone else**. An impostor sees only ordinary failures, can retry forever, and never passes. [docs/OWNER-CHECK.md](docs/OWNER-CHECK.md)
 - **The approval is invisible.** A physical click is the trigger and everything else is background. [docs/STEALTH-APPROVAL.md](docs/STEALTH-APPROVAL.md)
 
@@ -33,7 +33,7 @@ YuDuino is a small device that sits between a person and anything dangerous they
 
 Hardware keys already prove *who* is approving. None of them help when someone in the room **forces** you to approve. YuDuino does.
 
-While you approve, your body is "speaking" a physical language: tremor, sweat, touch and click timing, voice, your face and the scene around you. **Each reading means nothing on its own**: a shaky hand might just be coffee. Only when the readings are **aggregated** do they form a signal, and **Gemini is the translator** that turns them into one verdict: *under duress or not*.
+While you approve, your body is "speaking" a physical language: tremor, sweat, touch and click timing, voice, your face and the scene around you. **Each reading means nothing on its own**: a shaky hand might just be coffee. Only when the readings are **aggregated** do they form a signal, and **Gemini is the translator** that turns them into one verdict: *under duress or not*. This judgement happens **only at the moment of a transaction**; everyday use is learned from but never judged.
 
 The attacker is standing right there and can see everything, but can't read the language. If the translation says duress, YuDuino hands over a **decoy approval** that looks identical to a real one, moves nothing, freezes the funds and silently alerts the team.
 
@@ -56,7 +56,7 @@ Nobody does anything but click. Full flow and the trade-offs: [docs/STEALTH-APPR
 
 | Track | Priority | How YuDuino hits it |
 |---|---|---|
-| **RS / Arduino:** build an intelligent system that can sense, analyse and respond to the real world | **Main** | **Sense:** the mouse's grip, click, movement and body sensors, all day, plus the camera and mic. **Analyse:** readings against the user's baseline, aggregated by Gemini. **Decide:** real, second approver or decoy. **Act:** signature release, a quiet rejection of other hands, silent alert and frozen funds. Uses all the mandatory hardware (UNO Q, camera, USB hub). Pitched as "smart safety monitoring", with accessibility via spoken readback. |
+| **RS / Arduino:** build an intelligent system that can sense, analyse and respond to the real world | **Main** | **Sense:** the mouse's grip, click, movement and body sensors (learned all day for the baseline), plus the camera and mic. **Analyse:** at the moment of a transaction, readings against the user's baseline, aggregated by Gemini. **Decide:** real, second approver or decoy. **Act:** signature release, a quiet rejection of other hands, silent alert and frozen funds. Uses all the mandatory hardware (UNO Q, camera, USB hub). Pitched as "smart safety monitoring", with accessibility via spoken readback. |
 | **Overall theme: Composition** (art, music, tech, idea mixing) | **Main** | Many meaningless signals composed into one; a mouse + YubiKey + AI. [docs/COMPOSITION.md](docs/COMPOSITION.md) |
 | **Marshall Wace: New Worlds** (open a door to new data, ideas or something novel) | **Main** | A new world of data, the human hand at the moment of authority, and an authenticator nobody can see. [docs/INSTITUTIONAL-FIT.md](docs/INSTITUTIONAL-FIT.md) |
 | **QRT: Tagged: Information Hidden in Plain Sight** (invent a physical language that encodes digital information) | Optional | **The whole system is the language.** The body's involuntary signals encode one bit, "under duress", that no single reading reveals, and the whole shape of a hand at work says *who* is holding it. Gemini and the owner check translate them. Nobody knows the mouse measures any of it, so there is nothing to steal or copy, and the response looks like an ordinary result either way. |
@@ -77,9 +77,9 @@ The tracks above set what we spend time on:
 
 1. **The end-to-end approval loop (RS/Arduino).** Request, the physical click, background checks, verdict, real or decoy signature, verifier. Everything else depends on it working.
 2. **The hidden language (Tagged + Gemini).** Every sensor feeds the aggregate; Gemini's translation is the heart of the demo. Calm and coerced approvals must give visibly different verdicts.
-3. **Personal baselines (Tiger Data).** A rolling stream from the mouse, rolled up by continuous aggregates into per-hour baselines, so the translation is about *this* person *right now*.
+3. **Personal baselines (Tiger Data).** A rolling stream from the mouse, rolled up by continuous aggregates into per-hour baselines, so the translation at a transaction is about *this* person *right now*.
 4. **A real-world response (Vultr).** Alerts, frozen funds and incident reports, so judges see the system *act*.
-5. **A device nobody looks at twice, that learns you all day (3D printer).** The whole device hides inside a computer mouse. Because a mouse is held for hours, it also **passively collects a rich baseline** of your grip, tremor, sweat and temperature, which solves the "not enough data to know what's irregular" problem ([docs/BASELINE.md](docs/BASELINE.md)). The YubiKey and camera sit in a dock.
+5. **A device nobody looks at twice, that learns you all day (3D printer).** The whole device hides inside a computer mouse. Because a mouse is held for hours, it also **passively learns a rich baseline** of your grip, tremor, sweat and temperature (learning only: duress is checked just at a transaction), which solves the "not enough data to know what's irregular" problem ([docs/BASELINE.md](docs/BASELINE.md)). The YubiKey and camera sit in a dock.
 6. **Polish and accessibility (ElevenLabs, DEV).** Spoken readback, demo voices, write-up.
 7. **Stretch goals, only if time (post-quantum ML-DSA signature, Solana, MongoDB).**
 

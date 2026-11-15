@@ -6,7 +6,7 @@ How the approval works with no input: [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md)
 
 **Three reasons for a mouse.**
 1. It **hides** the device: nothing on it looks like an authenticator (no screen, no PIN pad).
-2. It is **held all day**, so it passively learns this person's normal grip, tremor, sweat and temperature ([BASELINE.md](BASELINE.md)).
+2. It is **held all day**, so it passively learns this person's normal grip, tremor, sweat and temperature ([BASELINE.md](BASELINE.md)). That is learning only: duress is judged only at the moment of a transaction.
 3. It can tell **whose hand** is on it, and quietly reject anyone else ([OWNER-CHECK.md](OWNER-CHECK.md)).
 
 **One rule first.** Hiding the device is obscurity, not security. If someone works out the mouse is the device, nothing breaks, because the checks don't depend on secrecy. The mouse mostly stops people *noticing* it, and makes its measurements natural.
