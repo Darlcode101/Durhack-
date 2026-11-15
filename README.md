@@ -8,13 +8,9 @@ Everything runs on an **Arduino UNO Q**. Every approval is a sealed envelope wit
 
 **Test it:** [docs/TESTING.md](docs/TESTING.md) (laptop tests first, then the board).
 
-## Who it's for: an institutional trading firm
+## Who it's for
 
-The main audience is **Marshall Wace** (the hedge fund), whose challenge is **"New Worlds"** (open a door to new data, ideas or something novel), and the overall DurHack theme is **Composition**; see below. The fit: **trader and treasury authorisation** (wire releases, beneficiary changes, limit overrides, deployments), **insider and coercion risk** (the owner check rejects a borrowed key; duress detection raises a silent alarm), and **audit trails** (a signed, hash-chained log that names who authorised what). Suggestions, likely objections, a demo and questions to ask: **[docs/INSTITUTIONAL-FIT.md](docs/INSTITUTIONAL-FIT.md)**. Our answer to New Worlds is three doors: **new data** (the human hand at the moment of authority), a **new idea** (invisible authentication) and **something novel** (a hand's signature as a language, even audible as music).
-
-## The theme: Composition
-
-DurHack's theme is **Composition** (art, music and tech; idea mixing; new combinations), judged on creativity, technical execution, research and polish. YuDuino is a composition at every level: many meaningless signals composed into one; three proofs composed into one approval; a mouse + a YubiKey + AI. Suggested music angle: **play the live sensor stream as a score** on the dashboard, so an owner sounds consonant, a borrowed mouse sounds out of tune and a coerced approval adds tension. [docs/COMPOSITION.md](docs/COMPOSITION.md).
+The main audience is **Marshall Wace** (the hedge fund), whose challenge is **"New Worlds"**. The pitch, in our own words and with an honest claim about novelty, is in **[docs/INSTITUTIONAL-FIT.md](docs/INSTITUTIONAL-FIT.md)**; what already exists is in **[docs/PRIOR-ART.md](docs/PRIOR-ART.md)**. The overall DurHack theme is **Composition** ([docs/COMPOSITION.md](docs/COMPOSITION.md)).
 
 ## The target design: a mouse you just use
 
@@ -70,8 +66,6 @@ The invisible version of this flow, with no display and no PIN, is in [docs/STEA
 | **MLH Best Use of ElevenLabs** | Add-on | Reads the transaction aloud for accessibility, and generates calm and scared test voices for a reliable demo. (It doesn't detect fear; Gemini does the translating.) |
 | **DEV Writing Challenge** | Add-on | Publish the build story after the weekend. |
 | **Free 3D printer** | Build | A base plate, standoffs and inserts for a **donor mouse** (or a prototype shell) that hide the whole device, plus a dock for the YubiKey and a **camera mount**. See [docs/MOUSE-DESIGN.md](docs/MOUSE-DESIGN.md). |
-| **SGX FX:** protect assets in a trading market storm | Overlap (small) | A "tilt guard": a market storm from their data combined with the operator's state from the mouse raises step-up and an early warning. Only if their data is quick to use |
-| **Neptune North:** actors that stay resilient when comms fail | Mention only | Each mouse decides locally and fails closed offline. A real offline mode is an open problem |
 | **MLH Best Use of Solana** | Stretch | A devnet wallet program: a valid YuDuino signature releases funds, a decoy freezes them on-chain. |
 | **MLH Best Use of MongoDB Atlas** | Stretch | Document data: user and device profiles, policies (spend limits, allow-lists, second-approver rules), guardian contacts and incident reports. |
 
@@ -117,8 +111,8 @@ Wiring and step-by-step bring-up: **[hardware plan](docs/HARDWARE-PLAN.md)**.
 - **[Hardware plan](docs/HARDWARE-PLAN.md):** wiring, pins and the bring-up order.
 - **[All-day baseline](docs/BASELINE.md):** how the mouse learns each person's normal all day, the privacy limits, filtering out mouse movement, and time-of-day drift.
 - **[Prior art](docs/PRIOR-ART.md):** what already exists (mouse dynamics, biometric and sensor mice, duress detection, decoy wallets, post-quantum keys), what is genuinely different, and what we must not claim.
-- **[Composition](docs/COMPOSITION.md):** the DurHack theme: YuDuino as a composition, a music angle, the judging map and a demo.
-- **[Marshall Wace: New Worlds](docs/INSTITUTIONAL-FIT.md):** our answer to their challenge, plus the institutional fit: treasury and trader authorisation, insider and coercion risk, audit trails, objections and a demo.
+- **[Composition](docs/COMPOSITION.md):** the DurHack theme and how YuDuino answers it.
+- **[Marshall Wace: New Worlds](docs/INSTITUTIONAL-FIT.md):** our pitch for their challenge, with an honest check of each claim.
 - **[Invisible approval](docs/STEALTH-APPROVAL.md):** no screen, no PIN, no extra input: the flow, what we lose and how we cover it.
 - **[Owner check](docs/OWNER-CHECK.md):** how the mouse tells the registered user from anyone else, and what happens on a false reject.
 - **[Mouse design](docs/MOUSE-DESIGN.md):** the device hidden inside a computer mouse: layout, sensor map, display, 3D-printed shell, and the security trade-offs.

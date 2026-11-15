@@ -114,8 +114,6 @@ Because the device can no longer vouch for *what* is being approved, the weight 
 | **Owner-likelihood and duress from the baseline** | A thief, or a stressed owner, gets a step-up or a hold |
 | **Everything still fails closed, and the audit log is unchanged** | Missing or odd data means hold, and every decision is traceable |
 
-**Optional hardening for high-value actions only:** a deliberate double-click on the button. It looks like ordinary use but it *is* an input, so it is not in the default.
-
 ## Weak spots this adds
 
 These are also in [CRYPTO.md](CRYPTO.md#remaining-weak-spots):
