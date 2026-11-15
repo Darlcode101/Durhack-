@@ -10,7 +10,7 @@ Back to the **[overview](YuDuino-Overview.md)** · **[hardware plan](HARDWARE-PL
 
 | Track | Priority | YuDuino's angle |
 |---|---|---|
-| **Overall theme: Composition** (art, music, tech, idea mixing) | **Main** | Many meaningless signals composed into one; a mouse + YubiKey + AI; the hand's signal rendered as music. See [COMPOSITION.md](COMPOSITION.md) |
+| **Overall theme: Composition** (art, music, tech, idea mixing) | **Main** | Many meaningless signals composed into one; a mouse + YubiKey + AI. See [COMPOSITION.md](COMPOSITION.md) |
 | **Marshall Wace: New Worlds** | **Main** | A new world of data (the hand at the moment of authority) and an invisible authenticator. See [INSTITUTIONAL-FIT.md](INSTITUTIONAL-FIT.md) |
 | RS / Arduino: sense, analyse and respond to the real world | **Main** | Duress-aware approval device: sensors and camera in, a real, escalated or decoy approval out |
 | Tagged: Information Hidden in Plain Sight (QRT) | Optional | The readings are a language: meaningless alone, a signal when aggregated; Gemini translates; the attacker can't read it |

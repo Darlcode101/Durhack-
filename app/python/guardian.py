@@ -43,7 +43,8 @@ def on_outcome(result: dict, env: dict):
 
 
 class Enrol(BaseModel):
-    yk_pub_der: str       # YubiKey credential public key, base64 (SubjectPublicKeyInfo DER)
+    yk_pub_der: str = ""  # YubiKey credential public key, base64 (SubjectPublicKeyInfo DER). Empty in HMAC-SHA1 mode
+    yk_hmac_key: str = "" # HMAC-SHA1 fallback only: the slot key, base64 (from tools/setup_yk_hmac.py)
     pq_pub: str           # ML-DSA-65 public key, base64
     k_tag: str            # from tools/provision.py
     seed: list[list[int]] = []  # the supervised enrolment click's sensor summary(ies): the first baseline
@@ -63,10 +64,13 @@ def nonce():
 def enrol(user: str, e: Enrol):
     if user in verifier.members:
         raise HTTPException(409, "already enrolled; revoke first")
+    if bool(e.yk_pub_der) == bool(e.yk_hmac_key):
+        raise HTTPException(400, "give exactly one of yk_pub_der (FIDO2) or yk_hmac_key (HMAC-SHA1)")
     verifier.members[user] = ys.Member(
-        serialization.load_der_public_key(ys.unb64(e.yk_pub_der)),
+        serialization.load_der_public_key(ys.unb64(e.yk_pub_der)) if e.yk_pub_der else None,
         mldsa.MLDSA65PublicKey.from_public_bytes(ys.unb64(e.pq_pub)),
-        ys.unb64(e.k_tag))
+        ys.unb64(e.k_tag),
+        ys.unb64(e.yk_hmac_key) if e.yk_hmac_key else None)
     for f in e.seed:
         if len(f) == ys.N_FEATURES:
             verifier.members[user].baseline.add(f, time.gmtime().tm_hour)

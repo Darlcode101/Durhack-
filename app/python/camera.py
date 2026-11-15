@@ -2,6 +2,8 @@
 
 Frames are kept in memory only — never written to disk (privacy).
 """
+import os
+
 import cv2
 
 _cap = None
@@ -19,8 +21,23 @@ def _camera():
     return _cap
 
 
+def _from_dashboard() -> tuple[bytes | None, int]:
+    """The live dashboard holds the camera (a USB camera can't be opened twice), so ask it."""
+    try:
+        import requests
+        r = requests.get(os.environ.get("DASHBOARD_URL", "http://127.0.0.1:8080") + "/api/snapshot", timeout=1.5)
+        if r.status_code == 200 and r.content:
+            return r.content, int(r.headers.get("X-Faces", "0"))
+    except Exception:
+        pass
+    return None, 0
+
+
 def grab() -> tuple[bytes | None, int]:
     """Returns (jpeg_bytes, face_count). jpeg is None if the camera failed."""
+    jpg, faces = _from_dashboard()
+    if jpg:
+        return jpg, faces
     ok, frame = _camera().read()
     if not ok:
         return None, 0

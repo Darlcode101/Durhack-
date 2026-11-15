@@ -40,9 +40,9 @@ def owner_like(rng):
 class Device:
     """One enrolled YuDuino in a mouse: STM32 (SoftMcu) + Linux side + YubiKey + a guardian that knows it."""
 
-    def __init__(self, baseline=True):
+    def __init__(self, baseline=True, yk=None):
         self.rng = random.Random(1)
-        self.yk = ys.SoftYubiKey()
+        self.yk = yk or ys.SoftYubiKey()
         k_mcu = os.urandom(32)
         self.mcu = ys.SoftMcu(k_mcu)
         self.t = 10_000  # STM32 clock, ms
@@ -53,7 +53,8 @@ class Device:
         self.mcu.seal(0)
         self.store, pq = ys.create_keystore(self.yk.hmac_secret(salt))
         self.verifier = ys.Verifier(RP, address_book=dict(BOOK))
-        m = ys.Member(self.yk.public_key, pq.public_key(), ys.mcu_keys(k_mcu)[1])
+        m = ys.Member(self.yk.public_key, pq.public_key(), ys.mcu_keys(k_mcu)[1],
+                      getattr(self.yk, "key", None))
         if baseline:
             hour = time.gmtime().tm_hour
             for _ in range(30):
@@ -167,6 +168,33 @@ class ApprovalTest(unittest.TestCase):
             ok += self.d.mcu.arm(bytes(32), self.d.t, OWNER)
             self.d.mcu.seal(0)
         self.assertEqual(ok, ys.RATE_MAX - 1)  # enrolment already used one arm
+
+
+class HmacSha1FallbackTest(unittest.TestCase):
+    """The YubiKey's HMAC-SHA1 challenge-response slot (no touch) instead of FIDO2."""
+
+    def setUp(self):
+        self.d = Device(yk=ys.SoftYubiKeyHmac())
+
+    def test_calm_and_duress_work_the_same(self):
+        r = self.d.verifier.check(self.d.approve(CALM), REQ)
+        self.assertEqual((r["public"], r["internal"]), ("accepted", "execute"))
+        r = self.d.verifier.check(self.d.approve(SCARED), REQ)
+        self.assertEqual((r["public"], r["internal"]), ("accepted", "hold_and_alert"))
+
+    def test_wrong_slot_key_rejected(self):
+        env = self.d.approve(CALM)
+        env["yk"]["response"] = ys.b64(os.urandom(20))
+        self.assertEqual(self.d.verifier.check(env, REQ)["internal"], "reject")
+
+    def test_no_downgrade_either_way(self):
+        env = self.d.approve(CALM)  # an HMAC-SHA1 proof sent for a FIDO2 member
+        fido = Device()
+        fido.verifier.members["jonah"].yk_pub = fido.yk.public_key
+        fido_env = fido.approve(CALM)
+        self.assertEqual(fido.verifier.check(env, REQ)["internal"], "reject")
+        d2 = Device(yk=ys.SoftYubiKeyHmac())  # a FIDO2 proof sent for an HMAC-SHA1 member
+        self.assertEqual(d2.verifier.check(fido_env, REQ)["internal"], "reject")
 
 
 class RootedLinuxTest(unittest.TestCase):
@@ -543,6 +571,21 @@ class LinuxFlowTest(unittest.TestCase):
         b = self.approve(gemini_fn=lambda w: SCARED)
         self.assertEqual((a["public"], b["public"]), ("accepted", "accepted"))
         self.assertEqual([o["internal"] for o in self.guardian_mod.outcomes], ["execute", "hold_and_alert"])
+
+    def test_hmac_sha1_mode_through_the_whole_stack(self):
+        self.yk = ys.SoftYubiKeyHmac()
+        body = ap.enrol(bridge=self.bridge, yk=self.yk, guardian=self.guardian, state=self.state,
+                        user="jonah", device="unoq-1", rp_id=RP, sleep=lambda s: None)
+        body["k_tag"] = ys.b64(ys.mcu_keys(self.k_mcu)[1])
+        self.assertEqual(body["yk_pub_der"], "")
+        self.assertEqual(self.guardian.enrol("jonah", body).get("detail"), "give exactly one of yk_pub_der (FIDO2) or yk_hmac_key (HMAC-SHA1)")
+        body["yk_hmac_key"] = ys.b64(self.yk.key)
+        self.assertEqual(self.guardian.enrol("jonah", body), {"ok": True})
+        m = self.guardian_mod.verifier.members["jonah"]
+        for _ in range(ys.LEARNING_MIN):
+            m.baseline.add(owner_like(random.Random(len(m.baseline.samples))), time.gmtime().tm_hour)
+        self.assertEqual(self.approve()["public"], "accepted")
+        self.assertEqual(self.guardian_mod.outcomes[-1]["internal"], "execute")
 
     def test_state_survives_a_restart(self):
         self.enrol()
