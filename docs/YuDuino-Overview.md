@@ -2,6 +2,8 @@
 
 *Project overview by Jonah, 14 November 2026. Built for DurHack on an Arduino UNO Q with a YubiKey 5 NFC.*
 
+> **Note (2026-11-15):** this overview describes the first design (PIN on buttons, LED matrix). The design is now the zero-input mouse, and the code implements that. See the [README](../README.md) and [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md) for the current flow.
+
 To wire it up, see the step-by-step **[hardware plan](HARDWARE-PLAN.md)**. For the team schedule and software checklist, see **[PLAN.md](PLAN.md)**. For how YuDuino targets each DurHack challenge (RS/Arduino, Tagged, Gemini, Tiger Data and add-ons), see the **[challenge plan](CHALLENGES.md)**. For the build order, wave by wave, see the **[prototype and development plan](DEV-PLAN.md)**. For the cryptography (keys, the hidden duress status, login and audit trail), see the **[YuSeal crypto design](CRYPTO.md)**.
 
 ## 1. The pitch: selling peace of mind

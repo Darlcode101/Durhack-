@@ -38,12 +38,6 @@ Use that, or "to our knowledge, nothing combines these". Do **not** say "nothing
 - **That it detects coercion.** Even recent research says separating coercion from ordinary stress is unsolved. Say "an early warning", not "detects".
 - **That it can't be defeated.** The honest line is in [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md#what-we-lose-read-this).
 
-## Borrow from the literature (research and learning credit)
-
-- Cite the mouse-dynamics papers and say how ours differs (attested, physiological, in-mouse).
-- Use their evaluation habits: report **EER or false accept and false reject**, and how many actions it takes to be confident.
-- The 2025 coercion paper is the nearest cousin to our Gemini duress judge; its limits are our limits.
-
 ## Facts used in the pitch, checked
 
 The Binance incident (29 October 2026, about US$6.3 to 6.4 billion, hot wallets on several chains) is confirmed by [Reuters](https://www.reuters.com/legal/transactional/tether-circle-freeze-238-billion-after-binance-reports-security-incident-2026-10-29/) and [Elliptic](https://www.elliptic.co/insights/binance-largest-hack-in-history/). Reports, including [Thoropass's summary of Binance's report](https://www.thoropass.com/blog/binance-breach-2026), say attackers reached the signing service through a compromised developer laptop and an **internal AI tool**, and the FBI attributed it to North Korea's TraderTraitor group. That supports "the AI-accelerated world" in the pitch: the signing service accepted instructions from a path that was compromised by an AI-assisted route.
