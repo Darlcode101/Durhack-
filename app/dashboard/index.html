@@ -3,331 +3,316 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>YuDuino Monitor</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Libre+Baskerville:ital@0;1&display=swap" rel="stylesheet">
+<meta name="color-scheme" content="light dark">
+<title>YuDuino</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css">
 <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
 <style>
+  /* Apple system colours (light / dark) */
   :root {
-    --bg: #000; --text: #fff; --muted: #a1a1a1; --faint: #5c5c5c; --line: #2a2a2a; --line-2: #1a1a1a;
-    --accent: #b53e35; --warn: #c9a14a; --ok: #8fbf9a;
-    --serif: "Libre Baskerville", Georgia, serif;
-    --sans: Inter, ui-sans-serif, system-ui, sans-serif;
-    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --bg: #f2f2f7; --card: #ffffff; --fill: rgba(120, 120, 128, .12); --sep: rgba(60, 60, 67, .18);
+    --label: #000000; --label2: rgba(60, 60, 67, .6); --label3: rgba(60, 60, 67, .3);
+    --blue: #007aff; --green: #34c759; --orange: #ff9500; --red: #ff3b30; --teal: #30b0c7; --indigo: #5856d6; --gray: #8e8e93;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #000000; --card: #1c1c1e; --fill: rgba(118, 118, 128, .24); --sep: rgba(84, 84, 88, .55);
+      --label: #ffffff; --label2: rgba(235, 235, 245, .6); --label3: rgba(235, 235, 245, .3);
+      --blue: #0a84ff; --green: #30d158; --orange: #ff9f0a; --red: #ff453a; --teal: #40c8e0; --indigo: #5e5ce6; --gray: #8e8e93;
+    }
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; background: var(--bg); color: var(--text); }
-  body { font: 15px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
-  a { color: inherit; }
-  .wrap { max-width: 1240px; margin: 0 auto; padding: 0 40px; }
-  @media (max-width: 700px) { .wrap { padding: 0 16px; } }
-  .mono { font-family: var(--mono); }
-  .label { font-family: var(--mono); font-size: 11.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); }
-  .sub { font-family: var(--mono); font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
-  .rule { width: 48px; height: 2px; background: var(--accent); border: 0; margin: 18px 0; }
+  html, body { margin: 0; background: var(--bg); color: var(--label); }
+  body { font: 15px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+         -webkit-font-smoothing: antialiased; letter-spacing: -.01em; }
+  .num { font-variant-numeric: tabular-nums; }
+  main { max-width: 1120px; margin: 0 auto; padding: 28px 24px 56px; }
+  @media (max-width: 640px) { main { padding: 20px 16px 40px; } }
 
   /* header */
-  header { border-bottom: 1px solid var(--line); }
-  .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding-top: 28px; padding-bottom: 22px; flex-wrap: wrap; }
-  .brand .sub { color: var(--muted); }
-  .brand .name { font-family: var(--serif); font-size: 26px; margin-top: 4px; }
-  .status { display: flex; gap: 22px; flex-wrap: wrap; font-family: var(--mono); font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
-  .status span { display: inline-flex; align-items: center; gap: 8px; }
-  .status i { width: 6px; height: 6px; background: var(--faint); display: inline-block; }
-  .status .ok i { background: var(--text); } .status .warn i { background: var(--warn); } .status .bad i { background: var(--accent); }
-  .status .bad { color: var(--text); }
+  .top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
+  .top h1 { font-size: 34px; font-weight: 700; letter-spacing: -.02em; margin: 0; }
+  .top .meta { color: var(--label2); font-size: 13px; }
 
-  section { border-bottom: 1px solid var(--line); padding: 56px 0; }
-  .grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 40px; }
-  .s5 { grid-column: span 5; } .s6 { grid-column: span 6; } .s7 { grid-column: span 7; } .s12 { grid-column: span 12; }
-  @media (max-width: 960px) { .s5, .s6, .s7 { grid-column: span 12; } .grid { gap: 32px; } section { padding: 40px 0; } }
-  h2 { font-family: var(--serif); font-weight: 400; font-size: 34px; letter-spacing: -.01em; margin: 10px 0 0; }
+  /* section headers like grouped lists */
+  .sh { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 30px 4px 10px; }
+  .sh h2 { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: -.015em; }
+  .sh .aside { color: var(--label2); font-size: 13px; }
 
-  /* verdict */
-  .verdict { font-family: var(--serif); font-weight: 400; font-size: clamp(54px, 8vw, 96px); line-height: 1.02; letter-spacing: -.025em; margin: 14px 0 0; }
-  .verdict .dot { color: var(--accent); }
-  .verdict.WATCH { color: var(--warn); } .verdict.DURESS { color: var(--accent); } .verdict.DURESS .dot { color: var(--text); }
-  .lede { display: grid; grid-template-columns: 48px 1fr; gap: 24px; align-items: start; margin-top: 26px; max-width: 620px; }
-  .lede .rule { margin: 13px 0 0; }
-  .lede p { margin: 0; font-size: 18px; color: var(--text); }
-  .figs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--line); }
-  .fig { padding: 22px 0 24px; border-bottom: 1px solid var(--line); }
-  .fig:nth-child(odd) { padding-right: 24px; border-right: 1px solid var(--line); }
-  .fig:nth-child(even) { padding-left: 24px; }
-  .fig .n { font-family: var(--mono); font-size: 44px; line-height: 1.1; margin-top: 10px; letter-spacing: -.02em; }
-  .fig .d { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .card { background: var(--card); border-radius: 14px; overflow: hidden; }
+  .pad { padding: 16px; }
+  .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } }
+
+  /* summary */
+  .summary { display: flex; align-items: center; gap: 16px; padding: 18px; }
+  .badge { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; flex: none; color: #fff; background: var(--gray); transition: background .3s; }
+  .summary .t { font-size: 22px; font-weight: 600; letter-spacing: -.015em; }
+  .summary .s { color: var(--label2); margin-top: 2px; }
+  .summary .r { margin-left: auto; text-align: right; }
+  .summary .r .v { font-size: 28px; font-weight: 600; }
+  .summary .r .l { color: var(--label2); font-size: 13px; }
+  @media (max-width: 560px) { .summary { flex-wrap: wrap; } .summary .r { margin-left: 68px; text-align: left; } }
+
+  /* tiles */
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 900px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .tile { background: var(--card); border-radius: 14px; padding: 14px 14px 13px; min-width: 0; }
+  .tile .hd { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
+  .tile .hd svg { flex: none; }
+  .tile .v { font-size: 26px; font-weight: 600; margin-top: 10px; letter-spacing: -.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .v small { font-size: 14px; font-weight: 500; color: var(--label2); margin-left: 3px; letter-spacing: 0; }
+  .tile .c { color: var(--label2); font-size: 13px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* camera */
-  .cam { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; background: #0a0a0a; border: 1px solid var(--line); }
-  .key { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 14px; }
-  .key span { display: inline-flex; align-items: center; gap: 8px; }
-  .key b { width: 14px; height: 0; border-top: 2px solid; display: inline-block; }
+  .cam { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #000; }
+  .camfoot { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 16px; color: var(--label2); font-size: 13px; }
+  .keys { display: flex; gap: 14px; flex-wrap: wrap; }
+  .keys span { display: inline-flex; align-items: center; gap: 6px; }
+  .keys i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
 
-  /* signals table */
-  table { width: 100%; border-collapse: collapse; }
-  th { text-align: left; font-family: var(--mono); font-weight: 400; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); padding: 0 12px 12px 0; border-bottom: 1px solid var(--line); }
-  td { padding: 15px 12px 15px 0; border-bottom: 1px solid var(--line-2); vertical-align: baseline; }
-  td.v { font-family: var(--mono); font-size: 13.5px; }
-  td.m { color: var(--muted); font-size: 13px; }
-  td.st { text-align: right; font-family: var(--mono); font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); padding-right: 0; white-space: nowrap; }
-  td.st.ok { color: var(--text); } td.st.warn { color: var(--warn); } td.st.bad { color: var(--accent); }
-  .gauge { position: relative; height: 1px; background: var(--line); margin-top: 10px; max-width: 220px; }
-  .gauge::before { content: ""; position: absolute; left: 50%; top: -4px; height: 9px; width: 1px; background: var(--faint); }
-  .gauge i { position: absolute; top: -4px; width: 2px; height: 9px; background: var(--text); transition: left .4s; }
-  .gauge.warn i { background: var(--warn); } .gauge.bad i { background: var(--accent); }
-  .tbl { overflow-x: auto; }
+  /* grouped list rows */
+  .row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; min-height: 48px; position: relative; }
+  .row + .row::before { content: ""; position: absolute; top: 0; left: 52px; right: 0; border-top: .5px solid var(--sep); }
+  .row.noicon + .row.noicon::before { left: 16px; }
+  .ico { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; color: #fff; flex: none; }
+  .row .main { flex: 1; min-width: 0; }
+  .row .title { font-weight: 500; }
+  .row .sub { color: var(--label2); font-size: 13px; margin-top: 1px; }
+  .row .trail { color: var(--label2); text-align: right; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--gray); margin-right: 6px; vertical-align: 1px; }
+  .on-green { background: var(--green); } .on-orange { background: var(--orange); } .on-red { background: var(--red); }
+  .t-green { color: var(--green); } .t-orange { color: var(--orange); } .t-red { color: var(--red); }
 
-  /* text buttons */
-  .tbtn { font: inherit; font-family: var(--mono); font-size: 11.5px; letter-spacing: .14em; text-transform: uppercase; background: none; border: 0; color: var(--muted); padding: 0 0 4px; cursor: pointer; border-bottom: 1px solid transparent; }
-  .tbtn:hover { color: var(--text); }
-  .tbtn.on { color: var(--text); border-bottom-color: var(--accent); }
-  .tabs { display: flex; gap: 22px; flex-wrap: wrap; }
-  .row { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; flex-wrap: wrap; }
+  /* Gemini */
+  .gem { padding: 16px; }
+  .gem .top2 { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .gem .v { font-size: 28px; font-weight: 600; }
+  .gem p { margin: 10px 0 0; line-height: 1.5; }
+  .gem .meta { color: var(--label2); font-size: 13px; }
 
-  /* analysis */
-  .quote { font-family: var(--serif); font-size: 21px; line-height: 1.55; margin: 22px 0 0; max-width: 640px; }
-  .quote.empty { color: var(--muted); font-size: 17px; }
-  .tags { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 6px 18px; }
-  .tags span { font-family: var(--mono); font-size: 12px; color: var(--muted); }
-  .tags span::before { content: "— "; color: var(--faint); }
+  /* controls */
+  .seg { display: inline-flex; background: var(--fill); border-radius: 9px; padding: 2px; }
+  .seg button { font: inherit; font-size: 13px; font-weight: 500; border: 0; background: transparent; color: var(--label); padding: 5px 14px; border-radius: 7px; cursor: pointer; }
+  .seg button.on { background: var(--card); box-shadow: 0 1px 3px rgba(0, 0, 0, .12), 0 0 0 .5px rgba(0, 0, 0, .04); font-weight: 600; }
+  @media (prefers-color-scheme: dark) { .seg button.on { background: #636366; box-shadow: none; } }
+  .link { font: inherit; background: none; border: 0; color: var(--blue); cursor: pointer; padding: 0; font-size: 15px; }
+  .link:active { opacity: .5; }
 
-  .chart { width: 100%; min-height: 230px; margin-top: 18px; }
-  .note { color: var(--muted); font-size: 13px; margin-top: 10px; }
-  .empty-box { min-height: 200px; display: grid; place-items: center; text-align: center; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin-top: 18px; padding: 24px; }
+  .chart { width: 100%; min-height: 220px; }
+  .ctitle { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+  .empty { min-height: 180px; display: grid; place-items: center; text-align: center; color: var(--label2); font-size: 14px; padding: 20px; }
+  .foot { color: var(--label2); font-size: 13px; margin: 10px 4px 0; line-height: 1.5; }
 
-  footer { padding: 32px 0 56px; color: var(--faint); }
-  footer .feats { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 12px; font-family: var(--mono); font-size: 11.5px; letter-spacing: .08em; }
-  footer .ok { color: var(--muted); } footer .ok::before { content: "✓ "; color: var(--text); }
-  footer .no { color: var(--accent); } footer .no::before { content: "✕ "; }
-
-  .u-legend { font-family: var(--mono); font-size: 11.5px !important; color: var(--muted); }
-  .u-legend .u-marker { border-radius: 0; }
-  .u-axis { font-family: var(--mono); }
+  .u-legend { font-size: 12px !important; color: var(--label2); }
+  .u-legend .u-marker { border-radius: 50%; width: 8px !important; height: 8px !important; }
 </style>
 </head>
 <body>
-<header><div class="wrap head">
-  <div class="brand"><div class="sub">DurHack 2026 · Duress monitor</div><div class="name">YuDuino</div></div>
-  <div class="status" id="status"></div>
-  <div class="sub mono" id="clock"></div>
-</div></header>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v5.5c0 4.4-3 8.1-7 9.5-4-1.4-7-5.1-7-9.5V6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8.8 12.2l2.2 2.2 4.3-4.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3l7 3v5.5c0 4.4-3 8.1-7 9.5-4-1.4-7-5.1-7-9.5V6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 8v5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16.3" r="1.2" fill="currentColor"/></symbol>
+    <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 19c.6-3.3 3-5 6-5s5.4 1.7 6 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="17" cy="9" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M17 14.2c2.2.2 3.7 1.6 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 3.5c3.2 4 5.5 7.2 5.5 10.2a5.5 5.5 0 01-11 0C6.5 10.7 8.8 7.5 12 3.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 12h3l2-5 3 10 3-12 2.5 9 1.5-2h3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 12V6.5a1.5 1.5 0 013 0V11m0-5.5V5a1.5 1.5 0 013 0v6m0-4.5a1.5 1.5 0 013 0V14c0 4-2.5 7-6.5 7S6.5 19 5 16.5L3.8 14.4a1.5 1.5 0 012.5-1.6L8 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-temp" viewBox="0 0 24 24"><path d="M10 14.5V5a2 2 0 014 0v9.5a4 4 0 11-4 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="17.5" r="1.4" fill="currentColor"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 12l8-8m-3 3l2.5 2.5M14 9l2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3c.6 4.5 2.5 6.4 7 7-4.5.6-6.4 2.5-7 7-.6-4.5-2.5-6.4-7-7 4.5-.6 6.4-2.5 7-7z" fill="currentColor"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8.5 7l1.4-2.5h4.2L15.5 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 3v3m6-3v3M9 18v3m6-3v3M3 9h3m-3 6h3m12-6h3m-3 6h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="2.8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 6v12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6M5 12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  </defs>
+</svg>
 
-<main class="wrap">
-  <section class="grid">
-    <div class="s7">
-      <div class="label">01 — Assessment</div>
-      <div class="verdict" id="verdict">…</div>
-      <div class="lede"><hr class="rule"><p id="why"></p></div>
+<main>
+  <div class="top">
+    <h1>YuDuino</h1>
+    <div class="meta num" id="updated">Connecting…</div>
+  </div>
+
+  <div class="card summary">
+    <div class="badge" id="badge"><svg width="28" height="28"><use href="#i-shield"/></svg></div>
+    <div>
+      <div class="t" id="v-title">…</div>
+      <div class="s" id="v-reason"></div>
     </div>
-    <div class="s5">
-      <div class="figs">
-        <div class="fig"><div class="sub">Risk score</div><div class="n" id="f-score">–</div><div class="d" id="f-score-d">combined</div></div>
-        <div class="fig"><div class="sub">People close</div><div class="n" id="f-people">–</div><div class="d" id="f-people-d"></div></div>
-        <div class="fig"><div class="sub">Incidents, 24 h</div><div class="n" id="f-inc">–</div><div class="d" id="f-inc-d"></div></div>
-        <div class="fig"><div class="sub">Readings stored</div><div class="n" id="f-rows">–</div><div class="d" id="f-rows-d"></div></div>
+    <div class="r"><div class="v num" id="v-score">–</div><div class="l">Risk score</div></div>
+  </div>
+
+  <div class="sh"><h2>Signals</h2><span class="aside"><span id="base-text"></span> · <button class="link" id="learn">Re-learn normal</button></span></div>
+  <div class="tiles" id="tiles"></div>
+
+  <div class="cols">
+    <div>
+      <div class="sh"><h2>Camera</h2><span class="aside num" id="cam-meta"></span></div>
+      <div class="card">
+        <img class="cam" id="cam" alt="Live camera with face boxes">
+        <div class="camfoot">
+          <div class="keys"><span><i style="background:#50c850"></i>You</span><span><i style="background:#e63c3c"></i>Close by</span><span><i style="background:#a0a0a0"></i>Far away, ignored</span></div>
+        </div>
       </div>
     </div>
-  </section>
-
-  <section class="grid">
-    <div class="s5">
-      <div class="label">02 — Camera</div>
-      <h2>Who is in view</h2>
-      <img class="cam" id="cam" style="margin-top:22px" alt="Live camera with face boxes">
-      <div class="key sub"><span><b style="color:#50c850"></b>You</span><span><b style="color:#e63c3c"></b>Close behind</span><span><b style="color:#a0a0a0"></b>Far away, ignored</span></div>
-      <div class="note mono" id="cam-meta"></div>
-    </div>
-    <div class="s7">
-      <div class="row">
-        <div><div class="label">03 — Signals</div><h2>Against your normal</h2></div>
-        <div style="text-align:right"><div class="sub" id="base-text"></div><button class="tbtn" id="learn" style="margin-top:8px">Re-learn normal →</button></div>
+    <div>
+      <div class="sh"><h2>Assessment</h2><span class="aside" id="g-meta"></span></div>
+      <div class="card gem">
+        <div class="top2"><div class="v num" id="g-score">–</div><div class="meta">Gemini duress score</div></div>
+        <p id="g-reason"></p>
       </div>
-      <div class="tbl" style="margin-top:22px">
-        <table><thead><tr><th>Signal</th><th>Reading</th><th>Versus normal</th><th style="text-align:right">Status</th></tr></thead>
-        <tbody id="signals"></tbody></table>
-      </div>
+      <div class="sh"><h2>Last two minutes</h2></div>
+      <div class="card pad"><div class="chart" id="ch-live"></div></div>
     </div>
-  </section>
+  </div>
 
-  <section class="grid">
-    <div class="s6">
-      <div class="label">04 — Analysis</div>
-      <h2>Gemini’s reading</h2>
-      <div class="row" style="margin-top:22px; align-items:baseline; justify-content:flex-start">
-        <span class="mono" style="font-size:44px; letter-spacing:-.02em" id="g-score">–</span>
-        <span class="sub" id="g-meta"></span>
-      </div>
-      <p class="quote" id="g-reason"></p>
-      <div class="tags" id="g-tags"></div>
-    </div>
-    <div class="s6">
-      <div class="label">05 — Live</div>
-      <h2>Risk, last two minutes</h2>
-      <div class="chart" id="ch-live"></div>
-    </div>
-  </section>
+  <div class="sh">
+    <h2>History</h2>
+    <div class="seg" id="seg"><button data-r="15m" class="on">15 min</button><button data-r="1h">1 hour</button><button data-r="24h">24 hours</button><button data-r="7d">7 days</button></div>
+  </div>
+  <div class="cols">
+    <div class="card pad"><div class="ctitle">Risk</div><div class="chart" id="ch-risk"></div></div>
+    <div class="card pad"><div class="ctitle">Humidity and movement</div><div class="chart" id="ch-body"></div></div>
+  </div>
+  <div class="foot" id="h-src"></div>
 
-  <section>
-    <div class="row">
-      <div><div class="label">06 — History · Tiger Cloud</div><h2>Over time</h2></div>
-      <div class="tabs" id="tabs">
-        <button class="tbtn on" data-r="15m">15 min</button><button class="tbtn" data-r="1h">1 hour</button>
-        <button class="tbtn" data-r="24h">24 hours</button><button class="tbtn" data-r="7d">7 days</button>
-      </div>
+  <div class="cols">
+    <div>
+      <div class="sh"><h2>Typical by hour</h2></div>
+      <div class="card pad"><div class="chart" id="ch-normal"></div></div>
+      <div class="foot">Average humidity and movement in calm hours over the last 14 days.</div>
     </div>
-    <div class="grid" style="margin-top:8px">
-      <div class="s6"><div class="sub" style="margin-top:22px">Risk</div><div class="chart" id="ch-risk"></div></div>
-      <div class="s6"><div class="sub" style="margin-top:22px">Body signals</div><div class="chart" id="ch-body"></div></div>
+    <div>
+      <div class="sh"><h2>Incidents</h2></div>
+      <div class="card" id="incidents"></div>
     </div>
-    <div class="note mono" id="h-src"></div>
-  </section>
+  </div>
 
-  <section class="grid">
-    <div class="s5">
-      <div class="label">07 — Baseline</div>
-      <h2>Your normal, by hour</h2>
-      <div class="chart" id="ch-normal"></div>
-      <div class="note mono" id="n-src"></div>
-    </div>
-    <div class="s7">
-      <div class="label">08 — Incidents</div>
-      <h2>Every alert, kept</h2>
-      <div class="tbl" style="margin-top:22px" id="incidents"></div>
-    </div>
-  </section>
-
-  <footer>
-    <div class="sub">Data</div>
-    <div id="foot-main" style="margin-top:8px; color: var(--muted)"></div>
-    <div class="feats" id="foot-feats"></div>
-  </footer>
+  <div class="sh"><h2>Connections</h2></div>
+  <div class="card" id="conns"></div>
+  <div class="foot" id="data-note"></div>
 </main>
 
 <script>
 const $ = (id) => document.getElementById(id);
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const fmt = (v, d = 2) => v == null || Number.isNaN(v) ? "–" : Number(v).toFixed(d);
-const fmtZ = (z) => z == null ? "–" : (z >= 0 ? "+" : "−") + Math.abs(z).toFixed(1) + "σ";
-const ago = (t) => { const s = Math.max(0, Date.now() / 1000 - t); return s < 60 ? Math.round(s) + "s ago" : s < 3600 ? Math.round(s / 60) + " min ago" : Math.round(s / 3600) + " h ago"; };
+const fmtZ = (z) => z == null ? "" : (z >= 0 ? "+" : "−") + Math.abs(z).toFixed(1) + "σ from normal";
+const ago = (t) => { const s = Math.max(0, Date.now() / 1000 - t); return s < 60 ? "Just now" : s < 3600 ? Math.round(s / 60) + " min ago" : s < 86400 ? Math.round(s / 3600) + " h ago" : new Date(t * 1000).toLocaleDateString(); };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const C = { text: "#ffffff", muted: "#a1a1a1", faint: "#5c5c5c", line: "#1f1f1f", accent: "#b53e35", warn: "#c9a14a" };
-let range = "15m", tiger = { level: "", title: "" };
+const icon = (id, size = 15) => `<svg width="${size}" height="${size}"><use href="#${id}"/></svg>`;
+let range = "15m", tigerInfo = null, lastLive = 0;
 
 /* ---------- live ---------- */
-function statusItem(label, level, title) { return `<span class="${level}" title="${esc(title || "")}"><i></i>${label}</span>`; }
-const zLevel = (z) => z == null ? "" : z > 3 ? "bad" : z > 2 ? "warn" : "ok";
-function sig(name, sub, reading, z, status, level) {
-  const gauge = z === undefined ? "" : z == null ? `<div class="note" style="margin-top:4px">learning</div>`
-    : `<div class="mono" style="font-size:13px">${fmtZ(z)}</div><div class="gauge ${zLevel(z)}"><i style="left:${Math.max(0, Math.min(100, 50 + z * 8.33))}%"></i></div>`;
-  return `<tr><td><div>${name}</div><div class="note" style="margin-top:0">${sub}</div></td>
-    <td class="v">${reading}</td><td>${gauge}</td><td class="st ${level}">${status}</td></tr>`;
+const zColor = (z) => z == null ? "" : z > 3 ? "t-red" : z > 2 ? "t-orange" : "";
+function tile(iconId, color, name, value, unit, caption, valueClass) {
+  return `<div class="tile"><div class="hd" style="color:var(${color})">${icon(iconId)}<span>${name}</span></div>
+    <div class="v num ${valueClass || ""}">${value}${unit ? `<small>${unit}</small>` : ""}</div><div class="c">${caption}</div></div>`;
 }
 
 function renderLive(s) {
-  const v = $("verdict");
-  v.className = "verdict " + s.verdict;
-  v.innerHTML = (s.verdict === "NORMAL" ? "No duress" : s.verdict === "WATCH" ? "Watching" : "Duress") + `<span class="dot">.</span>`;
-  $("why").textContent = s.signals.length ? s.signals.join(". ") + "." : "Nothing unusual. The person at the mouse looks calm and alone.";
+  lastLive = Date.now();
+  const tone = s.verdict === "DURESS" ? "red" : s.verdict === "WATCH" ? "orange" : "green";
+  $("badge").style.background = `var(--${tone})`;
+  $("badge").innerHTML = icon(s.verdict === "NORMAL" ? "i-shield" : "i-alert", 28);
+  $("v-title").textContent = s.verdict === "NORMAL" ? "No signs of duress" : s.verdict === "WATCH" ? "Something looks unusual" : "Possible duress";
+  $("v-reason").textContent = s.signals.length ? s.signals.join(", ").replace(/^./, (c) => c.toUpperCase()) : "Everything is within your normal range.";
+  $("v-score").textContent = fmt(s.score);
+  $("v-score").className = "v num" + (s.verdict === "NORMAL" ? "" : ` t-${tone}`);
 
-  $("f-score").textContent = fmt(s.score);
-  $("f-score").style.color = s.score >= 0.6 ? C.accent : s.score >= 0.35 ? C.warn : C.text;
-  $("f-score-d").textContent = `sensors ${fmt(s.local_score)} · Gemini ${fmt(s.gemini.score)}`;
-  $("f-people").textContent = s.others ?? "–";
-  $("f-people").style.color = s.others ? C.accent : C.text;
-  $("f-people-d").textContent = s.camera_ok ? `${s.faces} in frame · ${s.far || 0} far away` : "camera offline";
-
-  const g = s.gemini, f = s.features || {};
-  $("status").innerHTML =
-    statusItem("Camera", s.camera_ok ? "ok" : "bad") +
-    statusItem("Sensors", s.sensors_ok ? "ok" : "warn", s.sensors_ok ? "" : "App Lab relay not running") +
-    statusItem("YubiKey", s.yubikey ? "ok" : s.yubikey === false ? "bad" : "") +
-    statusItem("Gemini", g.score != null ? "ok" : g.error ? "warn" : "", g.error || "") +
-    statusItem("Tiger", tiger.level, tiger.title);
-  $("cam-meta").textContent = s.camera_ok ? `${s.fps} fps · ${s.detector || ""}` : "camera offline";
-
-  let rows = sig("People close", "camera", s.others ? `${s.others} behind you` : "only you", undefined,
-                 s.others ? "Alert" : "Clear", s.others ? "bad" : "ok");
-  if (!s.sensors_ok) {
-    rows += sig("Body sensors", "STM32", "no data", undefined, "Offline", "warn");
+  const f = s.features || {}, r = s.baseline_ready, g = s.gemini;
+  let t = tile("i-people", "--indigo", "People close", s.others ?? "–", "", s.camera_ok ? `${s.faces} in view, ${s.far || 0} far away` : "Camera offline", s.others ? "t-red" : "");
+  if (s.sensors_ok) {
+    t += tile("i-drop", "--teal", "Humidity", fmt(f.humidity, 1), "%", r ? fmtZ(s.sweat_z) : "Learning your normal", r ? zColor(s.sweat_z) : "");
+    t += tile("i-wave", "--blue", "Movement", fmt(f.shake_rms, 3), "g", r ? fmtZ(s.move_z) : "Learning your normal", r ? zColor(s.move_z) : "");
+    t += tile("i-hand", "--orange", "Grip", f.touch ? "Held" : "Not held", "", `Moisture ${f.moisture ?? "–"}`, "");
+    t += tile("i-temp", "--red", "Palm temperature", fmt(f.temp_c, 1), "°C", "Modulino Thermo", "");
   } else {
-    const r = s.baseline_ready;
-    rows += sig("Sweat", "palm humidity, skin moisture", `${fmt(f.humidity, 1)}% · ${f.moisture ?? "–"}`, r ? s.sweat_z : null,
-                !r ? "Learning" : s.sweat_z > 3 ? "High" : s.sweat_z > 2 ? "Raised" : "Normal", r ? zLevel(s.sweat_z) : "");
-    rows += sig("Movement", "mouse, Modulino Movement", `${fmt(f.shake_rms, 3)} g`, r ? s.move_z : null,
-                !r ? "Learning" : s.move_z > 3 ? "Unusual" : s.move_z > 2 ? "Raised" : "Normal", r ? zLevel(s.move_z) : "");
-    rows += sig("Grip", "touch", f.touch ? "held" : "not held", undefined, f.touch ? "Held" : "Idle", f.touch ? "ok" : "");
-    rows += sig("Palm temperature", "Modulino Thermo", `${fmt(f.temp_c, 1)} °C`, undefined, "—", "");
+    t += tile("i-chip", "--gray", "Sensors", "Offline", "", "Start the sensor app", "t-orange");
   }
-  rows += sig("YubiKey", "presence", s.yubikey ? "plugged in" : "not found", undefined, s.yubikey ? "Present" : "Missing", s.yubikey ? "ok" : "bad");
-  $("signals").innerHTML = rows;
-  $("base-text").textContent = s.baseline_ready ? "Normal learned" : `Learning ${Math.round(s.baseline_progress * 30)} / 30 s`;
+  t += tile("i-key", "--gray", "YubiKey", s.yubikey ? "Connected" : s.yubikey === false ? "Missing" : "–", "", "Presence only", s.yubikey === false ? "t-red" : "");
+  t += tile("i-spark", "--indigo", "Gemini", fmt(g.score), "", g.latency != null ? `${g.latency} s to respond` : (g.error ? "No answer" : "Waiting"), g.score >= 0.6 ? "t-red" : g.score >= 0.35 ? "t-orange" : "");
+  $("tiles").innerHTML = t;
+  $("base-text").textContent = r ? "Normal learned" : `Learning normal, ${Math.round(s.baseline_progress * 30)} of 30 s`;
 
+  $("cam-meta").textContent = s.camera_ok ? `${Math.round(s.fps)} fps` : "Offline";
+  $("g-meta").textContent = g.model || "";
   $("g-score").textContent = fmt(g.score);
-  $("g-score").style.color = g.score == null ? C.muted : g.score >= 0.6 ? C.accent : g.score >= 0.35 ? C.warn : C.text;
-  $("g-meta").textContent = `${g.model || "no model"} · ${g.calls} calls${g.latency != null ? " · " + g.latency + " s" : ""}`;
-  const rq = $("g-reason");
-  rq.className = "quote" + (g.reasoning ? "" : " empty");
-  rq.textContent = g.reasoning ? "“" + g.reasoning + "”" : (g.error ? g.error + ". A real approval would fail closed to the decoy." : "Waiting for the first reading…");
-  $("g-tags").innerHTML = (g.signals || []).map((x) => `<span>${esc(x)}</span>`).join("");
+  $("g-score").className = "v num" + (g.score >= 0.6 ? " t-red" : g.score >= 0.35 ? " t-orange" : "");
+  $("g-reason").textContent = g.reasoning || (g.error ? "Gemini didn’t answer. A real approval would fall back to the decoy." : "Waiting for the first assessment.");
+  $("g-reason").style.color = g.reasoning ? "" : css("--label2");
 
+  renderConns(s);
   if ((s.history || []).length > 1) {
     const h = s.history;
     upsert("ch-live", riskOpts(false), [h.map((p) => p.t), h.map((p) => p.score), h.map((p) => p.gemini)]);
   }
 }
 
+function connRow(iconId, color, name, sub, ok, statusText) {
+  const dot = ok === true ? "on-green" : ok === false ? "on-red" : ok === "warn" ? "on-orange" : "";
+  return `<div class="row"><div class="ico" style="background:var(${color})">${icon(iconId, 16)}</div>
+    <div class="main"><div class="title">${name}</div>${sub ? `<div class="sub">${esc(sub)}</div>` : ""}</div>
+    <div class="trail"><span class="dot ${dot}"></span>${statusText}</div></div>`;
+}
+function renderConns(s) {
+  const g = s.gemini, t = tigerInfo;
+  const tigerOk = !t || !t.enabled ? null : t.connected;
+  $("conns").innerHTML =
+    connRow("i-camera", "--gray", "Camera", s.camera_ok ? `${s.detector || ""}, ${Math.round(s.fps)} fps` : "", s.camera_ok, s.camera_ok ? "Connected" : "Offline") +
+    connRow("i-chip", "--blue", "Sensors", s.sensors_ok ? "Thermo, Movement, touch, moisture" : "The App Lab sensor app isn’t running", s.sensors_ok ? true : "warn", s.sensors_ok ? "Connected" : "Offline") +
+    connRow("i-key", "--orange", "YubiKey", "", s.yubikey === null ? null : s.yubikey, s.yubikey ? "Connected" : s.yubikey === false ? "Missing" : "Checking") +
+    connRow("i-spark", "--indigo", "Gemini", g.model || "", g.score != null ? true : g.error ? "warn" : null, g.score != null ? "Responding" : g.error ? "No answer" : "Waiting") +
+    connRow("i-db", "--teal", "Tiger Cloud", !t ? "" : !t.enabled ? "Not set up" : t.connected ? `${(t.stats && t.stats.total_rows || 0).toLocaleString()} readings stored` : (t.error || "Connecting"),
+            tigerOk, !t || !t.enabled ? "Off" : t.connected ? "Connected" : "Offline");
+}
+
 /* ---------- charts ---------- */
 const charts = {};
-const axis = () => ({ stroke: C.muted, font: "11px JetBrains Mono, monospace", grid: { stroke: C.line, width: 1 }, ticks: { stroke: C.line, width: 1 } });
+const axis = () => ({ stroke: css("--label2"), font: "11px -apple-system, system-ui, sans-serif", grid: { stroke: css("--sep"), width: .5 }, ticks: { show: false } });
+const xaxis = () => ({ ...axis(), grid: { show: false } });
 const thresholds = () => ({ draw: [(u) => {
-  const ctx = u.ctx; ctx.save(); ctx.setLineDash([3, 5]); ctx.lineWidth = devicePixelRatio;
-  [[0.6, C.accent], [0.35, C.warn]].forEach(([v, c]) => { const y = u.valToPos(v, "y", true); ctx.strokeStyle = c; ctx.beginPath(); ctx.moveTo(u.bbox.left, y); ctx.lineTo(u.bbox.left + u.bbox.width, y); ctx.stroke(); });
+  const ctx = u.ctx; ctx.save(); ctx.setLineDash([4, 4]); ctx.lineWidth = devicePixelRatio;
+  [[0.6, css("--red")], [0.35, css("--orange")]].forEach(([v, c]) => { const y = u.valToPos(v, "y", true); ctx.strokeStyle = c; ctx.globalAlpha = .6; ctx.beginPath(); ctx.moveTo(u.bbox.left, y); ctx.lineTo(u.bbox.left + u.bbox.width, y); ctx.stroke(); });
   ctx.restore(); }] });
 function riskOpts(withPeak) {
-  const series = [{}, { label: "risk", stroke: C.text, width: 1.5 }, { label: "Gemini", stroke: C.accent, width: 1.25 }];
-  if (withPeak) series.push({ label: "peak", stroke: C.faint, width: 1, dash: [2, 3] });
-  return { series, scales: { y: { range: [0, 1] } }, axes: [axis(), axis()], hooks: thresholds(), cursor: { points: { size: 5 } } };
+  const series = [{}, { label: "Risk", stroke: css("--blue"), width: 2, fill: "rgba(0,122,255,.08)" }, { label: "Gemini", stroke: css("--indigo"), width: 1.5 }];
+  if (withPeak) series.push({ label: "Peak", stroke: css("--gray"), width: 1, dash: [3, 3] });
+  return { series, scales: { y: { range: [0, 1] } }, axes: [xaxis(), axis()], hooks: thresholds(), cursor: { points: { size: 6 } } };
 }
 function upsert(id, opts, data) {
   const el = $(id);
-  if (typeof uPlot === "undefined") { el.innerHTML = `<div class="empty-box">Charts need internet access in the browser.</div>`; return; }
-  if (!charts[id]) { el.innerHTML = ""; charts[id] = new uPlot({ ...opts, width: el.clientWidth || 560, height: 230 }, data, el); }
+  if (typeof uPlot === "undefined") { el.innerHTML = `<div class="empty">Charts need an internet connection.</div>`; return; }
+  if (!charts[id]) { el.innerHTML = ""; charts[id] = new uPlot({ ...opts, width: el.clientWidth || 500, height: 220 }, data, el); }
   else charts[id].setData(data);
 }
-function empty(id, msg) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } $(id).innerHTML = `<div class="empty-box">${esc(msg)}</div>`; }
-new ResizeObserver(() => Object.entries(charts).forEach(([id, c]) => c.setSize({ width: $(id).clientWidth, height: 230 }))).observe(document.body);
+function empty(id, msg) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } $(id).innerHTML = `<div class="empty">${esc(msg)}</div>`; }
+new ResizeObserver(() => Object.entries(charts).forEach(([id, c]) => c.setSize({ width: $(id).clientWidth, height: 220 }))).observe(document.body);
 
 /* ---------- Tiger ---------- */
 async function getJSON(u) { const r = await fetch(u, { cache: "no-store" }); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText); return j; }
 
 async function loadTiger() {
   try {
-    const t = await getJSON("/api/tiger"), st = t.stats || {};
-    tiger = { level: !t.enabled ? "" : t.connected ? "ok" : "bad",
-              title: !t.enabled ? "not configured" : t.connected ? `${t.written} rows written this session` : (t.error || "connecting") };
-    $("f-rows").textContent = st.total_rows != null ? Number(st.total_rows).toLocaleString() : "–";
-    $("f-rows-d").textContent = !t.enabled ? "Tiger not configured" : st.size_bytes != null ? `${(st.size_bytes / 1048576).toFixed(1)} MB in Tiger Cloud` : (t.error || "connecting");
-    $("f-inc").textContent = st.incidents_24h ?? "–";
-    $("f-inc").style.color = st.duress_24h ? C.accent : C.text;
-    $("f-inc-d").textContent = st.incidents_24h != null ? `${st.duress_24h} duress` : "";
-    $("foot-main").textContent = !t.enabled
-      ? "Tiger Cloud is not configured. Run tools/set_tiger_url.sh on your laptop to store history."
-      : `Tiger Cloud, ${t.connected ? "connected" : "offline"}. Device ${t.device}. One reading a second into a TimescaleDB hypertable${t.buffered > 5 ? `, ${t.buffered} waiting to upload` : ""}. Only derived numbers are stored: no camera frames, no PINs, no keys.`;
-    $("foot-feats").innerHTML = Object.entries(t.features || {}).map(([k, v]) => `<span class="${v === true ? "ok" : "no"}" title="${v === true ? "" : esc(v)}">${esc(k)}</span>`).join("");
+    tigerInfo = await getJSON("/api/tiger");
+    const t = tigerInfo, st = t.stats || {};
+    const feats = Object.entries(t.features || {});
+    const failed = feats.filter(([, v]) => v !== true).map(([k]) => k);
+    $("data-note").textContent = !t.enabled
+      ? "History is off. Run tools/set_tiger_url.sh on your laptop to store readings in Tiger Cloud."
+      : `Readings are stored once a second in Tiger Cloud (TimescaleDB), with per-minute and per-hour rollups, compression after 7 days and deletion after 90.${st.size_bytes != null ? ` ${(st.size_bytes / 1048576).toFixed(1)} MB so far.` : ""} Only numbers are stored: no images, PINs or keys.${failed.length ? ` Not available on this service: ${failed.join(", ")}.` : ""}`;
     return t;
-  } catch (e) { tiger = { level: "bad", title: e.message }; return null; }
+  } catch (e) { tigerInfo = { enabled: true, connected: false, error: e.message }; return null; }
 }
 
 async function loadHistory() {
   try {
     const h = await getJSON("/api/history?range=" + range);
-    $("h-src").textContent = `Source: ${h.source}, ${h.bucket} buckets.`;
+    $("h-src").textContent = h.source.startsWith("readings_1m") ? "From per-minute rollups." : "From individual readings.";
     if (h.t.length < 2) { empty("ch-risk", "Not enough history yet."); empty("ch-body", "Not enough history yet."); return; }
     upsert("ch-risk", riskOpts(true), [h.t, h.score, h.gemini, h.max_score]);
     upsert("ch-body", {
-      series: [{}, { label: "humidity %", stroke: C.text, width: 1.5, scale: "h" }, { label: "movement g", stroke: C.accent, width: 1.25, scale: "s" }],
-      axes: [axis(), { ...axis(), scale: "h" }, { ...axis(), scale: "s", side: 1, grid: { show: false } }],
+      series: [{}, { label: "Humidity %", stroke: css("--teal"), width: 2, scale: "h" }, { label: "Movement g", stroke: css("--blue"), width: 1.5, scale: "s" }],
+      axes: [xaxis(), { ...axis(), scale: "h" }, { ...axis(), scale: "s", side: 1, grid: { show: false } }],
     }, [h.t, h.humidity, h.shake]);
   } catch (e) { $("h-src").textContent = ""; empty("ch-risk", e.message); empty("ch-body", e.message); }
 }
@@ -335,70 +320,67 @@ async function loadHistory() {
 async function loadNormal() {
   try {
     const n = await getJSON("/api/normal");
-    $("n-src").textContent = "Source: readings_1h, calm hours, last 14 days.";
     const hrs = n.hours.filter((x) => x.humidity != null || x.shake != null);
-    if (!hrs.length) { empty("ch-normal", "Fills in through the day: each calm hour adds a point."); return; }
+    if (!hrs.length) { empty("ch-normal", "This fills in over the day as each calm hour is recorded."); return; }
     upsert("ch-normal", {
-      series: [{ label: "hour" },
-               { label: "humidity %", stroke: C.muted, fill: "rgba(255,255,255,.08)", width: 1, paths: uPlot.paths.bars({ size: [0.55, 28] }), points: { show: false }, scale: "h" },
-               { label: "movement g", stroke: C.accent, width: 1.5, scale: "s" }],
+      series: [{ label: "Hour" },
+               { label: "Humidity %", stroke: css("--teal"), fill: css("--teal"), width: 0, paths: uPlot.paths.bars({ size: [0.55, 24], radius: .3 }), points: { show: false }, scale: "h" },
+               { label: "Movement g", stroke: css("--blue"), width: 2, scale: "s" }],
       scales: { x: { time: false, range: [-0.5, 23.5] } },
-      axes: [{ ...axis(), values: (u, v) => v.map((x) => String(x).padStart(2, "0")) }, { ...axis(), scale: "h" }, { ...axis(), scale: "s", side: 1, grid: { show: false } }],
+      axes: [{ ...xaxis(), values: (u, v) => v.map((x) => String(x).padStart(2, "0")) }, { ...axis(), scale: "h" }, { ...axis(), scale: "s", side: 1, grid: { show: false } }],
     }, [hrs.map((x) => x.h), hrs.map((x) => x.humidity), hrs.map((x) => x.shake)]);
-  } catch (e) { $("n-src").textContent = ""; empty("ch-normal", e.message); }
+  } catch (e) { empty("ch-normal", e.message); }
 }
 
 async function loadIncidents() {
   const box = $("incidents");
   try {
     const rows = await getJSON("/api/incidents");
-    if (!rows.length) { box.innerHTML = `<div class="empty-box">None yet. Each Watching or Duress episode is recorded here.</div>`; return; }
-    box.innerHTML = `<table><thead><tr><th>When</th><th>Level</th><th>Peak</th><th>Length</th><th>Why</th></tr></thead><tbody>` +
-      rows.map((r) => `<tr><td class="v">${new Date(r.t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}<div class="note" style="margin:0">${ago(r.t)}</div></td>
-        <td class="st ${r.verdict === "DURESS" ? "bad" : "warn"}" style="text-align:left">${r.verdict === "DURESS" ? "Duress" : "Watching"}</td>
-        <td class="v">${fmt(r.peak)}</td><td class="v">${r.ended ? Math.max(1, Math.round(r.ended - r.t)) + " s" : "ongoing"}</td>
-        <td class="m">${esc((r.signals || []).join(". "))}${r.reasoning ? `<div style="margin-top:4px">${esc(r.reasoning)}</div>` : ""}</td></tr>`).join("") + `</tbody></table>`;
-  } catch (e) { box.innerHTML = `<div class="empty-box">${esc(e.message)}</div>`; }
+    if (!rows.length) { box.innerHTML = `<div class="empty">No incidents.</div>`; return; }
+    box.innerHTML = rows.slice(0, 8).map((r) => {
+      const duress = r.verdict === "DURESS";
+      const len = r.ended ? `${Math.max(1, Math.round(r.ended - r.t))} s` : "Ongoing";
+      const why = (r.signals || []).join(", ") || "No details";
+      return `<div class="row noicon"><span class="dot ${duress ? "on-red" : "on-orange"}"></span>
+        <div class="main"><div class="title">${duress ? "Possible duress" : "Unusual activity"}</div>
+        <div class="sub">${esc(why.replace(/^./, (c) => c.toUpperCase()))}</div></div>
+        <div class="trail num"><div>${ago(r.t)}</div><div class="sub">${len}, peak ${fmt(r.peak)}</div></div></div>`;
+    }).join("");
+  } catch (e) { box.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
 }
 
 /* ---------- loops ---------- */
 async function pollLive() {
   try { const s = await getJSON("/state"); if (s.verdict) renderLive(s); }
-  catch (e) { $("status").innerHTML = statusItem("Board not responding", "bad"); }
+  catch (e) { /* shown by the "updated" line below */ }
+  const secs = (Date.now() - lastLive) / 1000;
+  $("updated").textContent = !lastLive ? "Connecting…" : secs < 3 ? "Live" : `Last update ${Math.round(secs)} s ago`;
   setTimeout(pollLive, 500);
 }
 async function pollTiger() {
   const t = await loadTiger();
   if (t && t.enabled) await Promise.all([loadHistory(), loadIncidents()]);
-  else { ["ch-risk", "ch-body", "ch-normal"].forEach((id) => empty(id, "Tiger Cloud not configured.")); $("incidents").innerHTML = `<div class="empty-box">Tiger Cloud not configured.</div>`; }
+  else { ["ch-risk", "ch-body", "ch-normal"].forEach((id) => empty(id, "History is off.")); $("incidents").innerHTML = `<div class="empty">History is off.</div>`; }
   setTimeout(pollTiger, 10000);
 }
 async function pollNormal() { await loadNormal(); setTimeout(pollNormal, 60000); }
-
-// Camera: fetch the latest frame ~7 times a second. Unlike an MJPEG <img> stream, this
-// recovers by itself after a dashboard restart or a network blip.
 let camURL = null;
 async function pollCam() {
   try {
     const r = await fetch("/frame.jpg", { cache: "no-store" });
-    if (r.ok) {
-      const url = URL.createObjectURL(await r.blob());
-      $("cam").src = url;
-      if (camURL) URL.revokeObjectURL(camURL);
-      camURL = url;
-    }
-  } catch (e) { /* board briefly unreachable: keep the last frame, try again */ }
+    if (r.ok) { const url = URL.createObjectURL(await r.blob()); $("cam").src = url; if (camURL) URL.revokeObjectURL(camURL); camURL = url; }
+  } catch (e) { /* keep the last frame */ }
   setTimeout(pollCam, document.hidden ? 1000 : 140);
 }
 
-$("tabs").onclick = (e) => {
+$("seg").onclick = (e) => {
   const b = e.target.closest("button"); if (!b) return;
-  range = b.dataset.r; [...$("tabs").children].forEach((x) => x.classList.toggle("on", x === b));
+  range = b.dataset.r; [...$("seg").children].forEach((x) => x.classList.toggle("on", x === b));
   ["ch-risk", "ch-body"].forEach((id) => { if (charts[id]) { charts[id].destroy(); delete charts[id]; } });
   loadHistory();
 };
 $("learn").onclick = () => fetch("/calibrate", { method: "POST" });
-setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }, 1000);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => Object.keys(charts).forEach((id) => { charts[id].destroy(); delete charts[id]; }));
 pollLive(); pollTiger(); pollCam(); setTimeout(pollNormal, 1500);
 </script>
 </body>
