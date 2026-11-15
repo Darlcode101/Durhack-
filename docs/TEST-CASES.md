@@ -26,7 +26,7 @@ Run: `cd app/python && python3 -m unittest test_yuseal -v`. Each row names the t
 | 1.9 | `test_verifier_state_round_trips_through_json` | The reference verifier's state (members, nonces, baseline) survives being saved and loaded | |
 | 1.10 | `CppCoreTest` | The real STM32 C++ gives the same salt, tag and attestation bytes as the Python model, and refuses what it refuses | |
 | 1.11 | `LinuxFlowTest`: wrong YubiKey can't unlock, state survives a restart, no click signs nothing | The Linux flow against a fake STM32 | |
-| 1.13 | `HourBaselineTest`, `ProfileTest`, `LearnerTest`, `test_profile_key_matches`, `test_baseline_matches_python` | The per-hour rolling baseline (C++ and Python agree), the encrypted profile (wrong key or tampering refused), and a 15-minute seeding giving a baseline and training rows | |
+| 1.14 | `HourBaselineTest`, `ProfileTest`, `LearnerTest`, `test_the_last_minute_is_kept_for_the_transaction_and_no_more`, `test_the_transaction_scores_the_last_minute_against_the_baseline`, `test_profile_key_matches`, `test_baseline_matches_python` | The per-hour rolling baseline (C++ and Python agree), the encrypted profile (wrong key or tampering refused), a 15-minute seeding giving a baseline and training rows, and the transaction scoring the last minute (and ignoring a stale one) | |
 | 1.12 | `EdgeModelTest` | The Edge Impulse integration with a fake model: the input vector, the duress probability becoming the score, and a missing, faulty or nonsense model failing closed | |
 | 1.13 | The same, 10 times in a row | Nothing depends on randomness or timing luck | |
 
