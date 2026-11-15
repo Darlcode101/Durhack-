@@ -1,14 +1,19 @@
-// YuSeal v2 trusted core for the STM32 side of the UNO Q. See docs/CRYPTO.md.
+// YuSeal v3 (mouse mode) trusted core for the STM32 side of the UNO Q.
+// See docs/STEALTH-APPROVAL.md and docs/OWNER-CHECK.md.
 //
 // Plain C++ with no Arduino dependencies, so the same file is compiled and tested
 // on a laptop (tools/mcu_host_test.cpp) and checked against the Python model.
 // It needs only SHA-256: no big-number maths, no heap, about 1 KB of RAM.
 //
-// What it guarantees, even if the Linux side is fully compromised:
-//   * a tag is only produced after a correct PIN was pressed on the real buttons
-//     for the text that was on the LED matrix (one tag per begin());
-//   * the tag covers the SHA-256 of that text, computed here, not by Linux;
+// There is no screen and no PIN. The user does nothing extra: the physical click on the mouse's
+// switch (read by the STM32 through a read-only tap) is the trigger. What it guarantees, even if
+// the Linux side is fully compromised:
+//   * a tag is only produced after Linux armed us within CLICK_WINDOW_MS of a real click with the
+//     palm on the grip (one tag per click, rate limited);
+//   * the tag covers the request digest, the click's age, the grip flag and a hash of the sensor
+//     summary, so Linux can't swap the sensor data (the guardian re-checks it);
 //   * the tag secretly says normal / step-up / duress, and Linux can't tell which.
+// Duress is decided only from Gemini's score and the onboard veto: there is no duress PIN.
 #ifndef YUSEAL_MCU_H
 #define YUSEAL_MCU_H
 
@@ -117,102 +122,119 @@ inline bool equal32(const uint8_t* a, const uint8_t* b) {
 }
 
 // ------------------------------------------------------------------ the approval state machine
-const int MAX_TEXT = 96;        // longest display text we accept
-const int MAX_PIN = 16;
-const uint32_t LONG_PRESS_MS = 800;    // a press held this long is the lowercase symbol (A -> a)
-const uint32_t SETTLE_MS = 1500;       // PIN is "ready" this long after the last press goes DOWN,
-                                       // so Linux can't time how long the last button was held
-const uint32_t SESSION_MS = 90000;     // begin() to seal() must fit in this
-const int MAX_WRONG = 5;
-const int STEP_UP_AT = 40, DURESS_AT = 70;   // Gemini score, 0..100
+const int N_FEATURES = 10;                 // the sensor summary the tag covers (see yuseal.py FEATURE_NAMES)
+const uint32_t CLICK_WINDOW_MS = 1500;     // arm() must come this soon after a real click
+const uint32_t SESSION_MS = 30000;         // arm() to seal() must fit in this
+const int RATE_MAX = 10;                   // at most this many arms ...
+const uint32_t RATE_WINDOW_MS = 600000;    // ... per ten minutes
+const int STEP_UP_AT = 40, DURESS_AT = 70; // Gemini score, 0..100
 
-enum State : uint8_t { IDLE = 0, PIN_ENTRY = 1, PIN_OK = 2, LOCKED = 3 };
+enum State : uint8_t { IDLE = 0, ARMED = 1 };
 enum Status : char { NORMAL = 'N', STEP_UP = 'S', DURESS = 'D' };
 
 class Mcu {
  public:
-  // Called once at boot with the values from secrets.h (written by tools/provision.py).
-  void provision(const uint8_t kMcu[32], const uint8_t pinTagNormal[32], const uint8_t pinTagDuress[32],
-                 uint8_t pinLen) {
-    derive(kMcu, "YS2/pin-key", kPin_);
-    derive(kMcu, "YS2/tag-key", kTag_);
-    memcpy(tagN_, pinTagNormal, 32);
-    memcpy(tagD_, pinTagDuress, 32);
-    pinLen_ = pinLen > MAX_PIN ? MAX_PIN : pinLen;
+  // Called once at boot with K_MCU from secrets.h (written by tools/provision.py).
+  void provision(const uint8_t kMcu[32]) {
+    derive(kMcu, "YS3/release-key", kRel_);
+    derive(kMcu, "YS3/tag-key", kTag_);
+    nArms_ = head_ = 0;
+    haveClick_ = pressed_ = false;
     clear();
   }
 
-  // Step 1. Linux hands over the text to show and the approval's digest.
-  // We hash the text ourselves. Returns false if we won't show it.
-  bool begin(const char* text, const uint8_t coreDigest[32], uint32_t nowMs) {
-    if (state_ == LOCKED) return false;
-    size_t n = strlen(text);
-    if (n == 0 || n > MAX_TEXT) return false;
-    for (size_t i = 0; i < n; i++)
-      if (text[i] < 0x20 || text[i] > 0x7e) return false;  // printable ASCII only
-    clear();
-    memcpy(text_, text, n + 1);
-    Sha256 s;
-    s.update(text, n);
-    s.finish(displayHash_);
+  // The sketch reports the real switch edges. gripHeld is the palm sensor at that moment.
+  void clickDown(uint32_t nowMs, bool gripHeld) {
+    if (pressed_) return;
+    pressed_ = true;
+    downMs_ = nowMs;
+    clickMs_ = nowMs;
+    clickGrip_ = gripHeld;
+    haveClick_ = true;
+  }
+  void clickUp(uint32_t nowMs) {
+    if (!pressed_) return;
+    pressed_ = false;
+    uint32_t hold = nowMs - downMs_;
+    lastHoldMs_ = hold > 65535 ? 65535 : uint16_t(hold);
+  }
+
+  // Linux arms us with the approval's digest and the sensor summary (computed here by the sketch).
+  // Refused unless a real click with the palm on the grip happened in the last CLICK_WINDOW_MS,
+  // we are not already armed, and we have not been armed too often.
+  bool arm(const uint8_t coreDigest[32], uint32_t nowMs, const int32_t features[N_FEATURES]) {
+    if (state_ == ARMED || !haveClick_ || !clickGrip_) return false;
+    uint32_t age = nowMs - clickMs_;
+    if (age > CLICK_WINDOW_MS) return false;
+    if (nArms_ == RATE_MAX && nowMs - armTimes_[head_] < RATE_WINDOW_MS) return false;
+    armTimes_[head_] = nowMs;
+    head_ = (head_ + 1) % RATE_MAX;
+    if (nArms_ < RATE_MAX) nArms_++;
     memcpy(coreDigest_, coreDigest, 32);
-    startMs_ = nowMs;
-    state_ = PIN_ENTRY;
+    memcpy(features_, features, sizeof features_);
+    clickAge_ = uint16_t(age);
+    haveClick_ = false;  // one click arms once
+    armMs_ = nowMs;
+    state_ = ARMED;
     return true;
   }
 
-  // Step 2. The sketch reports real button edges. Presses only count while the grip is held.
-  void buttonDown(char c, bool gripHeld, uint32_t nowMs) {
-    if (state_ != PIN_ENTRY || !gripHeld || pinCount_ >= pinLen_ || c < 'A' || c > 'C') return;
-    pin_[pinCount_++] = c;
-    downMs_ = nowMs;
-    held_ = true;
-  }
-  void buttonUp(uint32_t nowMs) {
-    if (!held_) return;
-    held_ = false;
-    if (state_ == PIN_ENTRY && nowMs - downMs_ >= LONG_PRESS_MS) pin_[pinCount_ - 1] += 32;  // 'A' -> 'a'
-  }
-
-  // Call often from loop(). Finishes the PIN and enforces the session timeout.
+  // Call often from loop(). Enforces the session timeout.
   void tick(uint32_t nowMs) {
-    if (state_ == PIN_ENTRY || state_ == PIN_OK) {
-      if (nowMs - startMs_ > SESSION_MS) { clear(); return; }
-    }
-    if (state_ == PIN_ENTRY && pinCount_ == pinLen_ && nowMs - downMs_ >= SETTLE_MS) {
-      if (held_) buttonUp(nowMs);  // still held after the settle time counts as a long press
-      classify();
-    }
+    if (state_ == ARMED && nowMs - armMs_ > SESSION_MS) clear();
   }
 
-  // Step 3. After a correct PIN (normal OR duress: same answer), release the salt that
-  // lets Linux ask the YubiKey for the key-unlocking secret. Wrong PIN: nothing.
+  // Release the salt that lets Linux ask the YubiKey for the key-unlocking secret.
+  // Same salt for every outcome, so Linux learns nothing about the result.
   bool unlockSalt(uint8_t out[32]) {
-    if (state_ != PIN_OK) return false;
-    Hmac h(kPin_);
+    if (state_ != ARMED) return false;
+    Hmac h(kRel_);
     h.update("unlock-salt");
     h.finish(out);
     return true;
   }
 
-  // Step 4. Linux passes Gemini's score (0..100, anything else = no usable verdict).
-  // We decide the status and return the tag. Works once per begin().
+  // What the tag will cover, for Linux to put in the envelope: click age (2 bytes, big endian),
+  // grip (1 byte), then the features as big-endian int32. Linux can't change them without
+  // breaking the tag. out must hold ATTEST_LEN bytes.
+  static const int ATTEST_LEN = 3 + 4 * N_FEATURES;
+  bool attest(uint8_t out[ATTEST_LEN]) const {
+    if (state_ != ARMED) return false;
+    out[0] = uint8_t(clickAge_ >> 8);
+    out[1] = uint8_t(clickAge_);
+    out[2] = 1;
+    featureBytes(out + 3);
+    return true;
+  }
+
+  // Linux passes Gemini's score (0..100, anything else = no usable verdict) and the onboard veto.
+  // We decide the status and return the tag. Works once per arm().
   bool seal(int score, bool veto, uint8_t tagOut[32]) {
-    if (state_ != PIN_OK) return false;
-    char status = decide(duressPin_, score, veto);
+    if (state_ != ARMED) return false;
+    char status = decide(score, veto);
+    uint8_t fb[4 * N_FEATURES], fh[32];
+    featureBytes(fb);
+    Sha256 fs;
+    fs.update("YS3/features", 12);
+    fs.update(fb, sizeof fb);
+    fs.finish(fh);
+    uint8_t ca[2] = {uint8_t(clickAge_ >> 8), uint8_t(clickAge_)};
+    uint8_t grip = 1;
     Hmac h(kTag_);
-    h.update("YS2/tag");
+    h.update("YS3/tag");
     h.update(&status, 1);
-    h.update(displayHash_, 32);
     h.update(coreDigest_, 32);
+    h.update(ca, 2);
+    h.update(&grip, 1);
+    h.update(fh, 32);
     h.finish(tagOut);
     clear();
     return true;
   }
 
   // The one decision rule. Gemini can raise the alarm, never lower it. Fail closed.
-  static char decide(bool duressPin, int score, bool veto) {
-    if (duressPin || veto) return DURESS;
+  static char decide(int score, bool veto) {
+    if (veto) return DURESS;
     if (score < 0 || score > 100) return DURESS;
     if (score >= DURESS_AT) return DURESS;
     if (score >= STEP_UP_AT) return STEP_UP;
@@ -220,9 +242,7 @@ class Mcu {
   }
 
   State state() const { return state_; }
-  int pinCount() const { return pinCount_; }
-  const char* text() const { return text_; }
-  int wrongCount() const { return wrong_; }
+  uint16_t lastHoldMs() const { return lastHoldMs_; }  // how long the last click was held (a feature)
 
  private:
   static void derive(const uint8_t key[32], const char* label, uint8_t out[32]) {
@@ -230,42 +250,27 @@ class Mcu {
     h.update(label);
     h.finish(out);
   }
-  void classify() {
-    uint8_t t[32];
-    Hmac h(kPin_);
-    h.update("pin|");
-    h.update(pin_, pinCount_);
-    h.finish(t);
-    bool n = equal32(t, tagN_), d = equal32(t, tagD_);  // always check both
-    memset(pin_, 0, sizeof pin_);
-    if (n || d) {
-      duressPin_ = d;
-      wrong_ = 0;
-      state_ = PIN_OK;
-    } else {
-      wrong_++;
-      bool lock = wrong_ >= MAX_WRONG;
-      clear();
-      if (lock) state_ = LOCKED;  // until power cycle; a guardian unlock is future work
+  void featureBytes(uint8_t* out) const {
+    for (int i = 0; i < N_FEATURES; i++) {
+      uint32_t v = uint32_t(features_[i]);
+      out[4 * i] = uint8_t(v >> 24);
+      out[4 * i + 1] = uint8_t(v >> 16);
+      out[4 * i + 2] = uint8_t(v >> 8);
+      out[4 * i + 3] = uint8_t(v);
     }
   }
   void clear() {
-    memset(pin_, 0, sizeof pin_);
-    memset(text_, 0, sizeof text_);
-    pinCount_ = 0;
-    held_ = false;
-    duressPin_ = false;
+    memset(features_, 0, sizeof features_);
     state_ = IDLE;
   }
 
-  uint8_t kPin_[32], kTag_[32], tagN_[32], tagD_[32];
-  uint8_t displayHash_[32], coreDigest_[32];
-  char text_[MAX_TEXT + 1];
-  char pin_[MAX_PIN + 1];
-  uint8_t pinLen_ = 0, pinCount_ = 0;
-  int wrong_ = 0;
-  bool held_ = false, duressPin_ = false;
-  uint32_t startMs_ = 0, downMs_ = 0;
+  uint8_t kRel_[32], kTag_[32], coreDigest_[32];
+  int32_t features_[N_FEATURES];
+  uint32_t armTimes_[RATE_MAX];
+  int nArms_ = 0, head_ = 0;
+  bool pressed_ = false, haveClick_ = false, clickGrip_ = false;
+  uint32_t downMs_ = 0, clickMs_ = 0, armMs_ = 0;
+  uint16_t clickAge_ = 0, lastHoldMs_ = 0;
   State state_ = IDLE;
 };
 

@@ -2,13 +2,13 @@
 
 *Version 2, written 14 November 2026, evening of day one of DurHack. It replaces the first version, which had seven gaps (listed in the [design brief](DESIGN-BRIEF.md#6-review-of-v1-against-this-brief)).* Back to the **[overview](YuDuino-Overview.md)** · **[build flow](BUILD-FLOW.md)** (what to code where) · **[dev plan](DEV-PLAN.md)** · **[hardware plan](HARDWARE-PLAN.md)**
 
-> **Mouse mode (design change, 2026-11-14).** This page describes **v2, the strong mode**, which is what the code implements today: a PIN on buttons and the request text on the LED matrix. The device is now planned to live **inside a normal-working mouse with no screen, no PIN and no extra input**. In that mode the three proofs, the ML-DSA seal, the audit log, the nonces and the guardian's checks are **unchanged**, but:
+> **Mouse mode (design change, 2026-11-14).** This page was written for **v2 (a PIN on buttons and the request text on the LED matrix)**. The code now implements **v3, mouse mode** (suite `YS3`), because the device lives **inside a normal-working mouse with no screen, no PIN and no extra input**. In that mode the three proofs, the ML-DSA seal, the audit log, the nonces and the guardian's checks are **unchanged**, but:
 > - the **STM32 tag** binds the status, the request digest, **a physical click** (its age and whether the palm was on the grip) and **a hash of the attested sensor summary**, instead of the PIN and the displayed text;
 > - there is **no trusted display** and **no PIN or duress PIN**; duress is detected **only passively**;
 > - the YubiKey is used **without a touch**, except for step-up;
 > - the guardian recomputes an **owner check** from the attested features, and quietly rejects other hands.
 >
-> Full design, and what protection this gives up: **[STEALTH-APPROVAL.md](STEALTH-APPROVAL.md)** and **[OWNER-CHECK.md](OWNER-CHECK.md)**. The new weak spots are items 15 to 20 below. Everything in this file that mentions a PIN, the matrix or "what you see is what you sign" applies to strong mode only.
+> Full design, and what protection this gives up: **[STEALTH-APPROVAL.md](STEALTH-APPROVAL.md)** and **[OWNER-CHECK.md](OWNER-CHECK.md)**. The new weak spots are items 15 to 20 below. Everything in this file that mentions a PIN, the matrix or "what you see is what you sign" describes the earlier v2 and is no longer in the code (git commit `2c455f8`). The v3 tag is `HMAC(K_TAG, "YS3/tag" | status | request digest | click_age (2 bytes) | grip (1 byte) | SHA-256("YS3/features" | ten big-endian int32))`.
 
 Working code, all tested (`cd app/python && python3 -m unittest test_yuseal -v`, 41 tests):
 

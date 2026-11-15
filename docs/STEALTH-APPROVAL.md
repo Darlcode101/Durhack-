@@ -114,8 +114,6 @@ Because the device can no longer vouch for *what* is being approved, the weight 
 | **Owner-likelihood and duress from the baseline** | A thief, or a stressed owner, gets a step-up or a hold |
 | **Everything still fails closed, and the audit log is unchanged** | Missing or odd data means hold, and every decision is traceable |
 
-**Optional hardening for high-value actions only:** a deliberate double-click on the button. It looks like ordinary use but it *is* an input, so it is not in the default.
-
 ## Weak spots this adds
 
 These are also in [CRYPTO.md](CRYPTO.md#remaining-weak-spots):
@@ -127,19 +125,19 @@ These are also in [CRYPTO.md](CRYPTO.md#remaining-weak-spots):
 - **E:** YubiKey without touch is possession only (and **unverified** that our key allows it).
 - **F:** a rooted UNO Q Linux side now needs only a click to piggyback on.
 
-## What needs to change in the code (not done yet)
+## The code
 
-The code in the repo is still v2 (PIN and matrix). Building the target means:
+This is built (2026-11-15), tested on a laptop and **not yet run on the board**:
 
-- **`yuseal_mcu.h`:** remove PIN entry, tags and the display; add click edges (time and grip), `arm(digest)`, an arming rate limit, and the new tag input. Keep `decide`, minus the duress PIN.
-- **`yuseal.py`:** the new tag, a `SoftMcu` twin, and a `click_age_ms` check in `Verifier.check`; remove the display and PIN helpers.
-- **`approve.py`, `guardian.py`:** no PIN wait; arm on request; phone alert and cancel window; one pending request; policy limits.
-- **`sketch.ino`:** sense the switch line (read-only), drop the matrix text and the Bridge `begin_approval` text argument.
-- **Tests:** re-run the swap, replay, forged-tag and wrong-key tests; **add** piggyback and click-age tests.
-- **Hardware:** a donor mouse with a read-only tap on its left-button switch (and wheel if wanted).
+- **`yuseal_mcu.h`:** click edges (time and grip), `arm(digest)` with the 1.5 s rule and a rate limit, `attest()`, and the new tag. No PIN, no display.
+- **`yuseal.py`:** the new tag, a `SoftMcu` twin, the click-age check, the owner check (`Baseline`, three bands), the quiet failure, repeat lock and alerts.
+- **`approve.py`, `guardian.py`:** arm on the click, no PIN wait, one uniform public failure.
+- **`sketch.ino`:** reads the switch line (read-only) and computes the ten features at arm time.
+- **Tests:** swap, replay, forged-tag, wrong-key, piggyback and click-age tests, plus the owner check.
+- **Not built:** phone alert and cancel window, one pending request per person, policy limits, Tiger Data baseline storage.
+- **Hardware:** a donor mouse with a read-only tap on its left-button switch.
 
 ## For the hackathon
 
 - **Demo the invisible path:** click, and the approval goes through with no extra input. Then demo duress: the same click with the hand shaking (or a second face in the camera) is accepted on the outside, held on the inside, and an alert fires.
 - **Be honest on stage about the trade-off:** say that this version gives up the trusted screen and the PIN for invisibility, and that the guardian's limits and the cancel window are what cover the gap. That is a strength in the pitch, not a weakness.
-- **Keep v2 as the strong mode.** The v2 code (PIN and matrix) still works for a high-value mode, so the demo can show both: invisible for everyday, strong for large amounts.

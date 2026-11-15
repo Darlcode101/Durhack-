@@ -4,17 +4,13 @@
 
 **Peace of mind in an AI-accelerated world.** The past few months were the worst ever for cyber security (the Binance attack, where an attacker used a compromised laptop and an internal AI tool to make Binance's own signer approve theft of about US$6.3 billion). YuDuino is a **future-proof, post-quantum-signed** approval system that **new users can use without understanding it, because there are no inputs**: it is hidden inside a computer mouse that works exactly like a normal mouse. No screen, no PIN, nothing extra to do: the user just clicks, and the authentication happens in the background. To our knowledge it is a **new combination** of known parts that we couldn't find put together before ([prior art](docs/PRIOR-ART.md)). It also learns the owner's hand all day and **quietly rejects anyone else**. See [the target design](#the-target-design-a-mouse-you-just-use) below.
 
-Everything runs on an **Arduino UNO Q**. Every approval is a sealed envelope with three independent proofs: a **YubiKey** signature (who touched it), a tag from the board's **STM32 microcontroller** (the PIN was pressed on the real buttons for exactly the text on the LED matrix), and an **ML-DSA-65** post-quantum signature over everything. A handheld grip (shake, palm humidity and temperature, grip, sweat) and a USB camera feed Gemini, which judges **whether the person is acting freely**. Under duress the screen shows a normal "OK" and the envelope looks identical, but the STM32's tag secretly says "duress", which only the verifier can read, so it can raise a silent alarm. Details: **[crypto design](docs/CRYPTO.md)**.
+Everything runs on an **Arduino UNO Q**. Every approval is a sealed envelope with three independent proofs: a **YubiKey** signature (possession, no touch), a tag from the board's **STM32 microcontroller** (a real click with a palm on the grip happened just before, over a hash of the sensor summary the owner check is run on), and an **ML-DSA-65** post-quantum signature over everything. A handheld grip (shake, palm humidity and temperature, grip, sweat) and a USB camera feed Gemini, which judges **whether the person is acting freely**. Under duress the requester just sees a normal "accepted" and the envelope looks identical, but the STM32's tag secretly says "duress", which only the guardian can read, so it can raise a silent alarm. Details: **[crypto design](docs/CRYPTO.md)**.
 
 **Test it:** [docs/TESTING.md](docs/TESTING.md) (laptop tests first, then the board).
 
-## Who it's for: an institutional trading firm
+## Who it's for
 
-The main audience is **Marshall Wace** (the hedge fund), whose challenge is **"New Worlds"** (open a door to new data, ideas or something novel), and the overall DurHack theme is **Composition**; see below. The fit: **trader and treasury authorisation** (wire releases, beneficiary changes, limit overrides, deployments), **insider and coercion risk** (the owner check rejects a borrowed key; duress detection raises a silent alarm), and **audit trails** (a signed, hash-chained log that names who authorised what). Suggestions, likely objections, a demo and questions to ask: **[docs/INSTITUTIONAL-FIT.md](docs/INSTITUTIONAL-FIT.md)**. Our answer to New Worlds is three doors: **new data** (the human hand at the moment of authority), a **new idea** (invisible authentication) and **something novel** (a hand's signature as a language, even audible as music).
-
-## The theme: Composition
-
-DurHack's theme is **Composition** (art, music and tech; idea mixing; new combinations), judged on creativity, technical execution, research and polish. YuDuino is a composition at every level: many meaningless signals composed into one; three proofs composed into one approval; a mouse + a YubiKey + AI. Suggested music angle: **play the live sensor stream as a score** on the dashboard, so an owner sounds consonant, a borrowed mouse sounds out of tune and a coerced approval adds tension. [docs/COMPOSITION.md](docs/COMPOSITION.md).
+The main audience is **Marshall Wace** (the hedge fund), whose challenge is **"New Worlds"**. The pitch, in our own words and with an honest claim about novelty, is in **[docs/INSTITUTIONAL-FIT.md](docs/INSTITUTIONAL-FIT.md)**; what already exists is in **[docs/PRIOR-ART.md](docs/PRIOR-ART.md)**. The overall DurHack theme is **Composition** ([docs/COMPOSITION.md](docs/COMPOSITION.md)).
 
 ## The target design: a mouse you just use
 
@@ -29,7 +25,7 @@ Design change (2026-11-14): the whole device now lives **inside a normal-working
 
 **Be clear about the trade-off.** This gives up the **trusted display** and the **PIN**. Without a screen, malware on the laptop could show one transaction and send another, and there is no deliberate "I'm being forced" signal; duress is detected purely passively. The guardian's limits, step-up, Gemini's check of the request and a cancel window are what cover that. The owner check is statistical and will sometimes turn away the real owner (handled by a second approver). Details and the full list of weak spots are in [STEALTH-APPROVAL.md](docs/STEALTH-APPROVAL.md#what-we-lose-read-this).
 
-**What the code does today.** The repo implements the earlier **strong mode** (PIN on buttons, text on the LED matrix), which is tested. The invisible design is documented and is the plan for the build; it can sit beside the strong mode, which is better for large amounts.
+**What the code does today.** The repo implements this zero-input mouse mode: the STM32 core (click, arm, tag, attested sensor summary), the guardian's owner check with its quiet rejection, and the Linux flow, all tested on a laptop. The earlier PIN-and-LED-matrix "strong mode" has been removed from the code (it is in git history at commit `2c455f8`). The board glue (click tap, sensors, Bridge, YubiKey without a touch) has not been run on the UNO Q yet.
 
 ## The vision: a language the attacker can never read
 
@@ -37,24 +33,24 @@ YuDuino is a small device that sits between a person and anything dangerous they
 
 Hardware keys already prove *who* is approving. None of them help when someone in the room **forces** you to approve. YuDuino does.
 
-While you approve, your body is "speaking" a physical language: tremor, sweat, touch and PIN rhythm, voice, your face and the scene around you. **Each reading means nothing on its own**: a shaky hand might just be coffee. Only when the readings are **aggregated** do they form a signal, and **Gemini is the translator** that turns them into one verdict: *under duress or not*.
+While you approve, your body is "speaking" a physical language: tremor, sweat, touch and click timing, voice, your face and the scene around you. **Each reading means nothing on its own**: a shaky hand might just be coffee. Only when the readings are **aggregated** do they form a signal, and **Gemini is the translator** that turns them into one verdict: *under duress or not*.
 
 The attacker is standing right there and can see everything, but can't read the language. If the translation says duress, YuDuino hands over a **decoy approval** that looks identical to a real one, moves nothing, freezes the funds and silently alerts the team.
 
 **Why now:** on 29 October 2026, about US$6.34 billion was stolen from Binance hot wallets after attackers drove the signing service directly, with no human ever asked to approve ([details in the overview](docs/YuDuino-Overview.md#2-why-it-matters-the-binance-heist-29-october-2026)).
 
-## How an approval works (strong mode, what the code does today)
+## How an approval works
 
-The invisible version of this flow, with no display and no PIN, is in [docs/STEALTH-APPROVAL.md](docs/STEALTH-APPROVAL.md).
+Nobody does anything but click. Full flow and the trade-offs: [docs/STEALTH-APPROVAL.md](docs/STEALTH-APPROVAL.md).
 
 1. **Request:** a laptop, server or AI agent asks for an action, with a one-time nonce and a 2-minute expiry.
-2. **Show:** the UNO Q scrolls exactly what will be signed on its own LED matrix. The laptop screen is never trusted.
-3. **Hold and enter PIN:** the user rests a hand on the mouse (palm on the grip pad) and enters their PIN on the Modulino Buttons (short and long presses). The PIN goes to the STM32 only; Linux never sees it. The sensors record every reading meanwhile.
-4. **Tap:** the YubiKey signs a hash of exactly what was shown.
-5. **Translate:** each reading is compared with the user's own baseline, and Gemini aggregates them all, plus one camera frame, into a verdict with reasons.
-6. **Respond:** the STM32 turns the verdict into a tag that says real approval, second approver, or decoy, and only the verifier can read it. The verifier trusts signatures and tags, never an "OK".
+2. **Click:** the person clicks "Process transaction" like any button. The STM32 sees that real click, and whether a palm was on the grip, through a read-only tap on the mouse's switch line.
+3. **Arm:** within 1.5 seconds of that click the Linux side arms the STM32 with the approval's digest. The STM32 refuses without a fresh click (one click arms once, with a rate limit), then releases the salt that lets the YubiKey (no touch) unlock the post-quantum key.
+4. **Translate:** each reading is compared with the user's own baseline, and Gemini aggregates them, plus one camera frame, into a verdict with reasons.
+5. **Seal:** the STM32 turns the verdict into a tag over the status (real, second approver or decoy), the request digest, the click age and a hash of the sensor summary. Only the guardian can read it.
+6. **Check:** the guardian verifies all three proofs, then runs the **owner check** on the attested sensor summary. Another person gets a plain "unavailable", the same as any other failure, and can retry forever without passing.
 
-**Safeguards:** Gemini fails closed (no reply, a late reply or a malformed reply means the decoy), it's reached over pinned HTTPS, PINs are never sent, and the PIN plus YubiKey touch are always required.
+**Safeguards:** Gemini fails closed (no reply, a late reply or a malformed reply means the decoy), it's reached over pinned HTTPS, and the click, the YubiKey and the STM32's tag are always required.
 
 ## The tracks we're targeting, and how YuDuino hits each one
 
@@ -70,8 +66,6 @@ The invisible version of this flow, with no display and no PIN, is in [docs/STEA
 | **MLH Best Use of ElevenLabs** | Add-on | Reads the transaction aloud for accessibility, and generates calm and scared test voices for a reliable demo. (It doesn't detect fear; Gemini does the translating.) |
 | **DEV Writing Challenge** | Add-on | Publish the build story after the weekend. |
 | **Free 3D printer** | Build | A base plate, standoffs and inserts for a **donor mouse** (or a prototype shell) that hide the whole device, plus a dock for the YubiKey and a **camera mount**. See [docs/MOUSE-DESIGN.md](docs/MOUSE-DESIGN.md). |
-| **SGX FX:** protect assets in a trading market storm | Overlap (small) | A "tilt guard": a market storm from their data combined with the operator's state from the mouse raises step-up and an early warning. Only if their data is quick to use |
-| **Neptune North:** actors that stay resilient when comms fail | Mention only | Each mouse decides locally and fails closed offline. A real offline mode is an open problem |
 | **MLH Best Use of Solana** | Stretch | A devnet wallet program: a valid YuDuino signature releases funds, a decoy freezes them on-chain. |
 | **MLH Best Use of MongoDB Atlas** | Stretch | Document data: user and device profiles, policies (spend limits, allow-lists, second-approver rules), guardian contacts and incident reports. |
 
@@ -95,12 +89,11 @@ The tracks above set what we spend time on:
 
 | Part | Role |
 |---|---|
-| **Arduino UNO Q** | The brain. **STM32 side** (the trusted core): buttons and PIN, sensors, the LED matrix, the tag that proves a person pressed the PIN for the displayed text. **Linux side:** YubiKey, the ML-DSA key, camera, mic, Gemini call |
-| **UNO Q LED matrix** | Strong mode only: the trusted display. Dark inside the mouse |
+| **Arduino UNO Q** | The brain. **STM32 side** (the trusted core): the click tap, sensors, the tag that proves a real click and what the sensors read. **Linux side:** YubiKey, the ML-DSA key, camera, mic, Gemini call |
 | **Arduino USB-C hub, power adaptor, USB-C cable** | The **dock** outside the mouse: power, camera and YubiKey on the UNO Q's single USB-C port, through the mouse's thin cable |
 | **Arduino USB camera with mic** | Face, scene and voice |
 | **YubiKey 5 NFC** | Proves who is approving |
-| **Modulino Buttons** | Strong mode: the PIN. In the mouse, replaced by a read-only tap on the donor mouse's own switches |
+| **Modulino Buttons** | Bench stand-in for the click when there is no donor mouse yet. In the mouse, a read-only tap on the donor mouse's own switch is the click |
 | **Modulino Movement** | Hand tremor |
 | **Modulino Thermo** | Palm temperature and humidity (sweat) |
 | **DFRobot touch sensor (D2)** | Is the grip actually held? |
@@ -117,11 +110,11 @@ Wiring and step-by-step bring-up: **[hardware plan](docs/HARDWARE-PLAN.md)**.
 - **[Hardware plan](docs/HARDWARE-PLAN.md):** wiring, pins and the bring-up order.
 - **[All-day baseline](docs/BASELINE.md):** how the mouse learns each person's normal all day, the privacy limits, filtering out mouse movement, and time-of-day drift.
 - **[Prior art](docs/PRIOR-ART.md):** what already exists (mouse dynamics, biometric and sensor mice, duress detection, decoy wallets, post-quantum keys), what is genuinely different, and what we must not claim.
-- **[Composition](docs/COMPOSITION.md):** the DurHack theme: YuDuino as a composition, a music angle, the judging map and a demo.
-- **[Marshall Wace: New Worlds](docs/INSTITUTIONAL-FIT.md):** our answer to their challenge, plus the institutional fit: treasury and trader authorisation, insider and coercion risk, audit trails, objections and a demo.
+- **[Composition](docs/COMPOSITION.md):** the DurHack theme and how YuDuino answers it.
+- **[Marshall Wace: New Worlds](docs/INSTITUTIONAL-FIT.md):** our pitch for their challenge, with an honest check of each claim.
 - **[Invisible approval](docs/STEALTH-APPROVAL.md):** no screen, no PIN, no extra input: the flow, what we lose and how we cover it.
 - **[Owner check](docs/OWNER-CHECK.md):** how the mouse tells the registered user from anyone else, and what happens on a false reject.
-- **[Mouse design](docs/MOUSE-DESIGN.md):** the device hidden inside a computer mouse: layout, sensor map, display, 3D-printed shell, and the security trade-offs.
+- **[Mouse design](docs/MOUSE-DESIGN.md):** the device hidden inside a computer mouse: layout, sensor map, 3D-printed shell, and the security trade-offs.
 - **[Crypto design (YuSeal)](docs/CRYPTO.md):** keys, the three proofs, the hidden duress status, login, audit log, threat coverage, weak spots.
 - **[Build flow](docs/BUILD-FLOW.md):** for each piece of hardware, what to code where, the test for each step, and the demo script.
 - **[Design brief](docs/DESIGN-BRIEF.md):** the requirements the crypto was designed against, and why version 1 was replaced.
@@ -132,12 +125,12 @@ Wiring and step-by-step bring-up: **[hardware plan](docs/HARDWARE-PLAN.md)**.
 
 ```
 app/
-  sketch/sketch.ino     STM32: reads sensors, exposes get_features / clear_pin over Bridge
-    yuseal_mcu.h        (in sketch/) the STM32 trusted core: PIN, status, tag. Tested on a laptop
+  sketch/sketch.ino     STM32: click tap and sensors; Bridge calls arm_approval / get_unlock_salt / get_attest / seal_approval / get_features
+    yuseal_mcu.h        (in sketch/) the STM32 trusted core: click, arm, status, tag. Tested on a laptop
   python/
     main.py             entry point: `enrol <user>` and `approve <user> '<request>'`
     approve.py          the Linux side of one approval and of enrolment
-    yuseal.py           the envelope, display rules, verifier checks, key store, audit log
+    yuseal.py           the envelope, request rules, verifier checks and owner check, key store, audit log
     guardian.py         the verifier service (FastAPI): nonce, enrol, approve
     test_yuseal.py      41 tests, including the real C++ core
     yubikey_auth.py     YubiKey over USB (CTAP2); `RealYubiKey` for YuSeal
@@ -162,9 +155,9 @@ docs/
    ```bash
    cd app/python && python3 -m unittest test_yuseal -v
    ```
-4. Make the STM32's secrets (PINs use `A B C` for a short press, `a b c` for a long press; make the duress PIN differ by one press's length), then flash the sketch from App Lab:
+4. Make the STM32's secret (no PIN to choose), then flash the sketch from App Lab:
    ```bash
-   python3 tools/provision.py --pin ABCABCAB --duress-pin ABCABCAb
+   python3 tools/provision.py
    ```
 5. Install the Python packages on the board: `pip install -r app/python/requirements.txt`
 6. Let your user talk to the YubiKey over USB (`/dev/hidraw*`): add a udev rule for Yubico devices, or run as root while testing.
@@ -184,4 +177,4 @@ Step by step with a test for each: **[build flow](docs/BUILD-FLOW.md)**. `secret
 
 ## Status
 
-**The crypto and the STM32 core are tested on a laptop (41 tests); the board glue is not yet run on the UNO Q.** The unverified calls (Bridge arguments, LED matrix, Buttons, YubiKey over USB) are listed with fallbacks in [docs/BUILD-FLOW.md](docs/BUILD-FLOW.md#5-things-we-couldnt-check-without-the-board-and-what-to-do-if-they-fail) and marked `VERIFY` in the code. Build order: [Wave 1 of the development plan](docs/DEV-PLAN.md#wave-1-skeleton-minimal-end-to-end-prototype).
+**The crypto, the STM32 core, the owner check and the Linux flow are tested on a laptop (54 tests); the board glue is not yet run on the UNO Q.** The unverified calls (the click tap, Bridge arguments, the YubiKey without a touch over USB) are listed with fallbacks in [docs/BUILD-FLOW.md](docs/BUILD-FLOW.md#5-things-we-couldnt-check-without-the-board-and-what-to-do-if-they-fail) and marked `VERIFY` in the code. Test steps: [docs/TESTING.md](docs/TESTING.md). Build order: [Wave 1 of the development plan](docs/DEV-PLAN.md#wave-1-skeleton-minimal-end-to-end-prototype).
