@@ -46,7 +46,8 @@ LEARN_SECONDS = 30
 DURESS_AT, WATCH_AT = 0.60, 0.35
 
 lock = threading.Lock()
-cam = {"jpeg": None, "raw": None, "faces": 0, "others": 0, "far": 0, "ok": False, "fps": 0.0, "detector": None}
+cam = {"jpeg": None, "raw": None, "faces": 0, "others": 0, "far": 0, "ok": False, "fps": 0.0, "detector": None,
+       "watching": 0, "dwell": 0.0, "over_shoulder": False, "user_facing": None}
 recent_others = collections.deque(maxlen=6)   # smooth face-count flicker over ~0.6 s
 yubikey = {"present": None, "checked": 0.0}
 gemini = {"result": None, "at": 0.0, "latency": None, "error": None, "calls": 0}
@@ -55,8 +56,8 @@ history = collections.deque(maxlen=240)       # 2 minutes at 2 Hz
 
 # ------------------------------------------------------------------ camera
 def _iou(a, b):
-    ax, ay, aw, ah = a
-    bx, by, bw, bh = b
+    ax, ay, aw, ah = a[:4]
+    bx, by, bw, bh = b[:4]
     ix = max(0, min(ax + aw, bx + bw) - max(ax, bx))
     iy = max(0, min(ay + ah, by + bh) - max(ay, by))
     inter = ix * iy
@@ -66,13 +67,26 @@ def _iou(a, b):
 YUNET_MODEL = os.path.join(HERE, "models", "face_detection_yunet_2023mar.onnx")
 DETECT_SIZE = tuple(int(v) for v in os.environ.get("DETECT_SIZE", "640x480").split("x"))
 NEAR_RATIO = float(os.environ.get("NEAR_RATIO", "0.4"))
+SHOULDER_DWELL_S = float(os.environ.get("SHOULDER_DWELL_S", "3"))
+
+
+def _facing(f) -> bool:
+    """True if a YuNet face (with landmarks) is turned towards the camera, i.e. towards the
+    screen it sits on. Uses how far the nose is from the midpoint between the eyes."""
+    x, y, w, h, rx, ry, lx, ly, nx, ny = (float(v) for v in f[:10])
+    eye_dist = abs(lx - rx)
+    if eye_dist < 0.2 * w:           # eyes bunched together: head turned well away
+        return False
+    return abs(nx - (rx + lx) / 2) / eye_dist < 0.35
 
 
 def make_detector():
     """YuNet (OpenCV's neural face detector) if its model is present, else Haar cascades.
 
-    YuNet finds turned, tilted and small background faces that Haar misses. Returns
-    (name, detect) where detect(bgr_frame_at_DETECT_SIZE) -> list of (x, y, w, h).
+    YuNet finds turned, tilted and small background faces that Haar misses, and gives eye and
+    nose positions, used to tell whether a face is looking at the screen. Returns (name, detect)
+    where detect(bgr_frame_at_DETECT_SIZE) -> list of (x, y, w, h, facing); facing is None
+    when unknown (Haar).
     """
     if os.path.exists(YUNET_MODEL):
         yunet = cv2.FaceDetectorYN.create(YUNET_MODEL, "", DETECT_SIZE, score_threshold=0.6,
@@ -80,7 +94,7 @@ def make_detector():
 
         def detect(img):
             _, faces = yunet.detect(img)
-            return [] if faces is None else [tuple(int(v) for v in f[:4]) for f in faces]
+            return [] if faces is None else [tuple(int(v) for v in f[:4]) + (_facing(f),) for f in faces]
         return "YuNet", detect
 
     front = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
@@ -93,7 +107,7 @@ def make_detector():
         boxes += list(profile.detectMultiScale(gray, 1.1, 5, minSize=(24, 24)))
         for (x, y, bw, bh) in profile.detectMultiScale(cv2.flip(gray, 1), 1.1, 5, minSize=(24, 24)):
             boxes.append((w - x - bw, y, bw, bh))   # profile cascade only finds one side
-        return boxes
+        return [tuple(b) + (None,) for b in boxes]
     return "Haar (download the YuNet model for better detection)", detect
 
 
@@ -108,6 +122,7 @@ def camera_loop():
     for _ in range(30):
         cap.read()
     last = time.time()
+    shoulder_since = shoulder_seen = None   # someone close AND facing the screen, continuously
     while True:
         ok, frame = cap.read()
         if not ok:
@@ -123,29 +138,47 @@ def camera_loop():
             if all(_iou(b, u) < 0.3 for u in uniq):
                 uniq.append(b)
         _, raw = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        # The largest face is the user. Another face only counts if it is NEAR: at least
-        # NEAR_RATIO of the user's face width (roughly within 2.5x the user's distance).
-        # Distant faces (people across the room) are boxed grey and ignored.
+        # The largest face is the user. Another face is NEAR if it is at least NEAR_RATIO of the
+        # user's face width (roughly within 2.5x the user's distance); distant faces are ignored.
+        # A near face that is also turned towards the screen, continuously for SHOULDER_DWELL_S,
+        # is "over the shoulder". Coworkers facing their own work and passers-by never are.
+        now = time.time()
         user_w = uniq[0][2] if uniq else 0
-        near = 0
-        for i, (x, y, w, h) in enumerate(uniq):
+        near = watching = 0
+        for i, (x, y, w, h, facing) in enumerate(uniq):
             is_near = i > 0 and w >= NEAR_RATIO * user_w
+            is_watching = is_near and facing is not False
             near += is_near
+            watching += is_watching
+        if watching:
+            shoulder_since = shoulder_since or now
+            shoulder_seen = now
+        elif shoulder_seen is None or now - shoulder_seen > 1.0:   # 1 s grace for missed frames
+            shoulder_since = shoulder_seen = None
+        dwell = now - shoulder_since if shoulder_since else 0.0
+        over_shoulder = dwell >= SHOULDER_DWELL_S
+
+        for i, (x, y, w, h, facing) in enumerate(uniq):
+            is_near = i > 0 and w >= NEAR_RATIO * user_w
             x, y, w, h = int(x * sx), int(y * sy), int(w * sx), int(h * sy)
             if i == 0:
-                colour, label = (80, 200, 80), "you"
+                colour, label, strong = (80, 200, 80), "you", True
+            elif is_near and facing is not False:
+                colour = (60, 60, 230) if over_shoulder else (0, 165, 255)
+                label, strong = ("over shoulder" if over_shoulder else f"watching {dwell:.0f}s"), True
             elif is_near:
-                colour, label = (60, 60, 230), "someone close"
+                colour, label, strong = (160, 160, 160), "nearby, not watching", False
             else:
-                colour, label = (160, 160, 160), "far away"
-            cv2.rectangle(frame, (x, y), (x + w, y + h), colour, 3 if i == 0 or is_near else 1)
+                colour, label, strong = (160, 160, 160), "far away", False
+            cv2.rectangle(frame, (x, y), (x + w, y + h), colour, 3 if strong else 1)
             cv2.putText(frame, label, (x, max(18, y - 8)), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6 if i == 0 or is_near else 0.4, colour, 2 if i == 0 or is_near else 1)
+                        0.6 if strong else 0.4, colour, 2 if strong else 1)
         _, ann = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-        now = time.time()
         with lock:
             cam.update(jpeg=ann.tobytes(), raw=raw.tobytes(), faces=len(uniq),
                        others=near, far=max(0, len(uniq) - 1 - near), ok=True,
+                       watching=watching, dwell=round(dwell, 1), over_shoulder=over_shoulder,
+                       user_facing=uniq[0][4] if uniq else None,
                        fps=round(0.8 * cam["fps"] + 0.2 / max(1e-3, now - last), 1))
             recent_others.append(near)
         last = now
@@ -222,16 +255,29 @@ def yubikey_loop():
 
 # ------------------------------------------------------------------ Gemini
 def gemini_loop():
+    """Gemini is a tie-breaker: it is only asked while the body sensors are uncertain.
+    When the sensors are clearly normal or clearly alarming, no frame leaves the board."""
+    last_call = 0.0
     while True:
-        time.sleep(GEMINI_EVERY_S)
+        time.sleep(1)
         with lock:
             raw = cam["raw"]
             state = dict(current_state)
+        if not state.get("uncertain"):
+            continue
+        if time.time() - last_call < GEMINI_EVERY_S:
+            continue
         if not raw or not os.environ.get("GEMINI_API_KEY"):
             continue
+        last_call = time.time()
         summary = {
+            "context": ("The body sensors were borderline, so you are the tie-breaker. Shared workspaces "
+                        "and offices are normal: people in the background, or a colleague nearby, are NOT "
+                        "duress on their own. Look for coercion: someone standing over the user, physical "
+                        "contact, the user being directed or looking back at someone, signs of fear."),
             "people_in_view": state.get("faces"),
             "other_people_close_to_user": state.get("others"),
+            "someone_watching_screen_over_shoulder_seconds": state.get("dwell"),
             "distant_people_in_background": state.get("far"),
             "sweat_z_vs_own_normal": state.get("sweat_z"),
             "movement_z_vs_own_normal": state.get("move_z"),
@@ -252,8 +298,59 @@ def gemini_loop():
             time.sleep(10)   # back off on quota / outage
 
 
+# ------------------------------------------------------------------ decision
+# The body sensors decide first. Only in the uncertain band do the camera and Gemini get a say.
+CLEAR_NORMAL_BELOW = float(os.environ.get("CLEAR_NORMAL_BELOW", "0.25"))
+CLEAR_DURESS_FROM = float(os.environ.get("CLEAR_DURESS_FROM", "0.75"))
+
+
+def _z_to_score(z):
+    """0 at 1.5σ above normal, 1 at 4.5σ. Below normal never counts."""
+    return None if z is None else max(0.0, min(1.0, (z - 1.5) / 3.0))
+
+
+def body_score(sweat_z, move_z):
+    parts = [p for p in (_z_to_score(sweat_z), _z_to_score(move_z)) if p is not None]
+    if not parts:
+        return None
+    hi, lo = max(parts), min(parts)
+    return min(1.0, hi + 0.5 * lo) if len(parts) > 1 else hi
+
+
+def decide(body, c, g_score, others):
+    """Returns (verdict, score, path, reasons). path is how the decision was reached."""
+    if body is not None and body < CLEAR_NORMAL_BELOW:
+        return "NORMAL", body, "sensors", []
+    if body is not None and body >= CLEAR_DURESS_FROM:
+        return "DURESS", body, "sensors", ["strong stress signals from the body sensors"]
+
+    # Uncertain (or no baseline yet): ask the camera, then Gemini.
+    reasons = ["body signals borderline" if body is not None else "no personal baseline yet"]
+    base = body if body is not None else 0.4
+    shoulder = c["over_shoulder"]
+    g_alarm = g_score is not None and g_score >= DURESS_AT
+    g_concern = g_score is not None and g_score >= WATCH_AT
+    if shoulder:
+        reasons.append(f"someone watching over your shoulder for {c['dwell']:.0f}s")
+    if g_concern:
+        reasons.append(f"Gemini sees possible coercion ({g_score:.2f})")
+    if shoulder and g_concern:
+        return "DURESS", max(0.8, base), "camera", reasons
+    if shoulder or g_alarm:
+        return "WATCH", max(0.5, base), "camera", reasons
+    if g_concern:
+        return "WATCH", max(0.4, base), "camera", reasons
+    # Camera and Gemini found nothing: the borderline reading is explained away.
+    if others and not shoulder:
+        reasons.append("people nearby, but nobody watching the screen")
+    else:
+        reasons.append("you're alone at the desk")
+    return "NORMAL", min(base, 0.3), "camera", reasons
+
+
 # ------------------------------------------------------------------ fusion
 current_state = {}
+_uncertain = {}   # {"since": t} while the body sensors are in the uncertain band
 
 
 def compute_state():
@@ -268,43 +365,44 @@ def compute_state():
         yk = yubikey["present"]
         g = dict(gemini)
 
-    signals, local = [], 0.0
-    if others_conf >= 1:
-        local += 0.6
-        signals.append(f"{others_conf} person close behind you" if others_conf == 1 else f"{others_conf} people close behind you")
-
     sweat_z = move_z = None
     if s and baseline.stats:
         zs = [z for z in (baseline.z(s, "humidity"), baseline.z(s, "moisture")) if z is not None]
         sweat_z = max(zs) if zs else None
         move_z = baseline.z(s, "shake_rms")
-        for name, z in (("sweating more than normal", sweat_z), ("moving differently from normal", move_z)):
-            if z is not None and z > 3:
-                local += 0.25
-                signals.append(f"{name} ({z:+.1f}σ)")
-            elif z is not None and z > 2:
-                local += 0.12
-                signals.append(f"slightly {name} ({z:+.1f}σ)")
-    local = min(1.0, local)
+    body = body_score(sweat_z, move_z)
+    signals = []
+    for name, z in (("sweating more than normal", sweat_z), ("moving differently from normal", move_z)):
+        if z is not None and z > 2:
+            signals.append(f"{name} ({z:+.1f}σ)")
 
-    g_fresh = g["result"] is not None and time.time() - g["at"] < 3 * GEMINI_EVERY_S + 10
+    uncertain = body is None or CLEAR_NORMAL_BELOW <= body < CLEAR_DURESS_FROM
+    # Gemini's answer only counts if it was given during this uncertain spell.
+    if uncertain and "since" not in _uncertain:
+        _uncertain["since"] = time.time()
+    if not uncertain:
+        _uncertain.clear()
+    g_fresh = (uncertain and g["result"] is not None and g["at"] >= _uncertain.get("since", 0)
+               and time.time() - g["at"] < 3 * GEMINI_EVERY_S + 10)
     g_score = g["result"]["duress_score"] if g_fresh else None
-    score = max(local, g_score or 0.0)
-    if g_fresh and g_score >= WATCH_AT:
-        signals.append(f"Gemini: {g_score:.2f}")
-    verdict = "DURESS" if score >= DURESS_AT else "WATCH" if score >= WATCH_AT else "NORMAL"
+
+    verdict, score, path, reasons = decide(body, c, g_score, others_conf)
+    signals = signals + [r for r in reasons if r not in signals]
 
     st = {
-        "t": time.time(), "verdict": verdict, "score": round(score, 2), "local_score": round(local, 2),
-        "signals": signals,
+        "t": time.time(), "verdict": verdict, "score": round(score, 2),
+        "local_score": round(body, 2) if body is not None else None, "body_score": body,
+        "decided_by": path, "uncertain": uncertain, "signals": signals if verdict != "NORMAL" or path == "camera" else [],
         "camera_ok": c["ok"], "fps": c["fps"], "faces": c["faces"], "others": others_conf,
-        "detector": c["detector"], "far": c["far"],
+        "detector": c["detector"], "far": c["far"], "dwell": c["dwell"], "over_shoulder": c["over_shoulder"],
+        "watching": c["watching"],
         "sensors_ok": f is not None, "features": s,
         "sweat_z": sweat_z, "move_z": move_z, "touch": (s or {}).get("touch"),
         "baseline_ready": baseline.stats is not None, "baseline_progress": round(baseline.progress(), 2),
         "baseline": baseline.stats,
         "yubikey": yk,
-        "gemini": {"score": g_score, "fresh": g_fresh, "latency": g["latency"], "error": g["error"],
+        "gemini": {"score": g_score, "fresh": g_fresh, "needed": uncertain, "latency": g["latency"],
+                   "error": g["error"] if uncertain else None,
                    "calls": g["calls"], "model": os.environ.get("GEMINI_MODEL"),
                    "signals": (g["result"] or {}).get("signals") if g_fresh else None,
                    "reasoning": (g["result"] or {}).get("reasoning") if g_fresh else None},
@@ -312,7 +410,8 @@ def compute_state():
     with lock:
         current_state.clear()
         current_state.update(st)
-        history.append({"t": st["t"], "score": st["score"], "local": st["local_score"], "gemini": g_score})
+        history.append({"t": st["t"], "score": st["score"], "local": st["local_score"], "gemini": g_score,
+                        "uncertain": uncertain})
     store(st, s)
 
 
@@ -337,7 +436,8 @@ def store(st, s):
             "humidity": f.get("humidity"), "temp_c": f.get("temp_c"), "shake_rms": f.get("shake_rms"),
             "moisture": f.get("moisture"), "touch": bool(f.get("touch")) if f else None,
             "sweat_z": st["sweat_z"], "move_z": st["move_z"], "yubikey": st["yubikey"],
-            "gemini_latency": st["gemini"]["latency"]})
+            "gemini_latency": st["gemini"]["latency"] if st["gemini"]["fresh"] else None,
+            "decided_by": st["decided_by"]})
     reason = st["gemini"]["reasoning"]
     if st["verdict"] != "NORMAL":
         if incident["start"] is None:

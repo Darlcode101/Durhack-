@@ -20,9 +20,10 @@ URL = os.environ.get("TIGER_DATABASE_URL", "").strip()
 DEVICE = os.environ.get("DEVICE_ID", "yuduino-01")
 TZ = os.environ.get("DASHBOARD_TZ", "Europe/London")
 
-COLUMNS = ("time", "device", "verdict", "score", "local_score", "gemini_score", "faces", "close_people",
-           "far_people", "humidity", "temp_c", "shake_rms", "moisture", "touch", "sweat_z", "move_z",
-           "yubikey", "gemini_latency")
+BASE_COLUMNS = ("time", "device", "verdict", "score", "local_score", "gemini_score", "faces", "close_people",
+                "far_people", "humidity", "temp_c", "shake_rms", "moisture", "touch", "sweat_z", "move_z",
+                "yubikey", "gemini_latency")
+COLUMNS = BASE_COLUMNS + ("decided_by",)   # "sensors" or "camera": who settled the verdict
 
 SCHEMA = [
     ("readings table", """
@@ -34,6 +35,7 @@ SCHEMA = [
        sweat_z real, move_z real, yubikey boolean, gemini_latency real)"""),
     ("readings hypertable", "SELECT create_hypertable('readings', by_range('time', INTERVAL '1 day'), if_not_exists => TRUE)"),
     ("readings index", "CREATE INDEX IF NOT EXISTS readings_device_time ON readings (device, time DESC)"),
+    ("decision column", "ALTER TABLE readings ADD COLUMN IF NOT EXISTS decided_by text"),
     ("incidents table", """
      CREATE TABLE IF NOT EXISTS incidents (
        time timestamptz NOT NULL, device text NOT NULL, verdict text NOT NULL,
@@ -122,10 +124,12 @@ def _flush(conn):
     while _queue and len(rows) < 2000:
         rows.append(_queue.popleft())
     if rows:
+        # If the service refused the new column, keep writing the original columns.
+        cols = COLUMNS if status["features"].get("decision column") is True else BASE_COLUMNS
         try:
-            with conn.cursor() as cur, cur.copy(f"COPY readings ({', '.join(COLUMNS)}) FROM STDIN") as cp:
+            with conn.cursor() as cur, cur.copy(f"COPY readings ({', '.join(cols)}) FROM STDIN") as cp:
                 for r in rows:
-                    cp.write_row(r)
+                    cp.write_row(r[:len(cols)])
             status["written"] += len(rows)
         except Exception:
             _queue.extendleft(reversed(rows))   # put them back, retry later

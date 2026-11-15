@@ -137,6 +137,7 @@
     <div>
       <div class="t" id="v-title">…</div>
       <div class="s" id="v-reason"></div>
+      <div class="s" id="v-path" style="font-size:13px; margin-top:4px"></div>
     </div>
     <div class="r"><div class="v num" id="v-score">–</div><div class="l">Risk score</div></div>
   </div>
@@ -150,7 +151,7 @@
       <div class="card">
         <img class="cam" id="cam" alt="Live camera with face boxes">
         <div class="camfoot">
-          <div class="keys"><span><i style="background:#50c850"></i>You</span><span><i style="background:#e63c3c"></i>Close by</span><span><i style="background:#a0a0a0"></i>Far away, ignored</span></div>
+          <div class="keys"><span><i style="background:#50c850"></i>You</span><span><i style="background:#ffa500"></i>Watching your screen</span><span><i style="background:#e63c3c"></i>Over your shoulder</span><span><i style="background:#a0a0a0"></i>Not watching, ignored</span></div>
         </div>
       </div>
     </div>
@@ -215,12 +216,20 @@ function renderLive(s) {
   $("badge").style.background = `var(--${tone})`;
   $("badge").innerHTML = icon(s.verdict === "NORMAL" ? "i-shield" : "i-alert", 28);
   $("v-title").textContent = s.verdict === "NORMAL" ? "No signs of duress" : s.verdict === "WATCH" ? "Something looks unusual" : "Possible duress";
-  $("v-reason").textContent = s.signals.length ? s.signals.join(", ").replace(/^./, (c) => c.toUpperCase()) : "Everything is within your normal range.";
+  $("v-reason").textContent = s.signals.length ? s.signals.join(", ").replace(/^./, (c) => c.toUpperCase()) + "." : "Everything is within your normal range.";
+  $("v-path").textContent = s.decided_by === "sensors"
+    ? "Decided by the body sensors. The camera and Gemini weren’t needed."
+    : s.baseline_ready ? "The body sensors were unsure, so the camera and Gemini made the call."
+                       : "Still learning your normal, so the camera and Gemini are making the call.";
   $("v-score").textContent = fmt(s.score);
   $("v-score").className = "v num" + (s.verdict === "NORMAL" ? "" : ` t-${tone}`);
 
   const f = s.features || {}, r = s.baseline_ready, g = s.gemini;
-  let t = tile("i-people", "--indigo", "People close", s.others ?? "–", "", s.camera_ok ? `${s.faces} in view, ${s.far || 0} far away` : "Camera offline", s.others ? "t-red" : "");
+  const peopleCap = !s.camera_ok ? "Camera offline"
+    : s.over_shoulder ? `Over your shoulder for ${Math.round(s.dwell)} s`
+    : s.watching ? `Watching your screen, ${Math.round(s.dwell)} s`
+    : s.others ? "Nearby, not watching" : `${s.faces} in view`;
+  let t = tile("i-people", "--indigo", "People close", s.others ?? "–", "", peopleCap, s.over_shoulder ? "t-red" : s.watching ? "t-orange" : "");
   if (s.sensors_ok) {
     t += tile("i-drop", "--teal", "Humidity", fmt(f.humidity, 1), "%", r ? fmtZ(s.sweat_z) : "Learning your normal", r ? zColor(s.sweat_z) : "");
     t += tile("i-wave", "--blue", "Movement", fmt(f.shake_rms, 3), "g", r ? fmtZ(s.move_z) : "Learning your normal", r ? zColor(s.move_z) : "");
@@ -230,7 +239,9 @@ function renderLive(s) {
     t += tile("i-chip", "--gray", "Sensors", "Offline", "", "Start the sensor app", "t-orange");
   }
   t += tile("i-key", "--gray", "YubiKey", s.yubikey ? "Connected" : s.yubikey === false ? "Missing" : "–", "", "Presence only", s.yubikey === false ? "t-red" : "");
-  t += tile("i-spark", "--indigo", "Gemini", fmt(g.score), "", g.latency != null ? `${g.latency} s to respond` : (g.error ? "No answer" : "Waiting"), g.score >= 0.6 ? "t-red" : g.score >= 0.35 ? "t-orange" : "");
+  t += !g.needed
+    ? tile("i-spark", "--indigo", "Gemini", "Standby", "", "Only asked when sensors are unsure", "")
+    : tile("i-spark", "--indigo", "Gemini", fmt(g.score), "", g.score != null && g.latency != null ? `${g.latency} s to respond` : (g.error ? "No answer" : "Asking…"), g.score >= 0.6 ? "t-red" : g.score >= 0.35 ? "t-orange" : "");
   $("tiles").innerHTML = t;
   $("base-text").textContent = r ? "Normal learned" : `Learning normal, ${Math.round(s.baseline_progress * 30)} of 30 s`;
 
@@ -238,8 +249,10 @@ function renderLive(s) {
   $("g-meta").textContent = g.model || "";
   $("g-score").textContent = fmt(g.score);
   $("g-score").className = "v num" + (g.score >= 0.6 ? " t-red" : g.score >= 0.35 ? " t-orange" : "");
-  $("g-reason").textContent = g.reasoning || (g.error ? "Gemini didn’t answer. A real approval would fall back to the decoy." : "Waiting for the first assessment.");
-  $("g-reason").style.color = g.reasoning ? "" : css("--label2");
+  $("g-reason").textContent = !g.needed
+    ? "Not needed right now. The body sensors are clear, so no image is sent. Gemini is only asked when they’re unsure."
+    : g.reasoning || (g.error ? "Gemini didn’t answer. A real approval would fall back to the decoy." : "Asking Gemini…");
+  $("g-reason").style.color = g.needed && g.reasoning ? "" : css("--label2");
 
   renderConns(s);
   if ((s.history || []).length > 1) {
@@ -261,7 +274,9 @@ function renderConns(s) {
     connRow("i-camera", "--gray", "Camera", s.camera_ok ? `${s.detector || ""}, ${Math.round(s.fps)} fps` : "", s.camera_ok, s.camera_ok ? "Connected" : "Offline") +
     connRow("i-chip", "--blue", "Sensors", s.sensors_ok ? "Thermo, Movement, touch, moisture" : "The App Lab sensor app isn’t running", s.sensors_ok ? true : "warn", s.sensors_ok ? "Connected" : "Offline") +
     connRow("i-key", "--orange", "YubiKey", "", s.yubikey === null ? null : s.yubikey, s.yubikey ? "Connected" : s.yubikey === false ? "Missing" : "Checking") +
-    connRow("i-spark", "--indigo", "Gemini", g.model || "", g.score != null ? true : g.error ? "warn" : null, g.score != null ? "Responding" : g.error ? "No answer" : "Waiting") +
+    connRow("i-spark", "--indigo", "Gemini", `${g.model || ""}${g.model ? ", " : ""}only asked when the sensors are unsure`,
+            !g.needed ? null : g.score != null ? true : g.error ? "warn" : null,
+            !g.needed ? "Standby" : g.score != null ? "Responding" : g.error ? "No answer" : "Asking") +
     connRow("i-db", "--teal", "Tiger Cloud", !t ? "" : !t.enabled ? "Not set up" : t.connected ? `${(t.stats && t.stats.total_rows || 0).toLocaleString()} readings stored` : (t.error || "Connecting"),
             tigerOk, !t || !t.enabled ? "Off" : t.connected ? "Connected" : "Offline");
 }
