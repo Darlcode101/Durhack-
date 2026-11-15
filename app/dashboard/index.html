@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YuDuino Monitor</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css">
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --panel-2: #f8f9fb; --text: #111827; --muted: #6b7280; --faint: #9ca3af;
+    --line: #e5e7eb; --accent: #4f46e5; --accent-soft: #eef2ff;
+    --ok: #059669; --ok-soft: #ecfdf5; --warn: #d97706; --warn-soft: #fffbeb; --bad: #dc2626; --bad-soft: #fef2f2;
+    --s1: #4f46e5; --s2: #0891b2; --s3: #a3a3a3; --shadow: 0 1px 2px rgba(16, 24, 40, .05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0d12; --panel: #13161d; --panel-2: #191d26; --text: #f3f4f6; --muted: #9ca3af; --faint: #6b7280;
+      --line: #252a35; --accent: #818cf8; --accent-soft: #1e1b4b;
+      --ok: #34d399; --ok-soft: #062e22; --warn: #fbbf24; --warn-soft: #2e2205; --bad: #f87171; --bad-soft: #3a0e0e;
+      --s1: #818cf8; --s2: #22d3ee; --s3: #6b7280; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body { font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* top bar */
+  .top { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .top-in { max-width: 1320px; margin: 0 auto; padding: 12px 20px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; }
+  .brand svg { color: var(--accent); }
+  .brand small { color: var(--muted); font-weight: 500; font-size: 13px; }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+          background: var(--panel-2); border: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  .pill.ok i { background: var(--ok); } .pill.warn i { background: var(--warn); } .pill.bad i { background: var(--bad); }
+  .clock { color: var(--muted); font-size: 13px; }
+
+  main { max-width: 1320px; margin: 0 auto; padding: 20px; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; }
+  .c4 { grid-column: span 4; } .c5 { grid-column: span 5; } .c7 { grid-column: span 7; } .c8 { grid-column: span 8; } .c12 { grid-column: span 12; }
+  @media (max-width: 1000px) { .c4, .c5, .c7, .c8 { grid-column: span 12; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); min-width: 0; }
+  .card-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px 0; flex-wrap: wrap; }
+  .card-h h3 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .02em; }
+  .card-h .meta { font-size: 12px; color: var(--muted); }
+  .card-b { padding: 14px 16px 16px; }
+
+  /* verdict */
+  .verdict { padding: 20px; display: grid; gap: 12px; height: 100%; border-left: 4px solid var(--faint); transition: background .3s, border-color .3s; }
+  .verdict .label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+  .verdict .word { font-size: 44px; line-height: 1; font-weight: 800; letter-spacing: -.02em; }
+  .verdict.NORMAL { border-left-color: var(--ok); background: linear-gradient(90deg, var(--ok-soft), var(--panel) 70%); } .verdict.NORMAL .word { color: var(--ok); }
+  .verdict.WATCH { border-left-color: var(--warn); background: linear-gradient(90deg, var(--warn-soft), var(--panel) 70%); } .verdict.WATCH .word { color: var(--warn); }
+  .verdict.DURESS { border-left-color: var(--bad); background: linear-gradient(90deg, var(--bad-soft), var(--panel) 70%); } .verdict.DURESS .word { color: var(--bad); }
+  .meter { position: relative; height: 8px; border-radius: 99px; background: linear-gradient(90deg, var(--ok) 0 35%, var(--warn) 35% 60%, var(--bad) 60% 100%); opacity: .9; }
+  .meter b { position: absolute; top: -4px; width: 4px; height: 16px; border-radius: 2px; background: var(--text); transform: translateX(-2px); transition: left .4s; }
+  .meter-l { display: flex; justify-content: space-between; font-size: 11px; color: var(--faint); }
+  .why { display: flex; flex-wrap: wrap; gap: 6px; min-height: 26px; }
+  .chip { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
+  .chip.bad { color: var(--bad); border-color: var(--bad); background: var(--bad-soft); }
+  .chip.warn { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
+
+  /* KPIs */
+  .kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .kpi { padding: 16px; }
+  .kpi .k { font-size: 12px; color: var(--muted); }
+  .kpi .v { font-size: 28px; font-weight: 700; margin-top: 4px; letter-spacing: -.01em; }
+  .kpi .d { font-size: 12px; color: var(--faint); margin-top: 2px; }
+
+  /* camera */
+  .cam { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; border-radius: 8px; background: #000; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; border: 2px solid currentColor; }
+  .lg-you { color: #50c850; } .lg-close { color: #e63c3c; } .lg-far { color: #a0a0a0; }
+
+  /* signals */
+  .sig { display: grid; grid-template-columns: 150px minmax(0, 1fr) 92px; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .sig:first-child { border-top: 0; }
+  .sig .n { font-weight: 600; } .sig .n small { display: block; color: var(--faint); font-weight: 400; font-size: 12px; }
+  .zbar { position: relative; height: 6px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--line); }
+  .zbar .band { position: absolute; left: 0; width: 50%; top: 0; bottom: 0; background: var(--ok-soft); border-radius: 99px; }
+  .zbar b { position: absolute; top: -5px; width: 3px; height: 14px; border-radius: 2px; background: var(--muted); transform: translateX(-1px); transition: left .4s; }
+  .zt { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .status { justify-self: end; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--panel-2); color: var(--muted); }
+  .status.ok { background: var(--ok-soft); color: var(--ok); } .status.warn { background: var(--warn-soft); color: var(--warn); } .status.bad { background: var(--bad-soft); color: var(--bad); }
+  @media (max-width: 560px) { .sig { grid-template-columns: 1fr 88px; } .sig .mid { grid-column: 1 / -1; grid-row: 2; } }
+
+  .btn { font: inherit; font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .base { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+  .prog { width: 90px; height: 6px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; }
+  .prog i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+
+  /* gemini */
+  .gem-top { display: flex; align-items: baseline; gap: 10px; }
+  .gem-top .v { font-size: 34px; font-weight: 800; }
+  .reason { margin: 10px 0 0; color: var(--text); }
+  .muted { color: var(--muted); }
+
+  /* tabs */
+  .tabs { display: inline-flex; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+  .tabs button { font: inherit; font-size: 12px; font-weight: 600; border: 0; background: transparent; color: var(--muted); padding: 5px 12px; border-radius: 6px; cursor: pointer; }
+  .tabs button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
+  .charts2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 900px) { .charts2 { grid-template-columns: 1fr; } }
+  .chart-t { font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+  .chart { width: 100%; min-height: 220px; position: relative; }
+  .empty { display: grid; place-items: center; min-height: 200px; color: var(--muted); font-size: 13px; text-align: center; padding: 16px; border: 1px dashed var(--line); border-radius: 8px; }
+
+  /* table */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td.why-c { color: var(--muted); max-width: 360px; }
+  .tbl { overflow-x: auto; }
+
+  .foot { grid-column: span 12; display: flex; gap: 10px 22px; flex-wrap: wrap; font-size: 12px; color: var(--muted); padding: 4px 2px 20px; }
+  .foot b { color: var(--text); font-weight: 600; }
+  .feat-ok::before { content: "✓ "; color: var(--ok); } .feat-no::before { content: "✕ "; color: var(--bad); }
+
+  .u-legend { font-size: 12px !important; color: var(--muted); }
+  .u-legend .u-marker { border-radius: 2px; }
+</style>
+</head>
+<body>
+<div class="top"><div class="top-in">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+    YuDuino <small>Duress Monitor</small>
+  </div>
+  <div class="pills" id="pills"></div>
+  <div class="clock num" id="clock"></div>
+</div></div>
+
+<main>
+  <section class="card c5 verdict" id="verdict">
+    <div class="label">Current assessment</div>
+    <div class="word" id="v-word">…</div>
+    <div>
+      <div class="meter"><b id="v-mark" style="left:0"></b></div>
+      <div class="meter-l"><span>0</span><span>watch 0.35</span><span>duress 0.60</span><span>1</span></div>
+    </div>
+    <div class="num muted" id="v-score"></div>
+    <div class="why" id="v-why"></div>
+  </section>
+
+  <section class="c7 kpis">
+    <div class="card kpi"><div class="k">Risk score now</div><div class="v num" id="k-score">–</div><div class="d" id="k-score-d">sensors, camera and Gemini combined</div></div>
+    <div class="card kpi"><div class="k">People close behind you</div><div class="v num" id="k-people">–</div><div class="d" id="k-people-d"></div></div>
+    <div class="card kpi"><div class="k">Incidents · last 24 h</div><div class="v num" id="k-inc">–</div><div class="d" id="k-inc-d">from Tiger Cloud</div></div>
+    <div class="card kpi"><div class="k">Readings stored</div><div class="v num" id="k-rows">–</div><div class="d" id="k-rows-d">TimescaleDB hypertable</div></div>
+  </section>
+
+  <section class="card c5">
+    <div class="card-h"><h3>Camera</h3><span class="meta num" id="cam-meta"></span></div>
+    <div class="card-b">
+      <img class="cam" src="/video.mjpg" alt="Live camera with face boxes">
+      <div class="legend"><span class="lg-you">You</span><span class="lg-close">Close behind you (counts)</span><span class="lg-far">Far away (ignored)</span></div>
+    </div>
+  </section>
+
+  <section class="card c7">
+    <div class="card-h">
+      <h3>Signals vs your normal</h3>
+      <div class="base"><span id="b-text"></span><span class="prog"><i id="b-prog"></i></span><button class="btn" id="learn">Re-learn normal</button></div>
+    </div>
+    <div class="card-b" id="signals"></div>
+  </section>
+
+  <section class="card c7">
+    <div class="card-h"><h3>Live risk</h3><span class="meta">last 2 minutes · in memory</span></div>
+    <div class="card-b"><div class="chart" id="ch-live"></div></div>
+  </section>
+
+  <section class="card c5">
+    <div class="card-h"><h3>Gemini analysis</h3><span class="meta" id="g-meta"></span></div>
+    <div class="card-b">
+      <div class="gem-top"><span class="v num" id="g-score">–</span><span class="muted">duress score</span></div>
+      <p class="reason" id="g-reason"></p>
+      <div class="why" id="g-chips" style="margin-top:10px"></div>
+    </div>
+  </section>
+
+  <section class="card c12">
+    <div class="card-h">
+      <h3>History · Tiger Cloud</h3>
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
+        <span class="meta" id="h-src"></span>
+        <div class="tabs" id="tabs"><button data-r="15m" class="on">15 min</button><button data-r="1h">1 hour</button><button data-r="24h">24 hours</button><button data-r="7d">7 days</button></div>
+      </div>
+    </div>
+    <div class="card-b charts2">
+      <div><div class="chart-t">Risk over time</div><div class="chart" id="ch-risk"></div></div>
+      <div><div class="chart-t">Body signals</div><div class="chart" id="ch-body"></div></div>
+    </div>
+  </section>
+
+  <section class="card c5">
+    <div class="card-h"><h3>Your normal by time of day</h3><span class="meta" id="n-src"></span></div>
+    <div class="card-b"><div class="chart" id="ch-normal"></div></div>
+  </section>
+
+  <section class="card c7">
+    <div class="card-h"><h3>Incident log</h3><span class="meta">every Watching or Duress episode · Tiger Cloud</span></div>
+    <div class="card-b tbl" id="incidents"></div>
+  </section>
+
+  <footer class="foot" id="foot"></footer>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const cssv = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const fmt = (v, d = 2) => v == null || Number.isNaN(v) ? "–" : Number(v).toFixed(d);
+const fmtZ = (z) => z == null ? "–" : (z >= 0 ? "+" : "") + z.toFixed(1) + "σ";
+const ago = (t) => { const s = Math.max(0, Date.now() / 1000 - t); return s < 60 ? Math.round(s) + "s ago" : s < 3600 ? Math.round(s / 60) + " min ago" : Math.round(s / 3600) + " h ago"; };
+const hasPlot = () => typeof uPlot !== "undefined";
+let range = "15m";
+
+/* ---------- live ---------- */
+function pill(label, level, title) {
+  return `<span class="pill ${level}" title="${title || ""}"><i></i>${label}</span>`;
+}
+const zLevel = (z) => z == null ? "" : z > 3 ? "bad" : z > 2 ? "warn" : "ok";
+function sigRow(name, sub, value, z, status, level) {
+  const pos = z == null ? null : Math.max(0, Math.min(100, 50 + z * 8.33)); // -6σ..+6σ across the bar
+  return `<div class="sig">
+    <div class="n">${name}<small>${sub}</small></div>
+    <div class="mid">${z === undefined ? `<div class="num">${value}</div>` :
+      `<div class="zbar"><span class="band"></span>${pos == null ? "" : `<b style="left:${pos}%"></b>`}</div>
+       <div class="zt num">${value} · ${z == null ? "learning your normal" : fmtZ(z) + " vs normal"}</div>`}</div>
+    <span class="status ${level}">${status}</span></div>`;
+}
+
+function renderLive(s) {
+  const v = $("verdict");
+  v.className = "card c5 verdict " + s.verdict;
+  $("v-word").textContent = s.verdict === "NORMAL" ? "No duress" : s.verdict === "WATCH" ? "Watching" : "Duress";
+  $("v-mark").style.left = (Math.min(1, s.score) * 100) + "%";
+  $("v-score").textContent = `score ${fmt(s.score)}  ·  sensors + camera ${fmt(s.local_score)}  ·  Gemini ${fmt(s.gemini.score)}`;
+  $("v-why").innerHTML = "";
+  (s.signals.length ? s.signals : ["Nothing unusual"]).forEach((x) => {
+    const c = document.createElement("span"); c.className = "chip" + (s.signals.length ? (s.verdict === "DURESS" ? " bad" : " warn") : ""); c.textContent = x; $("v-why").appendChild(c);
+  });
+
+  $("k-score").textContent = fmt(s.score);
+  $("k-people").textContent = s.others ?? "–";
+  $("k-people-d").textContent = s.camera_ok ? `${s.faces} face${s.faces === 1 ? "" : "s"} seen · ${s.far || 0} far away ignored` : "camera offline";
+
+  const g = s.gemini, f = s.features || {};
+  $("pills").innerHTML =
+    pill("Board", "ok") +
+    pill("Camera", s.camera_ok ? "ok" : "bad") +
+    pill("Sensors", s.sensors_ok ? "ok" : "warn", s.sensors_ok ? "" : "App Lab relay not running") +
+    pill("YubiKey", s.yubikey ? "ok" : s.yubikey === false ? "bad" : "") +
+    pill("Gemini", g.score != null ? "ok" : g.error ? "warn" : "", g.error || "") +
+    pill("Tiger Cloud", tigerLevel, tigerTitle);
+  $("cam-meta").textContent = s.camera_ok ? `${s.fps} fps · ${s.detector || ""}` : "camera offline";
+
+  let html = sigRow("People close", "camera · YuNet", s.others ? `${s.others} close` : "only you", undefined,
+                    s.others ? "Alert" : "Clear", s.others ? "bad" : "ok");
+  if (!s.sensors_ok) {
+    html += sigRow("Body sensors", "STM32 via App Lab relay", "no data: is the App Lab app running?", undefined, "Offline", "warn");
+  } else {
+    const ready = s.baseline_ready;
+    html += sigRow("Sweat", "palm humidity + skin moisture", `humidity ${fmt(f.humidity, 1)}% · moisture ${f.moisture ?? "–"}`, ready ? s.sweat_z : null,
+                   !ready ? "Learning" : s.sweat_z > 3 ? "High" : s.sweat_z > 2 ? "Raised" : "Normal", ready ? zLevel(s.sweat_z) : "");
+    html += sigRow("Mouse movement", "Modulino Movement", `shake ${fmt(f.shake_rms, 3)} g`, ready ? s.move_z : null,
+                   !ready ? "Learning" : s.move_z > 3 ? "Unusual" : s.move_z > 2 ? "Raised" : "Normal", ready ? zLevel(s.move_z) : "");
+    html += sigRow("Grip", "touch sensor", f.touch ? "hand on device" : "no hand detected", undefined, f.touch ? "Held" : "Idle", f.touch ? "ok" : "");
+    html += sigRow("Palm temperature", "Modulino Thermo", `${fmt(f.temp_c, 1)} °C`, undefined, "Info", "");
+  }
+  html += sigRow("YubiKey", "presence only", s.yubikey ? "plugged in" : "not detected", undefined, s.yubikey ? "Connected" : "Missing", s.yubikey ? "ok" : "bad");
+  $("signals").innerHTML = html;
+
+  $("b-text").textContent = s.baseline_ready ? "normal learned" : `learning ${Math.round(s.baseline_progress * 30)}/30 s`;
+  $("b-prog").style.width = Math.round(s.baseline_progress * 100) + "%";
+
+  $("g-meta").textContent = `${g.model || "no model"} · ${g.calls} calls${g.latency != null ? " · " + g.latency + " s" : ""}`;
+  $("g-score").textContent = fmt(g.score);
+  $("g-score").style.color = g.score == null ? "" : g.score >= 0.6 ? cssv("--bad") : g.score >= 0.35 ? cssv("--warn") : cssv("--ok");
+  $("g-reason").textContent = g.reasoning || (g.error ? g.error + ". A real approval would fail closed to the decoy." : "Waiting for the first answer…");
+  $("g-chips").innerHTML = "";
+  (g.signals || []).forEach((x) => { const c = document.createElement("span"); c.className = "chip"; c.textContent = x; $("g-chips").appendChild(c); });
+
+  plotLive(s.history || []);
+}
+
+/* ---------- charts ---------- */
+const charts = {};
+function axisStyle() { return { stroke: cssv("--muted"), grid: { stroke: cssv("--line"), width: 1 }, ticks: { stroke: cssv("--line") } }; }
+function thresholdHook() {
+  return { draw: [(u) => {
+    const ctx = u.ctx; ctx.save(); ctx.setLineDash([5, 5]); ctx.lineWidth = devicePixelRatio;
+    [[0.6, cssv("--bad")], [0.35, cssv("--warn")]].forEach(([v, c]) => {
+      const y = u.valToPos(v, "y", true); ctx.strokeStyle = c; ctx.beginPath(); ctx.moveTo(u.bbox.left, y); ctx.lineTo(u.bbox.left + u.bbox.width, y); ctx.stroke();
+    }); ctx.restore(); }] };
+}
+function upsert(id, opts, data) {
+  const el = $(id);
+  if (!hasPlot()) { el.innerHTML = `<div class="empty">Charts need the uPlot library (internet access for the browser).</div>`; return; }
+  const width = el.clientWidth || 600;
+  if (!charts[id]) { el.innerHTML = ""; charts[id] = new uPlot({ ...opts, width, height: 220 }, data, el); }
+  else charts[id].setData(data);
+}
+function empty(id, msg) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } $(id).innerHTML = `<div class="empty">${msg}</div>`; }
+new ResizeObserver(() => Object.entries(charts).forEach(([id, c]) => c.setSize({ width: $(id).clientWidth, height: 220 }))).observe(document.body);
+
+function riskOpts(withMax) {
+  const series = [{}, { label: "risk", stroke: cssv("--s1"), width: 2, fill: cssv("--accent-soft") },
+                      { label: "Gemini", stroke: cssv("--s2"), width: 1.5 }];
+  if (withMax) series.push({ label: "peak", stroke: cssv("--s3"), width: 1, dash: [3, 3] });
+  return { series, scales: { y: { range: [0, 1] } }, axes: [axisStyle(), axisStyle()], hooks: thresholdHook(), legend: { live: true } };
+}
+function plotLive(h) {
+  if (h.length < 2) return;
+  upsert("ch-live", riskOpts(false), [h.map((p) => p.t), h.map((p) => p.score), h.map((p) => p.gemini)]);
+}
+
+/* ---------- Tiger ---------- */
+let tigerLevel = "", tigerTitle = "";
+async function getJSON(u) { const r = await fetch(u, { cache: "no-store" }); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText); return j; }
+
+async function loadTiger() {
+  try {
+    const t = await getJSON("/api/tiger");
+    tigerLevel = !t.enabled ? "" : t.connected ? "ok" : "bad";
+    tigerTitle = !t.enabled ? "not configured" : t.connected ? `${t.written} rows written this session` : (t.error || "connecting…");
+    const st = t.stats || {};
+    $("k-rows").textContent = st.total_rows != null ? Number(st.total_rows).toLocaleString() : (t.enabled ? "…" : "–");
+    $("k-rows-d").textContent = t.enabled ? (st.size_bytes != null ? `${(st.size_bytes / 1048576).toFixed(1)} MB in hypertable “readings”` : t.connected ? "TimescaleDB hypertable" : (t.error || "connecting…")) : "Tiger not configured";
+    $("k-inc").textContent = st.incidents_24h ?? "–";
+    $("k-inc-d").textContent = st.incidents_24h != null ? `${st.duress_24h} duress · ${st.readings_24h.toLocaleString()} readings today` : "from Tiger Cloud";
+    const feats = Object.entries(t.features || {});
+    $("foot").innerHTML = t.enabled
+      ? `<span><b>Tiger Cloud</b> · ${t.connected ? "connected" : "offline"} · device ${t.device}${t.buffered ? ` · ${t.buffered} readings waiting to upload` : ""}</span>` +
+        feats.map(([k, v]) => `<span class="${v === true ? "feat-ok" : "feat-no"}" title="${v === true ? "" : String(v).replace(/"/g, "&quot;")}">${k}</span>`).join("") +
+        `<span>Only derived numbers are stored: no camera frames, no PINs, no keys.</span>`
+      : `<span><b>Tiger Cloud not configured.</b> Add TIGER_DATABASE_URL to .env on the board to store history.</span>`;
+    return t;
+  } catch (e) { tigerLevel = "bad"; tigerTitle = String(e.message); return null; }
+}
+
+async function loadHistory() {
+  try {
+    const h = await getJSON("/api/history?range=" + range);
+    $("h-src").textContent = `${h.source} · ${h.bucket} buckets`;
+    if (h.t.length < 2) { empty("ch-risk", "Not enough history yet: it fills in as readings arrive."); empty("ch-body", "Not enough history yet."); return; }
+    upsert("ch-risk", riskOpts(true), [h.t, h.score, h.gemini, h.max_score]);
+    upsert("ch-body", {
+      series: [{}, { label: "humidity %", stroke: cssv("--s2"), width: 2, scale: "h" },
+                   { label: "shake g", stroke: cssv("--s1"), width: 1.5, scale: "s" }],
+      axes: [axisStyle(), { ...axisStyle(), scale: "h" }, { ...axisStyle(), scale: "s", side: 1, grid: { show: false } }],
+    }, [h.t, h.humidity, h.shake]);
+  } catch (e) {
+    $("h-src").textContent = "";
+    empty("ch-risk", e.message); empty("ch-body", e.message);
+  }
+}
+
+async function loadNormal() {
+  try {
+    const n = await getJSON("/api/normal");
+    $("n-src").textContent = "readings_1h · calm hours";
+    if (!n.hours.length) { empty("ch-normal", "Builds up over the day: each hour of calm use adds a point."); return; }
+    const hrs = n.hours;
+    upsert("ch-normal", {
+      series: [{ label: "hour" }, { label: "humidity %", stroke: cssv("--s2"), fill: cssv("--accent-soft"), width: 1,
+                 paths: uPlot.paths.bars({ size: [0.6, 30] }), points: { show: false }, scale: "h" },
+                 { label: "shake g", stroke: cssv("--s1"), width: 2, scale: "s" }],
+      scales: { x: { time: false, range: [-0.5, 23.5] } },
+      axes: [{ ...axisStyle(), values: (u, v) => v.map((x) => x + ":00") }, { ...axisStyle(), scale: "h" }, { ...axisStyle(), scale: "s", side: 1, grid: { show: false } }],
+    }, [hrs.map((x) => x.h), hrs.map((x) => x.humidity), hrs.map((x) => x.shake)]);
+  } catch (e) { $("n-src").textContent = ""; empty("ch-normal", e.message); }
+}
+
+async function loadIncidents() {
+  const box = $("incidents");
+  try {
+    const rows = await getJSON("/api/incidents");
+    if (!rows.length) { box.innerHTML = `<div class="empty">No incidents recorded. Every Watching or Duress episode will appear here.</div>`; return; }
+    const tbl = document.createElement("table");
+    tbl.innerHTML = "<thead><tr><th>When</th><th>Level</th><th>Peak</th><th>Duration</th><th>Why</th></tr></thead>";
+    const tb = document.createElement("tbody");
+    rows.forEach((r) => {
+      const tr = document.createElement("tr");
+      const dur = r.ended ? Math.max(1, Math.round(r.ended - r.t)) + " s" : "ongoing";
+      const cells = [new Date(r.t * 1000).toLocaleTimeString() + " · " + ago(r.t), null, fmt(r.peak), dur, (r.signals || []).join(" · ") + (r.reasoning ? " — " + r.reasoning : "")];
+      cells.forEach((txt, i) => {
+        const td = document.createElement("td");
+        if (i === 1) { const c = document.createElement("span"); c.className = "status " + (r.verdict === "DURESS" ? "bad" : "warn"); c.textContent = r.verdict === "DURESS" ? "Duress" : "Watching"; td.appendChild(c); }
+        else { td.textContent = txt; if (i === 4) td.className = "why-c"; else td.className = "num"; }
+        tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+    });
+    tbl.appendChild(tb); box.innerHTML = ""; box.appendChild(tbl);
+  } catch (e) { box.innerHTML = `<div class="empty">${e.message.replace(/</g, "&lt;")}</div>`; }
+}
+
+/* ---------- loops ---------- */
+async function pollLive() {
+  try { const s = await getJSON("/state"); if (s.verdict) renderLive(s); }
+  catch (e) { $("pills").innerHTML = pill("Board not responding", "bad"); }
+  setTimeout(pollLive, 500);
+}
+async function pollTiger() {
+  const t = await loadTiger();
+  if (t && t.enabled) { await Promise.all([loadHistory(), loadIncidents()]); }
+  else { ["ch-risk", "ch-body", "ch-normal"].forEach((id) => empty(id, "Tiger Cloud not configured: add TIGER_DATABASE_URL to .env on the board."));
+         $("incidents").innerHTML = `<div class="empty">Tiger Cloud not configured.</div>`; }
+  setTimeout(pollTiger, 10000);
+}
+async function pollNormal() { await loadNormal(); setTimeout(pollNormal, 60000); }
+
+$("tabs").onclick = (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  range = b.dataset.r; [...$("tabs").children].forEach((x) => x.classList.toggle("on", x === b));
+  ["ch-risk", "ch-body"].forEach((id) => { if (charts[id]) { charts[id].destroy(); delete charts[id]; } });
+  loadHistory();
+};
+$("learn").onclick = () => fetch("/calibrate", { method: "POST" });
+setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString(); }, 1000);
+pollLive(); pollTiger(); setTimeout(pollNormal, 1500);
+</script>
+</body>
+</html>

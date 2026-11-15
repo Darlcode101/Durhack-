@@ -11,3 +11,4 @@ numpy
 requests
 python-dotenv
 httpx
+psycopg[binary]>=3.2  # Tiger Data (TimescaleDB) for the dashboard

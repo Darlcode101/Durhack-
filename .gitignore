@@ -28,3 +28,6 @@ tools/out/
 app/sketch/secrets.h
 guardian_state.json
 device.json
+
+# Face model for the dashboard (downloaded by app/dashboard/restart.sh)
+app/dashboard/models/

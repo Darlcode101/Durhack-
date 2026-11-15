@@ -134,6 +134,14 @@ Wiring and step-by-step bring-up: **[hardware plan](docs/HARDWARE-PLAN.md)**.
 app/
   sketch/sketch.ino     STM32: reads sensors, exposes get_features / clear_pin over Bridge
     yuseal_mcu.h        (in sketch/) the STM32 trusted core: PIN, status, tag. Tested on a laptop
+    sketch.yaml         library versions App Lab builds with (Modulino 0.10.0 for the newer Thermo)
+  bringup/              one small sketch per hardware step (matrix, Qwiic, DFRobot, buttons)
+  dashboard/
+    server.py           live duress monitor (FastAPI): camera + YuNet faces, sensors, YubiKey, Gemini, verdict
+    index.html          the dashboard page: live view, Tiger Cloud history, incident log
+    tiger.py            Tiger Data storage: hypertables, continuous aggregates, compression, retention
+    applab_relay.py     runs inside the App Lab app: copies STM32 readings to a file the dashboard reads
+    restart.sh          (re)starts the dashboard on the board and fetches the face model
   python/
     main.py             entry point: `enrol <user>` and `approve <user> '<request>'`
     approve.py          the Linux side of one approval and of enrolment
@@ -182,6 +190,32 @@ docs/
 
 Step by step with a test for each: **[build flow](docs/BUILD-FLOW.md)**. `secrets.h`, `tools/out/` and `device.json` are created locally and are gitignored.
 
+### Live dashboard (on the UNO Q)
+
+Shows the duress verdict live, with the camera, every signal against your own normal, Gemini's reasoning, and history from Tiger Cloud.
+
+1. Create an App Lab app, put `app/sketch/` in its `sketch/` folder and `app/dashboard/applab_relay.py` as its `python/main.py`, and start it. It writes the STM32's readings to `<app>/live/features.json` once every 200 ms.
+2. Optional, for history: create a free service in Tiger Console, then on your laptop run `tools/set_tiger_url.sh` and paste the service URL when asked (it's typed hidden and sent to the board's `.env` over SSH). The dashboard creates its tables, continuous aggregates and policies by itself. Without it, the live view still works.
+3. Start it and open `http://<board-ip>:8080`:
+   ```bash
+   ~/Durhack-/app/dashboard/restart.sh
+   ```
+4. Press **Re-learn normal** while using the device normally for 30 s; sweat and movement are judged against that.
+
+Only derived numbers go to Tiger (no frames, no PINs, no keys). Camera frames stay in memory; Gemini gets one frame every 5 s.
+
 ## Status
 
-**The crypto and the STM32 core are tested on a laptop (41 tests); the board glue is not yet run on the UNO Q.** The unverified calls (Bridge arguments, LED matrix, Buttons, YubiKey over USB) are listed with fallbacks in [docs/BUILD-FLOW.md](docs/BUILD-FLOW.md#5-things-we-couldnt-check-without-the-board-and-what-to-do-if-they-fail) and marked `VERIFY` in the code. Build order: [Wave 1 of the development plan](docs/DEV-PLAN.md#wave-1-skeleton-minimal-end-to-end-prototype).
+**The crypto and the STM32 core are tested on a laptop (41 tests).** On the UNO Q (14 November):
+
+| Verified on the board | Notes |
+|---|---|
+| YuSeal tests | `test_yuseal` passed on the board (38 tests at the time), with `cryptography` 50's ML-DSA |
+| Bridge | `get_features` returns its JSON string to Python |
+| Modulino Thermo, Movement, Buttons | On **`Wire1`**. Needs **Arduino_Modulino 0.10.0**: newer Thermos use a GXHT30C at 0x45, which 0.7.0 can't find |
+| YubiKey 5 over the hub | FIDO2.1 with `hmac-secret`, firmware 5.7.4; readable without sudo via a udev rule |
+| Camera | Frames at 640×480. YuNet (dashboard) finds turned and background faces that Haar misses |
+| Gemini | `gemini-3.5-flash-lite` answers in 1–2 s. **The API rejects deadlines under 10 s**, which would make every approval fail closed; `fusion_gemini.py` now enforces 10 s |
+| Live dashboard | Running on the board (camera, sensors, YubiKey, Gemini, verdict) |
+
+**Not yet verified on the board:** the full sketch with `secrets.h` (`provide_safe` String arguments, LED matrix, PIN core), `RealYubiKey` signing, `enrol` / `approve` end to end, the touch and moisture sensors (no power yet: the shared 3V3 join), and the Tiger schema against a real Tiger Cloud service. The board needs the **USB-C hub's own cable** in its port (not the PD input) to act as USB host for the YubiKey and camera. Fallbacks for the rest: [docs/BUILD-FLOW.md](docs/BUILD-FLOW.md#5-things-we-couldnt-check-without-the-board-and-what-to-do-if-they-fail). Build order: [Wave 1 of the development plan](docs/DEV-PLAN.md#wave-1-skeleton-minimal-end-to-end-prototype).

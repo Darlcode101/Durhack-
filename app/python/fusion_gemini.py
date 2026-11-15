@@ -37,8 +37,12 @@ def _get_client():
     return _client
 
 
-def gemini_score(jpeg_bytes: bytes, feature_summary: dict, timeout_s: float = 4.0) -> dict | None:
+MIN_DEADLINE_S = 10  # the Gemini API rejects (400) any request deadline under 10 s
+
+
+def gemini_score(jpeg_bytes: bytes, feature_summary: dict, timeout_s: float = 10.0) -> dict | None:
     """Returns parsed JSON, or None on any failure (caller falls back to rules only)."""
+    timeout_s = max(timeout_s, MIN_DEADLINE_S)
     model = os.environ.get("GEMINI_MODEL")
     if not model or not os.environ.get("GEMINI_API_KEY"):
         return None
@@ -61,5 +65,5 @@ def gemini_score(jpeg_bytes: bytes, feature_summary: dict, timeout_s: float = 4.
         out["duress_score"] = max(0.0, min(1.0, float(out["duress_score"])))
         return out
     except Exception as e:  # network, quota, parse — never block login on this
-        print(f"[gemini] fallback to rules: {e}")
+        print(f"[gemini] fallback to rules: {e}", flush=True)
         return None
