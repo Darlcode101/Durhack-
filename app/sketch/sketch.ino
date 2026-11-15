@@ -163,6 +163,11 @@ void setup() {
 #else
   pinMode(CLICK_PIN, INPUT_PULLUP);
 #endif
+  // The DFRobot touch and moisture sensors take power from D7 / D8 (docs/HARDWARE-PLAN.md):
+  // the UNO Q has one 3V3 pin, and a shared joint there left both unpowered.
+  pinMode(7, OUTPUT); digitalWrite(7, HIGH);   // touch VCC
+  pinMode(8, OUTPUT); digitalWrite(8, HIGH);   // moisture VCC
+  delay(300);                                  // the touch chip calibrates for ~0.25 s after power-up
   pinMode(TOUCH_PIN, INPUT);
   for (int i = 0; i < WIN; i++) mag[i] = 1.0;
 

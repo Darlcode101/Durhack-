@@ -22,8 +22,8 @@ The board, the Modulinos and the DFRobot sensors now sit **inside a working mous
               │                                                 │
               │  Qwiic ──► Modulino Buttons ──► Movement ──► Thermo
               │                                                 │
-              │  3.3V ─┬─ touch VCC        GND ─┬─ touch GND    │
-              │        └─ moisture VCC          └─ moisture GND │
+              │  D7  ──► touch VCC          GND ─┬─ touch GND    │
+              │  D8  ──► moisture VCC            └─ moisture GND │
               │  D2  ◄── touch SIG                              │
               │  A1  ◄── moisture AOUT                          │
               └─────────────────────────────────────────────────┘
@@ -43,12 +43,13 @@ The board, the Modulinos and the DFRobot sensors now sit **inside a working mous
 | Modulino Buttons | Qwiic | UNO Q **Qwiic** connector | Qwiic cable |
 | Modulino Movement | Qwiic | Buttons' second Qwiic socket | Qwiic cable |
 | Modulino Thermo | Qwiic | Movement's second Qwiic socket | Qwiic cable |
-| DFRobot touch v2 | VCC / GND / SIG | **3.3V** / GND / **D2** | 3 male-to-male jumpers |
-| DFRobot moisture v2 | VCC / GND / AOUT | **3.3V** / GND / **A1** | 3 male-to-male jumpers |
+| DFRobot touch v2 | VCC / GND / SIG | **D7** (power pin) / GND / **D2** | 3 male-to-male jumpers |
+| DFRobot moisture v2 | VCC / GND / AOUT | **D8** (power pin) / GND / **A1** | 3 male-to-male jumpers |
 
 **Rules**
 - **3.3 V only** for the DFRobot sensors. The UNO Q's pins are 3.3 V; powering a sensor from 5 V can push its output above what the pins tolerate.
-- Both sensors share 3.3V and GND. The headers have only a couple of each, so either use both GND pins, or twist two jumpers into one with a crocodile clip (it counts for hackiest hack).
+- **Power each DFRobot sensor from its own pin (D7, D8), not the 3V3 pin.** The board has only one 3V3 pin, and a shared joint there left both sensors unpowered on the first build (D2 read "floating"). The sketch drives D7 and D8 high at 3.3 V; each sensor draws only a few mA. Use the two GND pins, one per sensor.
+- **Check it:** `get_features` reports `touch_wire`. `floating` means nothing drives D2 (no power or a loose signal wire); `driven low` means the sensor is powered and untouched.
 - Modulino chain order doesn't matter electrically; Buttons first keeps the cable to the user's thumb short.
 - Default I2C addresses, for checking a scan: Thermo `0x44`, Movement `0x6A`, Buttons `0x7C`. Verify on the board; they can differ.
 - Keep the camera and YubiKey on separate hub ports, and don't plug in anything else: the hub shares one 3 A supply.
@@ -80,9 +81,9 @@ Each step lists what to do and the test that must pass before moving on. Times a
 **Test:** all three report at once. Breathe on the Thermo and the humidity rises. If nothing is found, check `Modulino.begin()` versus `Wire1` (listed in PLAN.md's verify list) and run an I2C scan.
 
 ### Step 3: the DFRobot sensors (30 min)
-1. Power **off**. Wire the touch sensor: VCC → 3.3V, GND → GND, SIG → D2.
+1. Power **off**. Wire the touch sensor: VCC → **D7**, GND → GND, SIG → D2.
 2. Print `digitalRead(2)` and touch the pad.
-3. Power off. Wire the moisture sensor: VCC → 3.3V, GND → GND, AOUT → A1.
+3. Power off. Wire the moisture sensor: VCC → **D8**, GND → GND, AOUT → A1.
 4. Print `analogRead(A1)`. Hold it dry, then press a damp finger on it.
 
 **Test:** touch reads 1 when touched and 0 when not. Moisture changes clearly between a dry and a damp finger. Note both values: they're the first baseline.
