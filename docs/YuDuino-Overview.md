@@ -4,7 +4,7 @@
 
 > **Note (2026-11-15):** this overview describes the first design (PIN on buttons, LED matrix). The design is now the zero-input mouse, and the code implements that. See the [README](../README.md) and [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md) for the current flow.
 
-To wire it up, see the step-by-step **[hardware plan](HARDWARE-PLAN.md)**. For the team schedule and software checklist, see **[PLAN.md](PLAN.md)**. For how YuDuino targets each DurHack challenge (RS/Arduino, Tagged, Gemini, Tiger Data and add-ons), see the **[challenge plan](CHALLENGES.md)**. For the build order, wave by wave, see the **[prototype and development plan](DEV-PLAN.md)**. For the cryptography (keys, the hidden duress status, login and audit trail), see the **[YuSeal crypto design](CRYPTO.md)**.
+To wire it up, see the step-by-step **[hardware plan](HARDWARE-PLAN.md)**. For the team schedule and software checklist, see **[PLAN.md](PLAN.md)**. For how YuDuino targets each DurHack challenge (RS/Arduino, Gemini, Tiger Data and add-ons), see the **[challenge plan](CHALLENGES.md)**. For the build order, wave by wave, see the **[prototype and development plan](DEV-PLAN.md)**. For the cryptography (keys, the hidden duress status, login and audit trail), see the **[YuSeal crypto design](CRYPTO.md)**.
 
 ## 1. The pitch: selling peace of mind
 
@@ -56,7 +56,7 @@ The DFRobot sensors and Modulinos live inside one **computer mouse** (cardboard 
 3. **Hold and enter PIN.** The user rests a hand on the mouse (the touch sensor confirms the palm is there) and enters their PIN on the Modulino Buttons. An 8-second capture window records tremor, humidity, temperature, moisture, PIN rhythm, a camera frame and audio.
 4. **Tap.** The user touches the YubiKey, which signs a hash of exactly what was shown.
 5. **Translate.** The UNO Q turns each reading into a feature compared with the user's own baseline (from Tiger Data). Gemini receives all the features together, plus one camera frame, and **does the duress calculation**: it aggregates the signals and returns a verdict and its reasons as structured JSON.
-6. **Respond.** Low risk: a real approval. Medium: ask for a second approver. Duress (or the duress PIN): a **fake approval**. The LED matrix shows exactly what a real one would, but the signature carries a hidden marker. The verifier freezes the action and sends a silent alert.
+6. **Respond.** Low risk: a real approval. Uncertain: a step-up result. Duress (or the duress PIN): a **fake approval**. The LED matrix shows exactly what a real one would, but the signature carries a hidden marker. The customer's verifier reads the hidden marker and decides what to do.
 
 **Safeguards around Gemini's verdict:**
 
@@ -122,7 +122,7 @@ Ledger Enterprise offers approval devices with trusted screens, and Fireblocks o
 |---|---|
 | The LED matrix is tiny, so long transactions are hard to show | Show amount and destination tail only; refuse anything else; an HDMI screen on the hub in the next version |
 | No real skin-conductance (GSR) or pulse sensor in the kit | Thermo humidity and moisture deltas from the user's own baseline; camera pulse as a stretch goal |
-| Stress isn't duress (late, cold, coffee) | Soft responses only (second approver, silent alert), never a hard lockout; the duress PIN is the most reliable signal |
+| Stress isn't duress (late, cold, coffee) | Soft responses only (step-up, a duress verdict), never a hard lockout; the duress PIN is the most reliable signal |
 | A calm, well-informed attacker can beat physiological checks | Duress PIN, time delays and 2-of-3 approval as backstops |
 | Doesn't stop the initial malware infection | It limits what stolen access is worth |
 | The UNO Q has no dedicated secure element | Key on the microcontroller side only; signed firmware; secure element in a later version |
@@ -132,14 +132,14 @@ Ledger Enterprise offers approval devices with trusted screens, and Fireblocks o
 ## 12. Hackathon goals
 
 - **Demo:** replay the Binance attack. An "attack script" on the laptop requests a transfer; the LED matrix shows it; nothing moves without a real tap. Then a forced approval: the duress check fires, the attacker sees "OK", and the verifier silently freezes the funds.
-- **Target challenges** (details in the [challenge plan](CHALLENGES.md)): RS/Arduino (main), Tagged "Information Hidden in Plain Sight" (optional), MLH Best Use of Gemini API, MLH Best Use of Tiger Data. Cheap add-ons: DEV, ElevenLabs, Vultr; Stretch goals if time: Solana and MongoDB Atlas.
+- **Target challenges** (details in the [challenge plan](CHALLENGES.md)): RS/Arduino (main), MLH Best Use of Gemini API, MLH Best Use of Tiger Data. Cheap add-ons: DEV, ElevenLabs; Stretch goals if time: Solana and MongoDB Atlas.
 - Use the free 3D printer for the mouse shell and the YubiKey dock.
 
 ## 13. Open decisions
 
-- [x] Fake approval design details: one signing key plus a status hidden inside the STM32's tag, which only the guardian can read (see [CRYPTO.md](CRYPTO.md))
+- [x] Fake approval design details: one signing key plus a status hidden inside the STM32's tag, which only the verifier can read (see [CRYPTO.md](CRYPTO.md))
 - [ ] YubiKey on the laptop (WebAuthn) or directly on the UNO Q (USB)
 - [x] Gemini does the duress calculation in the cloud (features and one frame), with fail-closed and pinned HTTPS; local model later
-- [x] Verifier: the guardian backend on a Vultr server (incident reports and admin dashboard, verifier, silent alerts); a Solana devnet wallet program as a stretch goal
-- [x] Database: Tiger Data for per-usage scores and baselines, written after the decision. MongoDB Atlas (profiles, policies, guardians, incidents) is a stretch goal if time
+- [x] Verifier: a small reference library the customer calls from their own system (`Verifier` in `yuseal.py`); a Solana devnet wallet program as a stretch goal
+- [x] Database: Tiger Data for per-usage scores and baselines, written after the decision. MongoDB Atlas (profiles, incidents) is a stretch goal if time
 - [x] Core vision: the readings are a language the attacker can't read; each means nothing alone, aggregated they form a signal, Gemini translates (secret gesture optional)

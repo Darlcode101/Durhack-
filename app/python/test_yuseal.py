@@ -17,10 +17,9 @@ import unittest
 import approve as ap
 import yuseal as ys
 
-RP = "guardian.yuduino.local"
+RP = "yuduino.local"
 ALICE = "0xA1B2C3D4E5F60718293A4B5C6D7E8F9012A1F3"
 MALLORY = "0xDEADBEEF00000000000000000000000000A1F3"  # same last 4 characters as ALICE
-BOOK = {ALICE: "ALICE"}
 REQ = {"action": "transfer", "amount": "10", "asset": "GBP", "to": ALICE}
 
 CALM = {"duress_score": 0.1, "signals": [], "reasoning": ""}
@@ -38,7 +37,7 @@ def owner_like(rng):
 
 
 class Device:
-    """One enrolled YuDuino in a mouse: STM32 (SoftMcu) + Linux side + YubiKey + a guardian that knows it."""
+    """One enrolled YuDuino in a mouse: STM32 (SoftMcu) + Linux side + YubiKey + a verifier that knows it."""
 
     def __init__(self, baseline=True, yk=None):
         self.rng = random.Random(1)
@@ -52,7 +51,7 @@ class Device:
         salt = self.mcu.unlock_salt()
         self.mcu.seal(0)
         self.store, pq = ys.create_keystore(self.yk.hmac_secret(salt))
-        self.verifier = ys.Verifier(RP, address_book=dict(BOOK))
+        self.verifier = ys.Verifier(RP)
         m = ys.Member(self.yk.public_key, pq.public_key(), ys.mcu_keys(k_mcu)[1],
                       getattr(self.yk, "key", None))
         if baseline:
@@ -73,7 +72,7 @@ class Device:
     def approve(self, gemini=CALM, request=REQ, veto=False, features=None, grip=True, click=True, wait_ms=100):
         """The Linux-side flow from docs/BUILD-FLOW.md. Returns the envelope, or None if the STM32 won't arm."""
         nonce = self.verifier.new_nonce()
-        core, _ = ys.build_core(request, BOOK, service=RP, approver="jonah", device="unoq-1", nonce=nonce)
+        core = ys.build_core(request, service=RP, approver="jonah", device="unoq-1", nonce=nonce)
         digest = ys.core_digest(core)
         if click:
             self.click(grip)                                    # 1. the person's ordinary click
@@ -100,24 +99,24 @@ class ApprovalTest(unittest.TestCase):
 
     def outcome(self, env, request=REQ, **kw):
         r = self.d.verifier.check(env, request, **kw)
-        return r["public"], r["internal"]
+        return r["public"], r["verdict"]
 
     def test_calm_owner_approval_executes(self):
-        self.assertEqual(self.outcome(self.d.approve()), ("accepted", "execute"))
+        self.assertEqual(self.outcome(self.d.approve()), ("accepted", "normal"))
 
     def test_no_touch_is_needed(self):
         env = self.d.approve()
         ad = ys.unb64(env["yk"]["authenticator_data"])
         self.assertEqual(ad[32] & 1, 0)  # user-present flag is off, and it still passes
-        self.assertEqual(self.outcome(env), ("accepted", "execute"))
+        self.assertEqual(self.outcome(env), ("accepted", "normal"))
 
     def test_duress_looks_identical_from_outside_but_holds(self):
         normal, duress = self.d.approve(CALM), self.d.approve(SCARED)
         self.assertEqual(normal.keys(), duress.keys())
         for k in ("core", "mcu", "attest", "pq_sig"):
             self.assertEqual(len(ys.canonical(normal[k])), len(ys.canonical(duress[k])), k)
-        self.assertEqual(self.outcome(normal), ("accepted", "execute"))
-        self.assertEqual(self.outcome(duress), ("accepted", "hold_and_alert"))
+        self.assertEqual(self.outcome(normal), ("accepted", "normal"))
+        self.assertEqual(self.outcome(duress), ("accepted", "duress"))
 
     def test_linux_learns_nothing_about_the_status(self):
         self.d.approve(CALM)
@@ -127,16 +126,16 @@ class ApprovalTest(unittest.TestCase):
         self.assertEqual(calm_view, self.d.linux_view)  # same salt, same tag length
 
     def test_gemini_duress_and_step_up(self):
-        self.assertEqual(self.outcome(self.d.approve(SCARED)), ("accepted", "hold_and_alert"))
-        self.assertEqual(self.outcome(self.d.approve(UNSURE)), ("need_second_approver", "need_second_approver"))
+        self.assertEqual(self.outcome(self.d.approve(SCARED)), ("accepted", "duress"))
+        self.assertEqual(self.outcome(self.d.approve(UNSURE)), ("step_up", "step_up"))
 
     def test_fail_closed(self):
         for bad in (None, {}, {"duress_score": "x"}, {"duress_score": -1}, {"duress_score": 7}):
             self.assertEqual(ys.gemini_to_score(bad), -1)
         for score in (-1, 101, 1000, None, "5", 0.2, True):
             self.assertEqual(ys.decide_status(score, False), ys.DURESS, score)
-        self.assertEqual(self.outcome(self.d.approve(None)), ("accepted", "hold_and_alert"))
-        self.assertEqual(self.outcome(self.d.approve(CALM, veto=True)), ("accepted", "hold_and_alert"))
+        self.assertEqual(self.outcome(self.d.approve(None)), ("accepted", "duress"))
+        self.assertEqual(self.outcome(self.d.approve(CALM, veto=True)), ("accepted", "duress"))
 
     def test_nothing_without_a_click(self):
         self.d.click()
@@ -178,23 +177,23 @@ class HmacSha1FallbackTest(unittest.TestCase):
 
     def test_calm_and_duress_work_the_same(self):
         r = self.d.verifier.check(self.d.approve(CALM), REQ)
-        self.assertEqual((r["public"], r["internal"]), ("accepted", "execute"))
+        self.assertEqual((r["public"], r["verdict"]), ("accepted", "normal"))
         r = self.d.verifier.check(self.d.approve(SCARED), REQ)
-        self.assertEqual((r["public"], r["internal"]), ("accepted", "hold_and_alert"))
+        self.assertEqual((r["public"], r["verdict"]), ("accepted", "duress"))
 
     def test_wrong_slot_key_rejected(self):
         env = self.d.approve(CALM)
         env["yk"]["response"] = ys.b64(os.urandom(20))
-        self.assertEqual(self.d.verifier.check(env, REQ)["internal"], "reject")
+        self.assertEqual(self.d.verifier.check(env, REQ)["verdict"], "reject")
 
     def test_no_downgrade_either_way(self):
         env = self.d.approve(CALM)  # an HMAC-SHA1 proof sent for a FIDO2 member
         fido = Device()
         fido.verifier.members["jonah"].yk_pub = fido.yk.public_key
         fido_env = fido.approve(CALM)
-        self.assertEqual(fido.verifier.check(env, REQ)["internal"], "reject")
+        self.assertEqual(fido.verifier.check(env, REQ)["verdict"], "reject")
         d2 = Device(yk=ys.SoftYubiKeyHmac())  # a FIDO2 proof sent for an HMAC-SHA1 member
-        self.assertEqual(d2.verifier.check(fido_env, REQ)["internal"], "reject")
+        self.assertEqual(d2.verifier.check(fido_env, REQ)["verdict"], "reject")
 
 
 class RootedLinuxTest(unittest.TestCase):
@@ -202,7 +201,6 @@ class RootedLinuxTest(unittest.TestCase):
 
     def setUp(self):
         self.d = Device()
-        self.d.verifier.address_book[MALLORY] = "MALLORY"
 
     def forge(self, mutate, request=REQ, **kw):
         env = self.d.approve(**kw)
@@ -215,23 +213,22 @@ class RootedLinuxTest(unittest.TestCase):
         good = self.d.approve()
         evil_req = {**REQ, "to": MALLORY}
         nonce = self.d.verifier.new_nonce()
-        book = {**BOOK, MALLORY: "MALLORY"}
-        core, _ = ys.build_core(evil_req, book, service=RP, approver="jonah", device="unoq-1", nonce=nonce)
+        core = ys.build_core(evil_req, service=RP, approver="jonah", device="unoq-1", nonce=nonce)
         digest = ys.core_digest(core)
         salt = ys.hmac256(self.d.mcu._k_rel, b"unlock-salt")  # malware cached it earlier
         key = ys.unlock(self.d.store, self.d.yk.hmac_secret(salt))
         forged = ys.make_envelope(core, self.d.yk.assert_(RP, digest), ys.unb64(good["mcu"]),
                                   ys.unb64(good["attest"]), ys.GENESIS, key)
         r = self.d.verifier.check(forged, evil_req)
-        self.assertEqual(r["internal"], "reject")
+        self.assertEqual(r["verdict"], "reject")
         self.assertIn("no valid tag", r["reason"])
 
     def test_cannot_arm_for_another_digest_without_a_fresh_click(self):
         # Malware asks the STM32 to arm for a MALLORY payment with no click: refused.
         evil_req = {**REQ, "to": MALLORY}
         nonce = self.d.verifier.new_nonce()
-        core, _ = ys.build_core(evil_req, {**BOOK, MALLORY: "MALLORY"}, service=RP, approver="jonah",
-                                device="unoq-1", nonce=nonce)
+        core = ys.build_core(evil_req, service=RP, approver="jonah",
+                             device="unoq-1", nonce=nonce)
         self.assertFalse(self.d.mcu.arm(ys.core_digest(core), self.d.t + 20000, OWNER))
 
     def test_cannot_turn_duress_into_normal(self):
@@ -239,20 +236,20 @@ class RootedLinuxTest(unittest.TestCase):
         normal = self.d.approve(CALM)
         frank = copy.deepcopy(duress)
         frank["mcu"] = normal["mcu"]  # tag from another approval
-        self.assertEqual(self.d.verifier.check(frank, REQ)["internal"], "reject")
+        self.assertEqual(self.d.verifier.check(frank, REQ)["verdict"], "reject")
 
     def test_cannot_change_the_attested_sensor_summary(self):
         def doctor(env):  # make a stranger's hand look like the owner's after the fact
             env["attest"] = ys.b64(ys.unb64(env["attest"])[:3] + ys.features_bytes(OWNER))
         r = self.forge(doctor, features=STRANGER)
-        self.assertEqual(r["internal"], "reject")  # tag no longer matches (and so does the ML-DSA seal)
+        self.assertEqual(r["verdict"], "reject")  # tag no longer matches (and so does the ML-DSA seal)
 
     def test_cannot_backdate_the_click(self):
         def doctor(env):
             raw = bytearray(ys.unb64(env["attest"]))
             raw[0], raw[1] = 0x20, 0x00
             env["attest"] = ys.b64(bytes(raw))
-        self.assertEqual(self.forge(doctor)["internal"], "reject")
+        self.assertEqual(self.forge(doctor)["verdict"], "reject")
 
 
 class OwnerCheckTest(unittest.TestCase):
@@ -265,11 +262,11 @@ class OwnerCheckTest(unittest.TestCase):
 
     def test_owner_like_hand_is_accepted(self):
         r = self.go()
-        self.assertEqual((r["owner_band"], r["internal"]), (ys.OWNER_LIKE, "execute"))
+        self.assertEqual((r["owner_band"], r["verdict"]), (ys.OWNER_LIKE, "normal"))
 
     def test_a_stranger_is_quietly_rejected_and_looks_like_any_other_failure(self):
         r = self.go(features=STRANGER)
-        self.assertEqual((r["internal"], r["public"]), ("reject_unknown_hand", ys.FAIL_PUBLIC))
+        self.assertEqual((r["verdict"], r["public"]), ("unknown_hand", ys.FAIL_PUBLIC))
         bad_sig = self.d.approve()
         bad_sig["pq_sig"] = bad_sig["pq_sig"][:-4] + "AAAA"
         self.assertEqual(self.d.verifier.check(bad_sig, REQ)["public"], ys.FAIL_PUBLIC)  # same answer for a plain failure
@@ -286,7 +283,7 @@ class OwnerCheckTest(unittest.TestCase):
         mixed = [(a + b) // 2 for a, b in zip(OWNER, STRANGER)]
         r = self.go(features=mixed)
         if r["owner_band"] == ys.UNCERTAIN:
-            self.assertEqual(r["internal"], "need_second_approver")
+            self.assertEqual(r["verdict"], "step_up")
         else:  # the blend can land on either side: it must never pass as plain owner AND execute
             self.assertIn(r["owner_band"], (ys.NOT_OWNER, ys.OWNER_LIKE))
 
@@ -294,7 +291,7 @@ class OwnerCheckTest(unittest.TestCase):
         d = Device(baseline=False)
         env = d.approve(features=STRANGER)
         r = d.verifier.check(env, REQ)
-        self.assertEqual((r["owner_band"], r["internal"]), (ys.LEARNING, "execute"))
+        self.assertEqual((r["owner_band"], r["verdict"]), (ys.LEARNING, "normal"))
 
     def test_only_passed_normal_approvals_teach_the_baseline(self):
         m = self.d.verifier.members["jonah"]
@@ -315,7 +312,7 @@ class OwnerCheckTest(unittest.TestCase):
         env = self.d.approve()
         wrong_req = self.d.verifier.check(env, {**REQ, "amount": "11"})
         replay = self.d.verifier.check(env, REQ)
-        self.assertEqual(replay["internal"], "execute")
+        self.assertEqual(replay["verdict"], "normal")
         replay = self.d.verifier.check(env, REQ)
         self.assertEqual({wrong_req["public"], replay["public"]}, {ys.FAIL_PUBLIC})
 
@@ -325,18 +322,17 @@ class ProtocolTest(unittest.TestCase):
         self.d = Device()
 
     def test_swapped_destination_rejected(self):
-        self.d.verifier.address_book[MALLORY] = "MALLORY"
         env = self.d.approve()
-        self.assertEqual(self.d.verifier.check(env, {**REQ, "to": MALLORY})["internal"], "reject")
+        self.assertEqual(self.d.verifier.check(env, {**REQ, "to": MALLORY})["verdict"], "reject")
 
     def test_replay_rejected(self):
         env = self.d.approve()
-        self.assertEqual(self.d.verifier.check(env, REQ)["internal"], "execute")
-        self.assertEqual(self.d.verifier.check(env, REQ)["internal"], "reject")
+        self.assertEqual(self.d.verifier.check(env, REQ)["verdict"], "normal")
+        self.assertEqual(self.d.verifier.check(env, REQ)["verdict"], "reject")
 
-    def test_expiry_is_timed_by_the_guardian(self):
+    def test_expiry_is_timed_by_the_verifier(self):
         env = self.d.approve()
-        self.assertEqual(self.d.verifier.check(env, REQ, now=time.time() + 600)["internal"], "reject")
+        self.assertEqual(self.d.verifier.check(env, REQ, now=time.time() + 600)["verdict"], "reject")
 
     def test_touch_is_enforced_only_when_a_deployment_asks(self):
         env = self.d.approve()
@@ -347,12 +343,7 @@ class ProtocolTest(unittest.TestCase):
     def test_other_service_rejected(self):
         env = self.d.approve()
         self.d.verifier.rp_id = "evil.example"
-        self.assertEqual(self.d.verifier.check(env, REQ)["internal"], "reject")
-
-    def test_danger_actions_always_need_a_second_approver(self):
-        req = {"action": "add_address", "label": "BOB", "address": MALLORY}
-        env = self.d.approve(request=req)
-        self.assertEqual(self.d.verifier.check(env, req)["internal"], "need_second_approver")
+        self.assertEqual(self.d.verifier.check(env, REQ)["verdict"], "reject")
 
     def test_audit_log_tamper_evident(self):
         for _ in range(3):
@@ -367,37 +358,6 @@ class ProtocolTest(unittest.TestCase):
         root = ys.merkle_root(leaves)
         leaves[3] = os.urandom(32).hex()
         self.assertNotEqual(root, ys.merkle_root(leaves))
-
-
-class SummaryTest(unittest.TestCase):
-    def test_destination_shown_by_name(self):
-        self.assertEqual(ys.render_summary(REQ, BOOK), "PAY 10 GBP TO ALICE")
-
-    def test_lookalike_address_refused(self):
-        with self.assertRaises(ValueError):  # same ending as ALICE, but not in the book
-            ys.render_summary({**REQ, "to": MALLORY}, BOOK)
-
-    def test_duplicate_names_refused(self):
-        with self.assertRaises(ValueError):
-            ys.render_summary(REQ, {ALICE: "ALICE", MALLORY: "ALICE"})
-
-    def test_hidden_or_unknown_fields_refused(self):
-        for bad in ({**REQ, "memo": "x"}, {"action": "mystery"}, {"action": "transfer", "amount": "10"},
-                    {**REQ, "amount": "10 GBP TO BOB"}, {**REQ, "amount": "-5"}, {**REQ, "asset": "G B"}):
-            with self.assertRaises(ValueError):
-                ys.render_summary(bad, BOOK)
-
-    def test_new_address_shown_in_full(self):
-        text = ys.render_summary({"action": "add_address", "label": "BOB", "address": MALLORY}, BOOK)
-        self.assertEqual(text.replace(" ", "").split("=")[1], MALLORY)
-        self.assertLessEqual(len(text), ys.MAX_TEXT)
-
-    def test_different_requests_never_share_a_display(self):
-        book = {ALICE: "ALICE", MALLORY: "MALLORY"}
-        reqs = [REQ, {**REQ, "amount": "100"}, {**REQ, "asset": "ETH"}, {**REQ, "to": MALLORY},
-                {"action": "delegate", "to": ALICE}, {"action": "login", "service": "dash", "user": "jonah"},
-                {"action": "login", "service": "dash", "user": "Jonah"}]
-        self.assertEqual(len({ys.render_summary(r, book) for r in reqs}), len(reqs))
 
 
 @unittest.skipUnless(shutil.which("g++"), "g++ not installed")
@@ -434,7 +394,7 @@ class CppCoreTest(unittest.TestCase):
         return out[3:], armed, soft, k_tag, digest
 
     def test_sha256_matches(self):
-        for msg in ("abc", "PAY 10 GBP TO ALICE", "x" * 200):
+        for msg in ("abc", "a transfer request", "x" * 200):
             self.assertEqual(self.run_cpp([f"sha {msg}"])[0], ys.sha256(msg.encode()).hex())
 
     def test_everything_matches_python_for_every_path(self):
@@ -525,67 +485,72 @@ class FakeBridge:
 
 class LinuxFlowTest(unittest.TestCase):
     def setUp(self):
-        from fastapi.testclient import TestClient
-        import guardian
-        guardian.verifier.members.clear()
-        guardian.verifier.open_nonces.clear()
-        guardian.verifier.alerts.clear()
-        guardian.verifier.address_book.update(BOOK)
-        guardian.outcomes.clear()
-        guardian.RP_ID = RP
-        guardian.verifier.rp_id = RP
-        self.guardian_mod = guardian
-        client = TestClient(guardian.app)
-        self.guardian = ap.HttpGuardian(lambda path, body: client.post(path, json=body).json())
+        self.verifier = ys.Verifier(RP)
         self.k_mcu = os.urandom(32)
         self.mcu = ys.SoftMcu(self.k_mcu)
         self.yk = ys.SoftYubiKey()
         self.tmp = tempfile.mkdtemp()
         self.state = ap.DeviceState(os.path.join(self.tmp, "device.json"))
         self.bridge = FakeBridge(self.mcu)
+        self.results = []
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def enrol(self):
-        body = ap.enrol(bridge=self.bridge, yk=self.yk, guardian=self.guardian, state=self.state,
+    def package(self):
+        body = ap.enrol(bridge=self.bridge, yk=self.yk, state=self.state,
                         user="jonah", device="unoq-1", rp_id=RP, sleep=lambda s: None)
         body["k_tag"] = ys.b64(ys.mcu_keys(self.k_mcu)[1])
-        self.assertEqual(self.guardian.enrol("jonah", body), {"ok": True})
-        # a supervised learning period: a few more normal owner approvals build the baseline
-        m = self.guardian_mod.verifier.members["jonah"]
+        return body
+
+    def learn(self):
+        # a supervised learning period: normal owner approvals build the baseline
+        m = self.verifier.members["jonah"]
         for _ in range(ys.LEARNING_MIN):
             m.baseline.add(owner_like(random.Random(len(m.baseline.samples))), time.gmtime().tm_hour)
+
+    def enrol(self):
+        self.verifier.enrol("jonah", self.package())
+        self.learn()
 
     def approve(self, gemini_fn=lambda w: CALM, timeout_s=5, **kw):
         bridge = FakeBridge(self.mcu, **kw)
         bridge.t = self.bridge.t + 10_000
         self.bridge = bridge
-        return ap.approve(bridge=bridge, yk=self.yk, guardian=self.guardian, state=self.state, request=REQ,
-                          address_book=BOOK, rp_id=RP, gemini_fn=gemini_fn, sleep=lambda s: None,
-                          timeout_s=timeout_s)
+        nonce = self.verifier.new_nonce()
+        out = ap.approve(bridge=bridge, yk=self.yk, state=self.state, request=REQ, nonce=nonce,
+                         rp_id=RP, gemini_fn=gemini_fn, sleep=lambda s: None, timeout_s=timeout_s)
+        r = self.verifier.check(out["envelope"], REQ)
+        self.results.append(r)
+        return r
 
     def test_enrol_then_calm_and_duress_look_identical_to_the_requester(self):
         self.enrol()
         a = self.approve()
         b = self.approve(gemini_fn=lambda w: SCARED)
         self.assertEqual((a["public"], b["public"]), ("accepted", "accepted"))
-        self.assertEqual([o["internal"] for o in self.guardian_mod.outcomes], ["execute", "hold_and_alert"])
+        self.assertEqual([r["verdict"] for r in self.results], ["normal", "duress"])
 
     def test_hmac_sha1_mode_through_the_whole_stack(self):
         self.yk = ys.SoftYubiKeyHmac()
-        body = ap.enrol(bridge=self.bridge, yk=self.yk, guardian=self.guardian, state=self.state,
-                        user="jonah", device="unoq-1", rp_id=RP, sleep=lambda s: None)
-        body["k_tag"] = ys.b64(ys.mcu_keys(self.k_mcu)[1])
+        body = self.package()
         self.assertEqual(body["yk_pub_der"], "")
-        self.assertEqual(self.guardian.enrol("jonah", body).get("detail"), "give exactly one of yk_pub_der (FIDO2) or yk_hmac_key (HMAC-SHA1)")
+        with self.assertRaises(ValueError):  # neither a FIDO2 key nor an HMAC key given
+            self.verifier.enrol("jonah", body)
         body["yk_hmac_key"] = ys.b64(self.yk.key)
-        self.assertEqual(self.guardian.enrol("jonah", body), {"ok": True})
-        m = self.guardian_mod.verifier.members["jonah"]
-        for _ in range(ys.LEARNING_MIN):
-            m.baseline.add(owner_like(random.Random(len(m.baseline.samples))), time.gmtime().tm_hour)
+        self.verifier.enrol("jonah", body)
+        self.learn()
         self.assertEqual(self.approve()["public"], "accepted")
-        self.assertEqual(self.guardian_mod.outcomes[-1]["internal"], "execute")
+        self.assertEqual(self.results[-1]["verdict"], "normal")
+
+    def test_verifier_state_round_trips_through_json(self):
+        self.enrol()
+        self.approve()
+        again = ys.Verifier.from_json(self.verifier.to_json())
+        nonce = again.new_nonce()
+        out = ap.approve(bridge=FakeBridge(self.mcu, t0=self.bridge.t + 10_000), yk=self.yk, state=self.state,
+                         request=REQ, nonce=nonce, rp_id=RP, gemini_fn=lambda w: CALM, sleep=lambda s: None)
+        self.assertEqual(again.check(out["envelope"], REQ)["verdict"], "normal")
 
     def test_state_survives_a_restart(self):
         self.enrol()
@@ -598,7 +563,7 @@ class LinuxFlowTest(unittest.TestCase):
     def test_gemini_down_means_hold(self):
         self.enrol()
         self.assertEqual(self.approve(gemini_fn=lambda w: None)["public"], "accepted")
-        self.assertEqual(self.guardian_mod.outcomes[-1]["internal"], "hold_and_alert")
+        self.assertEqual(self.results[-1]["verdict"], "duress")
 
     def test_missing_sensor_is_a_veto(self):
         self.assertTrue(ap.onboard_veto([]))
@@ -610,7 +575,7 @@ class LinuxFlowTest(unittest.TestCase):
         asked = []
         with self.assertRaises(ap.Refused):
             self.approve(gemini_fn=lambda w: asked.append(1), clicks=False, timeout_s=0.2)
-        self.assertEqual((asked, len(self.guardian_mod.outcomes)), ([], 0))
+        self.assertEqual((asked, self.results), ([], []))
 
     def test_no_palm_on_the_grip_signs_nothing(self):
         self.enrol()
@@ -621,7 +586,7 @@ class LinuxFlowTest(unittest.TestCase):
         self.enrol()
         r = self.approve(features=ys_stranger())
         self.assertEqual(r["public"], ys.FAIL_PUBLIC)
-        self.assertEqual(self.guardian_mod.outcomes[-1]["internal"], "reject_unknown_hand")
+        self.assertEqual(r["verdict"], "unknown_hand")
 
     def test_other_yubikey_cannot_unlock_the_key(self):
         self.enrol()

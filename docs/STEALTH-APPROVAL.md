@@ -7,7 +7,7 @@ This page says how that works, what the crypto now looks like, and, just as impo
 ## The flow
 
 ```
- Laptop app             Guardian (Vultr)            Mouse (UNO Q: STM32 + Linux)             Person
+ Laptop app             Customer's verifier         Mouse (UNO Q: STM32 + Linux)             Person
  ──────────             ────────────────            ────────────────────────────             ──────
  user clicks            ◄──── physical click on the mouse's left button, sensed by the STM32 ───┘
  "Process transaction"
@@ -27,8 +27,8 @@ This page says how that works, what the crypto now looks like, and, just as impo
                                            │   Linux signs the envelope                       │
                                            └────────────────────────────────────────────────┬─┘
                                                                                               │ envelope
-                          guardian checks ◄──────────────────────────────────────────────────┘
-                          signatures, tag, owner check, policy ─► "accepted" for normal and duress; a plain failure for an unknown hand
+                          verifier checks ◄──────────────────────────────────────────────────┘
+                          signatures, tag, owner check ─► "accepted" for normal and duress; a plain failure for an unknown hand
 ```
 
 The person did one thing: the click they were going to make anyway.
@@ -44,7 +44,7 @@ Same small trusted core ([`yuseal_mcu.h`](../app/sketch/yuseal_mcu.h) today, cha
 3. **Releases the unlock salt** (`HMAC(K_REL, "unlock-salt")`), the same salt for every outcome, so Linux learns nothing about the result.
 4. **`seal(score, veto)`**: as before, decides **N**, **S** or **D** from Gemini's number and the onboard veto, and returns the tag.
 
-**The tag** is now `HMAC(K_TAG, "YS3/tag" | status | request digest | click_age_ms | grip | hash of the feature summary)`. It proves that *this STM32 saw a real click with the palm on the grip, this many milliseconds before this request*, what the status is, and **which sensor summary it was based on**. The envelope carries that summary (a dozen aggregate numbers) so the **guardian can recompute the owner check itself** ([OWNER-CHECK.md](OWNER-CHECK.md)). The guardian recomputes it for N, S and D and checks `click_age_ms` is small. As before, normal and duress tags look like the same 32 random bytes to anyone without the tag key.
+**The tag** is now `HMAC(K_TAG, "YS3/tag" | status | request digest | click_age_ms | grip | hash of the feature summary)`. It proves that *this STM32 saw a real click with the palm on the grip, this many milliseconds before this request*, what the status is, and **which sensor summary it was based on**. The envelope carries that summary (a dozen aggregate numbers) so the **verifier can recompute the owner check itself** ([OWNER-CHECK.md](OWNER-CHECK.md)). The verifier recomputes it for N, S and D and checks `click_age_ms` is small. As before, normal and duress tags look like the same 32 random bytes to anyone without the tag key.
 
 ## What changes in the crypto
 
@@ -55,24 +55,23 @@ Same small trusted core ([`yuseal_mcu.h`](../app/sketch/yuseal_mcu.h) today, cha
 | Key release | salt after the correct PIN | salt after **arm with a recent click and palm** |
 | YubiKey | signature over the digest, **touch required** | signature or hmac-secret **without a touch** (see below) |
 | Duress signal | duress PIN **or** Gemini | **Gemini and the onboard veto only, judged only at the moment of a transaction** |
-| Who is it? | the PIN, plus a YubiKey touch | **The owner check**: the guardian compares the STM32-attested click, movement, grip and body features with the registered user's baseline, and quietly rejects other hands ([OWNER-CHECK.md](OWNER-CHECK.md)) |
+| Who is it? | the PIN, plus a YubiKey touch | **The owner check**: the verifier compares the STM32-attested click, movement, grip and body features with the registered user's baseline, and quietly rejects other hands ([OWNER-CHECK.md](OWNER-CHECK.md)) |
 | Lockout | 5 wrong PINs | **Rate limit on arming** |
 | Request display | LED matrix, trusted | **None** |
-| ML-DSA seal, audit log, hash chain, nonces, guardian checks | as before | **unchanged** |
+| ML-DSA seal, audit log, hash chain, nonces, verifier checks | as before | **unchanged** |
 
 **The YubiKey is the open question.** A touch is an input, so "no input of any kind" means **no touch**. The plan: leave the YubiKey plugged into the dock and ask it for the hmac-secret and an assertion **without user presence** (CTAP2 has an `up` option; **unverified on our key, test it**). That proves the key is *there*, not that a human touched it. If the key refuses to work without a touch, fall back to touch **only for step-up** (below), and let the mouse's click be the ordinary-case human proof.
 
-**The owner check (a headline feature).** The all-day baseline ([BASELINE.md](BASELINE.md)) lets the guardian tell whether the hand on the mouse is **the YubiKey's registered user**, from how they move, grip and click and from their body's baseline, all combined. This is the **"something you are"** factor and it replaces the PIN's "something you know". Another person gets a plain, ordinary-looking failure and can retry forever without ever passing; nothing tells them why. Full design, false-reject handling and the test plan: **[OWNER-CHECK.md](OWNER-CHECK.md)**. **It is statistical, not proof**, so it is one layer: it can reject, or push to step-up, and a pass is never enough alone.
+**The owner check (a headline feature).** The all-day baseline ([BASELINE.md](BASELINE.md)) lets the verifier tell whether the hand on the mouse is **the YubiKey's registered user**, from how they move, grip and click and from their body's baseline, all combined. This is the **"something you are"** factor and it replaces the PIN's "something you know". Another person gets a plain, ordinary-looking failure and can retry forever without ever passing; nothing tells them why. Full design, false-reject handling and the test plan: **[OWNER-CHECK.md](OWNER-CHECK.md)**. **It is statistical, not proof**, so it is one layer: it can reject, or push to step-up, and a pass is never enough alone.
 
 ## Tiers: invisible by default, a step up when it matters
 
 | Situation | What the user does | Why |
 |---|---|---|
-| Normal, in-policy request, owner-like hand, calm | **Nothing extra** | The whole point |
-| Larger than the limit, new address, or any "danger" action | **A second approver**, or a deliberate YubiKey touch | The invisible path is too weak for these |
-| Hand is **uncertain** (not quite the owner, or little data for this hour) | **A second approver** | A real owner having an odd day is slowed, not locked out |
-| Hand is **clearly not the owner** | Nothing; the requester sees an ordinary failure | The impostor can retry forever and never pass; repeats lock and alert the owner |
-| Duress score high, or Gemini or the sensors can't give a verdict | **Held for review**; the requester is told "accepted" | Fail closed, quietly |
+| Normal request, owner-like hand, calm | **Nothing extra** | The whole point |
+| Hand is **uncertain** (not quite the owner, or little data for this hour) | **A step-up result** for the customer's system to handle | A real owner having an odd day is slowed, not locked out |
+| Hand is **clearly not the owner** | Nothing; the requester sees an ordinary failure | The impostor can retry forever and never pass; repeats lock the member |
+| Duress score high, or Gemini or the sensors can't give a verdict | **Verdict `duress`**; the requester is told "accepted" | Fail closed, quietly |
 
 ## Misdirection: what an attacker sees in the logs
 
@@ -80,8 +79,8 @@ Jonah's point: the mouse is such an unusual place to put an authenticator that *
 
 To keep it true:
 
-- **Opaque signer names.** Anything outside the guardian's security boundary (dashboards, exports, ledger entries) shows a generic signer ID, not "mouse", "unoq-1", "grip" or anything else about the device.
-- **Keep sensor and click fields inside.** The click age, the feature hash and the sensor summary stay in the guardian's internal record. External logs carry the signature, the signer ID, the request and the time only.
+- **Opaque signer names.** Anything outside the verifier's security boundary (dashboards, exports, ledger entries) shows a generic signer ID, not "mouse", "unoq-1", "grip" or anything else about the device.
+- **Keep sensor and click fields inside.** The click age, the feature hash and the sensor summary stay in the verifier's internal record. External logs carry the signature, the signer ID, the request and the time only.
 - **Uniform behaviour.** Decoys and ordinary failures use the same fields and timing as real ones ([OWNER-CHECK.md](OWNER-CHECK.md)).
 - **Mind the timing.** An approval arrives about a second after a human click. Don't expose enough timing detail in outside logs to show the pattern.
 - **The signature is unusual.** An ML-DSA-65 signature is large (about 3.3 KB) and stands out on a ledger. It looks like "a post-quantum remote signer", which is the intended guess, but a careful analyst could ask why. Don't rely on it.
@@ -101,14 +100,11 @@ This is not as strong as v2. In plain words:
 
 ## Best mitigations (what we actually rely on)
 
-Because the device can no longer vouch for *what* is being approved, the weight moves to the **guardian** and to **Gemini**:
+Because the device can no longer vouch for *what* is being approved, the weight moves to the **verifier** and to **Gemini**:
 
 | Mitigation | What it covers |
 |---|---|
-| **Guardian policy limits.** Per-transaction and daily caps, velocity limits, allowed hours, and a **signed address book**: destinations must be known names. New addresses, delegation, deploys, policy changes and new signers are **always** step-up (already in the code) | Caps the damage of any swap or piggyback |
 | **Gemini checks the transaction, not just the person.** It is given the request and the user's usual pattern (amounts, destinations, times) and flags odd requests. It cannot see the laptop screen, so this finds *unusual* requests, not every swap | The swap in point 1 and the piggyback in point 2, when they are unusual |
-| **After-the-fact alert with a cancel window.** The guardian sends the summary to the user's phone ("Approved: pay 10 GBP to ALICE") and holds anything above a threshold for 30 to 60 seconds. The user does nothing normally, and **cancels only if it's wrong** | A real swap gets a chance to be stopped, with no input in the normal case |
-| **One pending request per person.** A second request while one is pending cancels both and alerts | Malware racing the user's real request |
 | **Click quality.** The STM32 only counts a click with a natural button-press impulse on the accelerometer and the palm on the grip | Cheap injected signals |
 | **Narrow window (~1.5 s) and an arming rate limit** | Slows piggybacking |
 | **Owner-likelihood and duress from the baseline** | A thief, or a stressed owner, gets a step-up or a hold |
@@ -131,13 +127,13 @@ This is built (2026-11-15), tested on a laptop and **not yet run on the board**:
 
 - **`yuseal_mcu.h`:** click edges (time and grip), `arm(digest)` with the 1.5 s rule and a rate limit, `attest()`, and the new tag. No PIN, no display.
 - **`yuseal.py`:** the new tag, a `SoftMcu` twin, the click-age check, the owner check (`Baseline`, three bands), the quiet failure, repeat lock and alerts.
-- **`approve.py`, `guardian.py`:** arm on the click, no PIN wait, one uniform public failure.
+- **`approve.py`, and the reference `Verifier` in `yuseal.py`:** arm on the click, no PIN wait, one uniform public failure.
 - **`sketch.ino`:** reads the switch line (read-only) and computes the ten features at arm time.
 - **Tests:** swap, replay, forged-tag, wrong-key, piggyback and click-age tests, plus the owner check.
-- **Not built:** phone alert and cancel window, one pending request per person, policy limits, Tiger Data baseline storage.
+- **Not built:** Tiger Data baseline storage.
 - **Hardware:** a donor mouse with a read-only tap on its left-button switch.
 
 ## For the hackathon
 
-- **Demo the invisible path:** click, and the approval goes through with no extra input. Then demo duress: the same click with the hand shaking (or a second face in the camera) is accepted on the outside, held on the inside, and an alert fires.
-- **Be honest on stage about the trade-off:** say that this version gives up the trusted screen and the PIN for invisibility, and that the guardian's limits and the cancel window are what cover the gap. That is a strength in the pitch, not a weakness.
+- **Demo the invisible path:** click, and the approval goes through with no extra input. Then demo duress: the same click with the hand shaking (or a second face in the camera) is accepted on the outside and reads `duress` to the verifier.
+- **Be honest on stage about the trade-off:** say that this version gives up the trusted screen and the PIN for invisibility. That is a strength in the pitch, not a weakness.

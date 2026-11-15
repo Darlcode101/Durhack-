@@ -16,8 +16,8 @@ from three independent proofs:
 The STM32 half is app/sketch/yuseal_mcu.h; `SoftMcu` below is the same logic in Python and the
 tests check the two agree byte for byte.
 
-Who knows the status? Only the STM32 and the guardian. Who knows whether the hand was the
-owner's? Only the guardian (it recomputes the owner check from the attested features).
+Who knows the status? Only the STM32 and the verifier. Who knows whether the hand was the
+owner's? Only the verifier (it recomputes the owner check from the attested features).
 Linux can't forge the tag, can't read it, and can't change the features without breaking it.
 
 Needs only `cryptography>=48` (ML-DSA built in; no liboqs build).
@@ -29,7 +29,6 @@ import hashlib
 import hmac as _hmac
 import json
 import os
-import re
 import time
 from dataclasses import dataclass, field
 
@@ -43,7 +42,6 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 SUITE = "YS3"  # ML-DSA-65 + ES256 (YubiKey) + HMAC-SHA-256 (STM32) + AES-256-GCM + SHA-256
 PQ_CONTEXT = b"YuDuino/approval/v3"  # FIPS 204 context string: these signatures can't be reused elsewhere
 NONCE_TTL_S = 120
-MAX_TEXT = 96
 
 NORMAL, STEP_UP, DURESS = "N", "S", "D"
 SEVERITY = {NORMAL: 0, STEP_UP: 1, DURESS: 2}
@@ -76,84 +74,19 @@ def hkdf(key: bytes, info: bytes, length: int = 32) -> bytes:
     return HKDF(algorithm=hashes.SHA256(), length=length, salt=None, info=b"YuDuino/" + info).derive(key)
 
 
-# ---------------------------------------------------------------- 1. what a request is allowed to say
-# There is no screen in mouse mode, so the summary is for the guardian and for Gemini (who check
-# the request is sane), not for the person. Every field must be a known one or the request is
-# refused. Destinations are named from the address book, never matched by "last few characters":
-# an attacker can cheaply make an address with a chosen ending.
-SCHEMAS = {
-    "transfer": {"action", "amount", "asset", "to"},
-    "login": {"action", "service", "user"},
-    "add_address": {"action", "label", "address"},
-    "delegate": {"action", "to"},
-    "deploy": {"action", "target", "build"},
-    "set_policy": {"action", "policy", "value"},
-    "add_signer": {"action", "user"},
-}
-DANGER_ACTIONS = {"add_address", "delegate", "deploy", "set_policy", "add_signer"}  # always need a second approver
-
-
-def _word(v, limit=24) -> str:
-    s = str(v)
-    if not s or len(s) > limit or any(not (c.isalnum() or c in "._-") for c in s):
-        raise ValueError(f"refusing field value {s!r}")
-    return s
-
-
-def _label(address_book: dict, address) -> str:
-    """Name for a destination. Names must be unique, or two addresses would look the same."""
-    label = address_book.get(address)
-    if label is None:
-        raise ValueError("destination not in the address book; add it first")
-    if list(address_book.values()).count(label) != 1:
-        raise ValueError("address book has a duplicate name")
-    return _word(label, 12)
-
-
-def render_summary(request: dict, address_book: dict[str, str]) -> str:
-    """Build the one-line summary of a request. The Linux side, Gemini and the guardian all run this.
-
-    `address_book` maps address -> label and is signed by the org root. Different requests
-    always give different text.
-    """
-    action = request.get("action")
-    if action not in SCHEMAS or set(request) != SCHEMAS[action]:
-        raise ValueError("unknown action, or a field that can't be summarised; refused")
-    if action == "transfer":
-        amount = str(request["amount"])
-        if not re.fullmatch(r"[0-9]{1,9}(\.[0-9]{1,6})?", amount):
-            raise ValueError("refusing amount")
-        text = f"PAY {amount} {_word(request['asset'], 6)} TO {_label(address_book, request['to'])}"
-    elif action == "login":
-        text = f"LOGIN {_word(request['service'])} AS {_word(request['user'])}"
-    elif action == "add_address":
-        addr = _word(request["address"], 44)
-        text = f"!ADD {_word(request['label'], 12)} = " + " ".join(addr[i:i + 4] for i in range(0, len(addr), 4))
-    elif action == "delegate":
-        text = f"!DELEGATE WALLET CONTROL TO {_label(address_book, request['to'])}"
-    elif action == "deploy":
-        text = f"!DEPLOY {_word(request['target'])} BUILD {_word(request['build'], 12)}"
-    elif action == "set_policy":
-        text = f"!POLICY {_word(request['policy'])} = {_word(request['value'])}"
-    else:  # add_signer
-        text = f"!ADD SIGNER {_word(request['user'])}"
-    if len(text) > MAX_TEXT or any(not 0x20 <= ord(c) <= 0x7E for c in text):
-        raise ValueError("request too long to summarise in full; refused")
-    return text
-
-
-def build_core(request: dict, address_book: dict, *, service: str, approver: str, device: str, nonce: str) -> tuple[dict, str]:
-    """Returns (core, summary). No expiry field: the device has no trusted clock,
-    so the guardian times the nonce it issued."""
-    shown = render_summary(request, address_book)
-    core = {
-        "v": 3, "suite": SUITE, "type": request["action"],
+# ---------------------------------------------------------------- 1. the request and the core
+# A request is any JSON object the customer's system wants approved. YuDuino does not interpret
+# it: it only binds the approval to the exact bytes (canonical JSON) of that request.
+def build_core(request: dict, *, service: str, approver: str, device: str, nonce: str) -> dict:
+    """The part every proof covers. No expiry field: the device has no trusted clock,
+    so the verifier times the nonce it issued."""
+    return {
+        "v": 3, "suite": SUITE, "type": str(request.get("action", "request")) if isinstance(request, dict) else "request",
         "rp": service,                          # which service this is for (stops relaying to another)
         "who": approver, "device": device,
         "request": b64(sha256(canonical(request))),
-        "nonce": nonce,                          # one-time, issued and timed by the guardian
+        "nonce": nonce,                         # one-time, issued and timed by the verifier
     }
-    return core, shown
 
 
 def core_digest(core: dict) -> bytes:
@@ -202,7 +135,7 @@ def gemini_to_score(gemini: dict | None) -> int:
 
 
 def mcu_keys(k_mcu: bytes) -> tuple[bytes, bytes]:
-    """(k_rel, k_tag). k_rel never leaves the STM32; k_tag is shared with the guardian."""
+    """(k_rel, k_tag). k_rel never leaves the STM32; k_tag is shared with the verifier."""
     return hmac256(k_mcu, b"YS3/release-key"), hmac256(k_mcu, b"YS3/tag-key")
 
 
@@ -392,8 +325,8 @@ def unlock(store: dict, yk_secret: bytes) -> mldsa.MLDSA65PrivateKey | None:
     return mldsa.MLDSA65PrivateKey.from_seed_bytes(seed)
 
 
-# ---------------------------------------------------------------- 5. the owner check (guardian side)
-# The guardian compares the STM32-attested features with the registered user's own baseline
+# ---------------------------------------------------------------- 5. the owner check (verifier side)
+# The verifier compares the STM32-attested features with the registered user's own baseline
 # (a median and a spread per feature, kept per hour of day when there is enough data). The
 # baseline is only ever fed by approvals that passed, so an impostor can't teach it their hand.
 OWNER_FEATURES = tuple(range(0, 9))        # everything but n_samples
@@ -456,11 +389,11 @@ def make_envelope(core: dict, yk_assertion: dict, tag: bytes, attest: bytes, pre
 
 @dataclass
 class Member:
-    """What the guardian knows about one approver (from their membership certificate)."""
+    """What the verifier knows about one approver (from their enrolment package)."""
     yk_pub: ec.EllipticCurvePublicKey | None   # FIDO2 mode: the credential's public key
     pq_pub: mldsa.MLDSA65PublicKey
     k_tag: bytes  # shared with that device's STM32
-    yk_hmac_key: bytes | None = None  # HMAC-SHA1 fallback mode: the slot's key. Weaker: the guardian holds a secret
+    yk_hmac_key: bytes | None = None  # HMAC-SHA1 fallback mode: the slot's key. Weaker: the verifier holds a secret
     baseline: Baseline = field(default_factory=Baseline)
     unknown_hands: list = field(default_factory=list)  # times of recent not-the-owner rejections
     locked: bool = False
@@ -468,17 +401,64 @@ class Member:
 
 # Every failure answers the requester the same way, so a failed attempt says nothing about why.
 FAIL_PUBLIC = "unavailable"
+VERDICT = {NORMAL: "normal", STEP_UP: "step_up", DURESS: "duress"}
+
+
+def _member_to_dict(m: "Member") -> dict:
+    return {"yk_pub_der": b64(m.yk_pub.public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)) if m.yk_pub else "",
+            "pq_pub": b64(m.pq_pub.public_bytes_raw()), "k_tag": b64(m.k_tag),
+            "yk_hmac_key": b64(m.yk_hmac_key) if m.yk_hmac_key else "",
+            "baseline": [[h, f] for h, f in m.baseline.samples],
+            "unknown_hands": m.unknown_hands, "locked": m.locked}
+
+
+def _member_from_dict(d: dict) -> "Member":
+    from cryptography.hazmat.primitives.serialization import load_der_public_key
+    m = Member(load_der_public_key(unb64(d["yk_pub_der"])) if d.get("yk_pub_der") else None,
+               mldsa.MLDSA65PublicKey.from_public_bytes(unb64(d["pq_pub"])), unb64(d["k_tag"]),
+               unb64(d["yk_hmac_key"]) if d.get("yk_hmac_key") else None)
+    m.baseline.samples = [(h, list(f)) for h, f in d.get("baseline", [])]
+    m.unknown_hands, m.locked = list(d.get("unknown_hands", [])), bool(d.get("locked", False))
+    return m
 
 
 @dataclass
 class Verifier:
-    """The guardian's check, and the only route to "execute". It can refuse, hold or lock. It can't
-    approve on its own: it can't make the YubiKey or ML-DSA signatures."""
+    """The reference verifier: a library the customer calls from their own system. It is not a
+    service. It issues one-time nonces, checks the three proofs and the owner check, and returns
+    what it found; what to do with the answer is the customer's decision.
+
+    check() returns {"ok": bool, "verdict": ..., "public": ..., "status": N/S/D, ...} where
+    `verdict` is the real outcome (normal, step_up, duress, reject, unknown_hand) and `public` is
+    the only thing the requester should be shown: "accepted" for both normal and duress (a decoy
+    looks identical), "step_up" for an uncertain result, and one plain "unavailable" for every failure."""
     rp_id: str
-    address_book: dict[str, str] = field(default_factory=dict)
     members: dict[str, Member] = field(default_factory=dict)
     open_nonces: dict[str, float] = field(default_factory=dict)
-    alerts: list = field(default_factory=list)  # (who, why); the guardian's response engine reads these
+    alerts: list = field(default_factory=list)  # (who, why) events the customer can read and clear
+
+    def enrol(self, user: str, package: dict) -> None:
+        """Register a member from the enrolment package `main.py enrol` prints (public data and the
+        tag key; plus the HMAC-SHA1 slot key in the fallback mode). `seed` is the supervised
+        enrolment click's sensor summary: the first baseline sample."""
+        if user in self.members:
+            raise ValueError("already enrolled; remove the member first")
+        if bool(package.get("yk_pub_der")) == bool(package.get("yk_hmac_key")):
+            raise ValueError("give exactly one of yk_pub_der (FIDO2) or yk_hmac_key (HMAC-SHA1)")
+        self.members[user] = _member_from_dict(package)
+        for f in package.get("seed", []):
+            if len(f) == N_FEATURES:
+                self.members[user].baseline.add(f, time.gmtime().tm_hour)
+
+    def to_json(self) -> str:
+        return json.dumps({"rp_id": self.rp_id, "nonces": self.open_nonces, "alerts": self.alerts,
+                           "members": {u: _member_to_dict(m) for u, m in self.members.items()}})
+
+    @classmethod
+    def from_json(cls, text: str) -> "Verifier":
+        d = json.loads(text)
+        return cls(d["rp_id"], {u: _member_from_dict(m) for u, m in d["members"].items()},
+                   dict(d.get("nonces", {})), [tuple(a) for a in d.get("alerts", [])])
 
     def new_nonce(self, now: float | None = None) -> str:
         n = b64(os.urandom(16))
@@ -486,10 +466,9 @@ class Verifier:
         return n
 
     def _fail(self, reason: str) -> dict:
-        return {"public": FAIL_PUBLIC, "internal": "reject", "reason": reason}
+        return {"ok": False, "public": FAIL_PUBLIC, "verdict": "reject", "reason": reason}
 
     def check(self, env: dict, request: dict, now: float | None = None) -> dict:
-        """Returns {"public": what the requester sees, "internal": the real outcome, "reason"}."""
         now = time.time() if now is None else now
         try:
             core = env["core"]
@@ -498,9 +477,8 @@ class Verifier:
                 return self._fail("member locked after repeated unknown hands")
             if core["v"] != 3 or core["suite"] != SUITE or core["rp"] != self.rp_id:
                 raise ValueError("wrong suite or service")
-            if core["type"] != request.get("action") or core["request"] != b64(sha256(canonical(request))):
+            if core["request"] != b64(sha256(canonical(request))):
                 raise ValueError("request changed after approval")
-            render_summary(request, self.address_book)  # refuse anything that can't be summarised
             issued = self.open_nonces.get(core["nonce"])
             if issued is None:
                 raise ValueError("unknown or reused nonce")
@@ -526,30 +504,26 @@ class Verifier:
         hour = time.gmtime(now).tm_hour
         score = m.baseline.score(features, hour)
         band = owner_band(score)
+        del self.open_nonces[core["nonce"]]
         if band == NOT_OWNER:
-            # A hand that isn't the registered user's. The nonce stays burnt for this attempt.
-            del self.open_nonces[core["nonce"]]
+            # A hand that isn't the registered user's.
             m.unknown_hands = [t for t in m.unknown_hands if now - t < LOCK_WINDOW_S] + [now]
             self.alerts.append((core["who"], "unknown hand"))
             if len(m.unknown_hands) >= LOCK_AFTER:
                 m.locked = True
                 self.alerts.append((core["who"], "locked after repeated unknown hands"))
-            return {"public": FAIL_PUBLIC, "internal": "reject_unknown_hand", "status": status,
+            return {"ok": False, "public": FAIL_PUBLIC, "verdict": "unknown_hand", "status": status,
                     "owner_score": score, "owner_band": band, "reason": "not the registered user's hand"}
-        del self.open_nonces[core["nonce"]]
         m.unknown_hands.clear()
-        # The guardian may only make things stricter, never looser.
-        if core["type"] in DANGER_ACTIONS and status == NORMAL:
-            status = STEP_UP
+        # The verifier may only make things stricter, never looser.
         if band == UNCERTAIN and status == NORMAL:
             status = STEP_UP
         if status == NORMAL and band in (OWNER_LIKE, LEARNING):
             m.baseline.add(features, hour)  # only passed, normal approvals teach the baseline
-        internal = {NORMAL: "execute", STEP_UP: "need_second_approver", DURESS: "hold_and_alert"}[status]
-        # Normal and duress look the same from outside: both are "accepted" and queued.
-        public = "need_second_approver" if status == STEP_UP else "accepted"
-        return {"public": public, "internal": internal, "status": status, "owner_score": score,
-                "owner_band": band, "reason": "ok"}
+        # Normal and duress look the same from outside: both are "accepted".
+        public = "step_up" if status == STEP_UP else "accepted"
+        return {"ok": True, "public": public, "verdict": VERDICT[status], "status": status,
+                "owner_score": score, "owner_band": band, "reason": "ok"}
 
 
 # ---------------------------------------------------------------- 7. the audit log
@@ -584,7 +558,7 @@ def log_verify(log: list, pub: mldsa.MLDSA65PublicKey) -> bool:
 
 
 def merkle_root(leaf_hashes: list[str]) -> str:
-    """RFC 6962-style tree head the guardian publishes and signs (transparency log)."""
+    """RFC 6962-style tree head over the audit log."""
     if not leaf_hashes:
         return sha256(b"").hex()
     level = [sha256(b"\x00" + bytes.fromhex(x)) for x in leaf_hashes]

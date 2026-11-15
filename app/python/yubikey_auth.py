@@ -24,7 +24,7 @@ from fido2.hid import CtapHidDevice
 from fido2.server import Fido2Server
 from fido2.webauthn import AttestedCredentialData
 
-RP_ID = os.environ.get("FIDO_RP_ID", "duress-auth.local")
+RP_ID = os.environ.get("FIDO_RP_ID", "yuduino.local")
 UV = "discouraged"  # no YubiKey PIN. Mouse mode has no knowledge factor at all (see docs/CRYPTO.md weak spots)
 
 _server = Fido2Server({"id": RP_ID, "name": "Duress-aware login"}, attestation="none")
@@ -94,7 +94,7 @@ from cryptography.hazmat.primitives.asymmetric import ec  # noqa: E402
 
 
 def credential_public_key(credential_data: bytes) -> ec.EllipticCurvePublicKey:
-    """The YubiKey credential's P-256 public key, for the guardian. VERIFY the COSE key labels on hardware."""
+    """The YubiKey credential's P-256 public key, for the verifier. VERIFY the COSE key labels on hardware."""
     cose = AttestedCredentialData(credential_data).public_key
     return ec.EllipticCurvePublicNumbers(
         int.from_bytes(cose[-2], "big"), int.from_bytes(cose[-3], "big"), ec.SECP256R1()).public_key()
@@ -120,8 +120,8 @@ class RealYubiKey:
     approval, which breaks "zero input". If neither works, use YK_MODE=hmac-sha1 (RealYubiKeyHmac).
 
     The YubiKey signs challenge = SHA-256(core) and we return the raw authenticatorData,
-    clientDataJSON and signature, which the guardian re-checks. The origin is https://<RP_ID> and
-    RP_ID must equal the guardian's service ID (FIDO_RP_ID in .env, same on both).
+    clientDataJSON and signature, which the verifier re-checks. The origin is https://<RP_ID> and
+    RP_ID must equal the verifier's service ID (FIDO_RP_ID in .env, same on both).
     """
 
     def __init__(self, credential_data: bytes | None = None, touch: bool = False):
@@ -134,7 +134,7 @@ class RealYubiKey:
         return cred, credential_public_key(cred)
 
     def assert_and_secret(self, rp_id: str, challenge: bytes, salt: bytes):
-        assert rp_id == RP_ID, "FIDO_RP_ID must equal the guardian's service ID"
+        assert rp_id == RP_ID, "FIDO_RP_ID must equal the verifier's service ID"
         b64 = lambda b: base64.urlsafe_b64encode(bytes(b)).rstrip(b"=").decode()
         if self.touch:
             client = _client()
@@ -172,9 +172,9 @@ class RealYubiKeyHmac:
     """FALLBACK for when FIDO2 will not work without a touch: the YubiKey's HMAC-SHA1
     challenge-response slot, configured WITHOUT touch (tools/setup_yk_hmac.py).
 
-    Same interface as RealYubiKey. It is weaker: there is no public-key signature, so the guardian
+    Same interface as RealYubiKey. It is weaker: there is no public-key signature, so the verifier
     holds the slot's secret (tools/out/yk_hmac_key.json) and checks the response itself. The
-    guardian can then fake the YubiKey proof (not the other two), so keep the guardian trusted.
+    verifier can then fake the YubiKey proof (not the other two), so keep the verifier trusted.
     Needs the `ykman` command (pip install yubikey-manager) and the YubiKey's OTP interface on.
     """
 

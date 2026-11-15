@@ -11,7 +11,7 @@
 //   * a tag is only produced after Linux armed us within CLICK_WINDOW_MS of a real click with the
 //     palm on the grip (one tag per click, rate limited);
 //   * the tag covers the request digest, the click's age, the grip flag and a hash of the sensor
-//     summary, so Linux can't swap the sensor data (the guardian re-checks it);
+//     summary, so Linux can't swap the sensor data (the verifier re-checks it);
 //   * the tag secretly says normal / step-up / duress, and Linux can't tell which.
 // Duress is decided only from Gemini's score and the onboard veto: there is no duress PIN.
 #ifndef YUSEAL_MCU_H

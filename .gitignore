@@ -23,10 +23,10 @@ venv/
 .DS_Store
 .vscode/
 
-# YuSeal provisioning output: device secrets and the guardian's shared tag key
+# YuSeal provisioning output: device secrets and the verifier's shared tag key
 tools/out/
 app/sketch/secrets.h
-guardian_state.json
+verifier_state.json
 device.json
 
 # Face model for the dashboard (downloaded by app/dashboard/restart.sh)

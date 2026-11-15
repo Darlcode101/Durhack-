@@ -1,6 +1,6 @@
 # YuDuino as a mouse
 
-**Status:** proposal, 14 November 2026. Not built yet. The crypto (YuSeal, keys, guardian) doesn't change; this changes where the sensors live and where the baselines come from.
+**Status:** proposal, 14 November 2026. Not built yet. The crypto (YuSeal, keys, verifier) doesn't change; this changes where the sensors live and where the baselines come from.
 
 ## The idea
 
@@ -65,7 +65,7 @@ The UNO Q won't fit in a mouse, so it's split in two:
 ## Why it's better
 
 - **Much more data, so much better baselines.** Most of the weakness in duress detection comes from not knowing what normal looks like for this person right now.
-- **Hidden in plain sight.** It fits the Tagged pitch directly: the language is how you hold a mouse, and nobody even sees a device.
+- **Hidden in plain sight.** Nobody even sees a device.
 - **No new habits** until an approval comes up.
 
 ## Cautions
@@ -77,13 +77,13 @@ The UNO Q won't fit in a mouse, so it's split in two:
   - let the user see and delete it
   - send Gemini a summary **only at approval time**, never the all-day stream
 - **"Only the user knows" must mean the user fully consents.** The same device deployed by an employer would be covert employee surveillance. Pitch it as the user's own protection, owned and controlled by them.
-- **Normal days are noisy.** Deadlines, gaming and caffeine move every signal. Comparing with the last 15 minutes helps, but false alarms will happen, so the response stays a decoy or second approver, never a lockout.
+- **Normal days are noisy.** Deadlines, gaming and caffeine move every signal. Comparing with the last 15 minutes helps, but false alarms will happen, so the response stays a decoy or step-up, never a lockout.
 
 ## Demo
 
 1. Use the mouse normally for a minute while a live dashboard shows "your normal" forming.
 2. Approve calmly: real approval.
-3. A teammate "forces" an approval (duress PIN or real stress): the screen says approved; the guardian freezes it and alerts.
+3. A teammate "forces" an approval (duress PIN or real stress): the screen says approved; the verifier freezes it and alerts.
 
 **The line to land:** "There's no security device on this desk. It's the mouse."
 

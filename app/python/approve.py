@@ -1,13 +1,14 @@
 """The Linux side of one YuSeal approval, and of enrolment. See docs/BUILD-FLOW.md.
 
 Zero-input mouse mode: nobody does anything but click. Everything outside this file is injected,
-so the same code runs on the board (real Bridge, real YubiKey, HTTP guardian) and in tests
-(fake STM32, soft YubiKey, in-process guardian).
+so the same code runs on the board (real Bridge, real YubiKey) and in tests (fake STM32, soft YubiKey).
 
     bridge    .call(name, *args) -> str          the STM32 (arm_approval, get_unlock_salt, get_attest,
                                                  get_features, seal_approval)
     yk        .register(user), .assert_and_secret(rp_id, challenge, salt)
-    guardian  .nonce(), .approve(envelope, request), .enrol(user, body)
+
+YuDuino is only the authenticator. The customer's system sends a request and a nonce (from
+`Verifier.new_nonce()` in yuseal.py), and gets back an envelope to verify with `Verifier.check()`.
 
 Flow: a request arrives -> the person's ordinary click on "process transaction" is on the STM32's
 switch tap -> arm the STM32 with the approval's digest (it refuses unless a real click with the
@@ -26,23 +27,6 @@ import yuseal as ys
 
 class Refused(Exception):
     """No real click arrived, or the STM32 would not arm or seal. Nothing was signed."""
-
-
-# ---------------------------------------------------------------- guardian clients
-class HttpGuardian:
-    """post(path, json) -> dict. On the board: lambda p, j: requests.post(BASE + p, json=j, timeout=5).json()."""
-
-    def __init__(self, post):
-        self._post = post
-
-    def nonce(self) -> str:
-        return self._post("/nonce", {})["nonce"]
-
-    def approve(self, envelope: dict, request: dict) -> str:
-        return self._post("/approve", {"envelope": envelope, "request": request})["public"]
-
-    def enrol(self, user: str, body: dict):
-        return self._post(f"/enrol/{user}", body)
 
 
 # ---------------------------------------------------------------- state on the Linux side
@@ -112,13 +96,14 @@ def _salt(bridge) -> bytes:
 
 
 # ---------------------------------------------------------------- enrolment
-def enrol(*, bridge, yk, guardian, state: DeviceState, user: str, device: str, rp_id: str,
+def enrol(*, bridge, yk, state: DeviceState, user: str, device: str, rp_id: str,
           sleep=time.sleep, timeout_s: float = 90):
     """One person, in person, with a second team member watching.
 
-    Needs the sketch flashed with the secrets from tools/provision.py, and the guardian running.
-    The person just clicks once; that first click's sensor summary seeds their baseline (this
-    supervised sample is the only one the guardian takes without an owner check).
+    Needs the sketch flashed with the secrets from tools/provision.py. The person just clicks
+    once; that first click's sensor summary seeds their baseline (this supervised sample is the
+    only one the verifier takes without an owner check). Returns the enrolment package for the
+    verifier (public data only).
     """
     credential, yk_pub = yk.register(user)
     zero = bytes(32)
@@ -134,16 +119,16 @@ def enrol(*, bridge, yk, guardian, state: DeviceState, user: str, device: str, r
     state.save()
     _, _, seed = ys.parse_attest(attest)
     body = {"yk_pub_der": "", "pq_pub": ys.b64(pq_key.public_key().public_bytes_raw()),
-            "seed": [seed]}  # the caller adds k_tag (and yk_hmac_key in HMAC mode) and POSTs it
+            "seed": [seed]}  # the caller adds k_tag (and yk_hmac_key in HMAC mode)
     if yk_pub is not None:
         body["yk_pub_der"] = ys.b64(yk_pub.public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo))
     return body
 
 
 # ---------------------------------------------------------------- one approval
-def approve(*, bridge, yk, guardian, state: DeviceState, request: dict, address_book: dict, rp_id: str,
+def approve(*, bridge, yk, state: DeviceState, request: dict, nonce: str, rp_id: str,
             gemini_fn=lambda window: None, sleep=time.sleep, timeout_s: float = 5) -> dict:
-    """Returns {"public": what the requester may be told, "envelope": the envelope}.
+    """Returns {"envelope": the envelope}, for the customer's verifier to check.
 
     Duress is judged only here, at the moment of a transaction; nothing runs continuously.
 
@@ -152,8 +137,7 @@ def approve(*, bridge, yk, guardian, state: DeviceState, request: dict, address_
     decides and tags.
     """
     user, device = state.data["user"], state.data["device"]
-    nonce = guardian.nonce()
-    core, _summary = ys.build_core(request, address_book, service=rp_id, approver=user, device=device, nonce=nonce)
+    core = ys.build_core(request, service=rp_id, approver=user, device=device, nonce=nonce)
     digest = ys.core_digest(core)
 
     _arm_on_click(bridge, digest, sleep, timeout_s)
@@ -177,4 +161,4 @@ def approve(*, bridge, yk, guardian, state: DeviceState, request: dict, address_
     ys.log_append(log, env, pq_key)
     state.save()
     del pq_key, secret
-    return {"public": guardian.approve(env, request), "envelope": env}
+    return {"envelope": env}
