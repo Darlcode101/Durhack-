@@ -10,9 +10,9 @@ Do these in order. Stop at the first failure and tell us the message.
 
 **A. Laptop (verifier side)**
 1. `git clone https://github.com/Darlcode101/Durhack-.git && cd Durhack-` then `python3 -m venv .venv && source .venv/bin/activate && pip install -r app/python/requirements.txt`
-2. `cd app/python && python3 -m unittest test_yuseal` must say `OK` (52 tests). Then `cd ../..`.
+2. `cd app/python && python3 -m unittest test_yuseal` must say `OK` (57 tests). Then `cd ../..`.
 3. `python3 tools/provision.py` makes `app/sketch/secrets.h` (the STM32's secret) and `tools/out/tag_key.json`.
-4. `cp .env.example .env`, set `GEMINI_API_KEY`, and `GEMINI_MODEL`. The reference verifier is a command-line tool, not a service: you run it in step 11 and 12.
+4. `cp .env.example .env`, install the generic model with `python3 main.py import-model <user> generic.eim`; with no model, the dashboard's body score decides, then it fails closed. The reference verifier is a command-line tool, not a service: you run it in step 11 and 12.
 
 **B. Flash the STM32**
 5. Copy `app/sketch/` (including the new `secrets.h`) into the App Lab sensor app's `sketch/` folder and put `app/dashboard/applab_relay.py` in as its `python/main.py` (it now also carries the approval calls). Start the app.
@@ -29,7 +29,7 @@ Do these in order. Stop at the first failure and tell us the message.
 
 **D. End to end**
 11. Enrol (click the mouse once when asked): `python3 app/python/main.py enrol jonah > package.json`, copy `package.json` to the laptop, then `python3 app/python/verify_cli.py enrol jonah package.json`. Expect `enrolled jonah`.
-12. Get a nonce on the laptop: `python3 app/python/verify_cli.py nonce`. Approve on the board (then click within 5 seconds): `python3 app/python/main.py approve jonah '{"action":"transfer","amount":"10","asset":"GBP","to":"0xA1B2C3D4E5F60718293A4B5C6D7E8F9012A1F3"}' --nonce <nonce> > envelope.json`. Save the same request as `request.json`, copy both to the laptop and run `python3 app/python/verify_cli.py check envelope.json request.json`. Expect `"public": "accepted"` and `"verdict": "normal"` (or `"duress"` if Gemini says duress, which is also correct behaviour).
+12. Get a nonce on the laptop: `python3 app/python/verify_cli.py nonce`. Approve on the board (then click within 5 seconds): `python3 app/python/main.py approve jonah '{"action":"transfer","amount":"10","asset":"GBP","to":"0xA1B2C3D4E5F60718293A4B5C6D7E8F9012A1F3"}' --nonce <nonce> > envelope.json`. Save the same request as `request.json`, copy both to the laptop and run `python3 app/python/verify_cli.py check envelope.json request.json`. Expect `"public": "accepted"` and `"verdict": "normal"` (or `"duress"` if the model says duress, which is also correct behaviour).
 13. No click: run step 12 and do not click. Expect `Refused: no real click ...` after 5 seconds and no envelope.
 14. Wrong hand: after about 20 normal approvals the baseline exists; have a teammate use the mouse. Expect `"public": "unavailable"` for them, and the member locked after three tries (`alerts` in `verifier_state.json`).
 
@@ -41,7 +41,7 @@ If a Bridge call fails with an argument error, tell us: the fix is in `docs/BUIL
 git clone https://github.com/Darlcode101/Durhack-.git && cd Durhack-/app/python
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt fastapi httpx   # needs cryptography>=48
-python3 -m unittest test_yuseal -v               # expect: Ran 52 tests ... OK
+python3 -m unittest test_yuseal -v               # expect: Ran 57 tests ... OK
 ```
 
 Needs `g++` too: some tests compile the real STM32 code (`app/sketch/yuseal_mcu.h`) and check it matches the Python version byte for byte.

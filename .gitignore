@@ -31,3 +31,9 @@ device.json
 
 # Face model for the dashboard (downloaded by app/dashboard/restart.sh)
 app/dashboard/models/
+
+# The dashboard's local store
+app/dashboard/data/
+
+# Encrypted per-user profiles
+app/python/profile/

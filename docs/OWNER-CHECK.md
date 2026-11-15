@@ -22,7 +22,7 @@ The *combination* is the point. Any one of these can be copied or is shared by m
 
 ## How the decision is made
 
-1. **Per-user, per-hour baseline** for every feature (median and spread), built from the person's own all-day use ([BASELINE.md](BASELINE.md), stored in Tiger Data).
+1. **Per-user, per-hour baseline** for every feature (median and spread), built from the person's own all-day use ([BASELINE.md](BASELINE.md), stored on the device).
 2. **Recent window:** the last few minutes of quiet-hand features plus the moment of the click.
 3. **Distance from the owner:** for each feature, how far the window is from the person's usual (robust z-score, each capped so one odd feature can't dominate), then a weighted combination into one number. This is plain, explainable statistics for the hackathon. A learned model (for example one-class) can replace it later.
 4. **Continuity:** the verifier also tracks whether the hand has been **continuously the same**. If the palm leaves the pad for more than a few seconds, a new hand may have picked it up, and **trust restarts from low** and has to be earned again over a minute or more of matching quiet data. Someone grabbing the mouse and immediately clicking gets no benefit of the doubt.
@@ -34,7 +34,7 @@ The *combination* is the point. Any one of these can be copied or is shared by m
 | **Uncertain** | In between, or not enough history yet for this hour | **Step-up**: returned to the customer's system to handle |
 | **Not the owner** | Clearly different, or continuity broken | **Rejected quietly** (below) |
 
-**Where it runs.** The STM32 **attests** the features: the tag covers a hash of the feature summary and the envelope carries the summary (a dozen numbers). The **verifier recomputes** the distance from those attested numbers and the Tiger Data baseline itself. So **a compromised Linux side cannot claim "it's the owner"**, and it cannot replay a recording of the owner's data without physically feeding the sensors. (Gemini's duress score still travels through Linux, as before.)
+**Where it runs.** The STM32 **attests** the features: the tag covers a hash of the feature summary and the envelope carries the summary (a dozen numbers). The **verifier recomputes** the distance from those attested numbers and the baseline itself. So **a compromised Linux side cannot claim "it's the owner"**, and it cannot replay a recording of the owner's data without physically feeding the sensors. (The model's duress score still travels through Linux, as before.)
 
 ## How a rejection looks to an impostor
 
@@ -52,7 +52,7 @@ It will happen. Hands change: cold or sweaty, an injury, a glove, a new chair, a
 
 1. **The uncertain band is a step-up, not a rejection.** Most "not quite right" cases land on a step-up result, so the owner is slowed down, not locked out.
 2. **A learning period.** Until there are enough hours of data for a given hour of day, the owner check is **advisory only**: it records and flags but doesn't reject. This stops a first-day lockout, which matters for the hackathon.
-3. **Labels teach it.** When the owner says "that was me", the window is labelled and added to the baseline (and tunes the thresholds in Tiger Data). Over time, false rejects fall.
+3. **Labels teach it.** When the owner says "that was me", the window is labelled and added to the baseline (and tunes the thresholds). Over time, false rejects fall.
 4. **A recovery path.** If a real owner is rejected, the customer's system decides how they re-verify; repeated rejections of the owner trigger a human review rather than a silent lockout.
 5. **Thresholds are set conservatively and measured.** See the test below.
 
@@ -77,7 +77,7 @@ Do this before putting any weight on it. It is quick and gives real numbers.
 | Step | What | Test |
 |---|---|---|
 | 1 | STM32 computes the per-minute click, movement, grip and body features; MAC-attests them | A tampered feature fails the tag check |
-| 2 | Verifier stores them in Tiger Data and builds per-hour baselines | The dashboard shows an hourly profile |
+| 2 | Verifier stores them locally and builds per-hour baselines | The dashboard shows an hourly profile |
 | 3 | Verifier computes the distance, the three bands and continuity | A second person gets "uncertain" or "not the owner"; the owner gets "owner-like" |
 | 4 | Quiet rejection, lock after repeats, and the alert | Repeated tries give identical failures and a recorded alert |
 | 5 | Learning-period mode, labels and the recovery path | A new user is never rejected on day one |

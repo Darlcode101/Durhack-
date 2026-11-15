@@ -13,7 +13,7 @@
 //   * the tag covers the request digest, the click's age, the grip flag and a hash of the sensor
 //     summary, so Linux can't swap the sensor data (the verifier re-checks it);
 //   * the tag secretly says normal / step-up / duress, and Linux can't tell which.
-// Duress is decided only from Gemini's score and the onboard veto: there is no duress PIN.
+// Duress is decided only from the model's score and the onboard veto: there is no duress PIN.
 #ifndef YUSEAL_MCU_H
 #define YUSEAL_MCU_H
 
@@ -127,7 +127,7 @@ const uint32_t CLICK_WINDOW_MS = 1500;     // arm() must come this soon after a 
 const uint32_t SESSION_MS = 30000;         // arm() to seal() must fit in this
 const int RATE_MAX = 10;                   // at most this many arms ...
 const uint32_t RATE_WINDOW_MS = 600000;    // ... per ten minutes
-const int STEP_UP_AT = 40, DURESS_AT = 70; // Gemini score, 0..100
+const int STEP_UP_AT = 40, DURESS_AT = 70; // model score, 0..100
 
 enum State : uint8_t { IDLE = 0, ARMED = 1 };
 enum Status : char { NORMAL = 'N', STEP_UP = 'S', DURESS = 'D' };
@@ -138,6 +138,7 @@ class Mcu {
   void provision(const uint8_t kMcu[32]) {
     derive(kMcu, "YS3/release-key", kRel_);
     derive(kMcu, "YS3/tag-key", kTag_);
+    derive(kMcu, "YS3/profile-key", kProf_);
     nArms_ = head_ = 0;
     haveClick_ = pressed_ = false;
     clear();
@@ -186,6 +187,11 @@ class Mcu {
 
   // Release the salt that lets Linux ask the YubiKey for the key-unlocking secret.
   // Same salt for every outcome, so Linux learns nothing about the result.
+  // The key that encrypts the profile (baseline and model) at rest on the board's Linux side.
+  // Derived here from K_MCU, never stored on Linux, and not tied to an approval, because the
+  // baseline is learned all day. It reveals nothing about any decision or status.
+  void profileKey(uint8_t out[32]) const { memcpy(out, kProf_, 32); }
+
   bool unlockSalt(uint8_t out[32]) {
     if (state_ != ARMED) return false;
     Hmac h(kRel_);
@@ -207,7 +213,7 @@ class Mcu {
     return true;
   }
 
-  // Linux passes Gemini's score (0..100, anything else = no usable verdict) and the onboard veto.
+  // Linux passes the model's score (0..100, anything else = no usable verdict) and the onboard veto.
   // We decide the status and return the tag. Works once per arm().
   bool seal(int score, bool veto, uint8_t tagOut[32]) {
     if (state_ != ARMED) return false;
@@ -232,7 +238,7 @@ class Mcu {
     return true;
   }
 
-  // The one decision rule. Gemini can raise the alarm, never lower it. Fail closed.
+  // The one decision rule. The model can raise the alarm, never lower it. Fail closed.
   static char decide(int score, bool veto) {
     if (veto) return DURESS;
     if (score < 0 || score > 100) return DURESS;
@@ -264,7 +270,7 @@ class Mcu {
     state_ = IDLE;
   }
 
-  uint8_t kRel_[32], kTag_[32], coreDigest_[32];
+  uint8_t kRel_[32], kTag_[32], kProf_[32], coreDigest_[32];
   int32_t features_[N_FEATURES];
   uint32_t armTimes_[RATE_MAX];
   int nArms_ = 0, head_ = 0;

@@ -2,7 +2,7 @@
 
 **The idea (Jonah, 2026-11-14):** a mouse is held for hours every day. So the device can quietly learn what *this person's* hand normally feels like, instead of relying on a single one-minute enrolment. That fixes the hardest problem in duress detection: not having enough data to say what "irregular" means.
 
-The mouse therefore does two jobs: it **hides the device**, and it **feeds the baseline**. The baseline is only learned from all day: **duress is judged only at the moment of a transaction**, never from everyday use. See [MOUSE-DESIGN.md](MOUSE-DESIGN.md) for the hardware and [CHALLENGES.md](CHALLENGES.md#4-mlh-best-use-of-tiger-data) for how Tiger Data fits.
+The mouse therefore does two jobs: it **hides the device**, and it **feeds the baseline**. The baseline is only learned from all day: **duress is judged only at the moment of a transaction**, never from everyday use. See [MOUSE-DESIGN.md](MOUSE-DESIGN.md) for the hardware.
 
 ## What this changes
 
@@ -12,7 +12,7 @@ The mouse therefore does two jobs: it **hides the device**, and it **feeds the b
 | One handheld grip that you pick up for an approval | A mouse that is **already in your hand**, so a duress reading is compared with hundreds of normal hours |
 | Hard to say what "your usual tremor" is | Per-person ranges, by time of day, built from thousands of samples |
 
-**Gemini's job is unchanged.** It still calculates the duress verdict and fails closed. It just gets better inputs: each feature as a deviation from *this person's* usual value for this hour.
+**The model's job is unchanged.** It still calculates the duress verdict and fails closed. It just gets better inputs: each feature as a deviation from *this person's* usual value for this hour.
 
 > **This baseline now also powers the owner check** ([OWNER-CHECK.md](OWNER-CHECK.md)): the same features, plus click, movement and grip features, are compared with the registered user's usual to reject other hands. The feature list below is the minimum; the owner check adds the click and movement groups.
 
@@ -30,7 +30,7 @@ Every minute (while the hand is on the mouse), the STM32 computes **one row of a
 | `still_fraction` | Movement | how much of the minute the mouse was resting rather than moving |
 | `n_samples` | counter | how many quiet samples the row is based on (for trust) |
 
-That is about 1,440 small rows per person per day at most: tiny for Tiger Data.
+That is about 1,440 small rows per person per day at most: tiny for a local file.
 
 ## Filtering out normal mouse movement
 
@@ -47,8 +47,8 @@ Each row is also **tagged** with `still_fraction`, so quiet and busy minutes are
 
 The baseline moves: hands are different at 9 am and at 11 pm, after coffee, after exercise, on a hot day. So:
 
-- **Bucket by hour of day** (and weekday versus weekend once there is enough data). Tiger Data keeps these as **continuous aggregates** over a time-series hypertable, so one fast `time_bucket` query returns "your usual tremor at this hour". The table design and SQL are in [CHALLENGES.md](CHALLENGES.md#4-mlh-best-use-of-tiger-data).
-- **Robust statistics:** medians and spread, not plain averages, so a stressful afternoon doesn't skew the baseline. The plain SQL sketch uses average and standard deviation; switch to approximate percentiles if the Tiger Data hyperfunctions are available.
+- **Bucket by hour of day** (and weekday versus weekend once there is enough data). The local store keeps these as hourly rollups of the per-minute rows, so one fast query returns "your usual tremor at this hour".
+- **Robust statistics:** medians and spread, not plain averages, so a stressful afternoon doesn't skew the baseline. The store computes average and standard deviation per hour; use medians where there is enough data.
 - **Not enough data in a bucket?** Fall back to the next wider bucket (the whole day), then to the **population prior**. A bucket needs a minimum number of quiet samples before it is trusted.
 - **Slow drift:** a weighted recent average over the last few weeks, so the baseline follows the person as they change.
 - **Within-session check:** readings from the first seconds of the approval are compared with the last ones, so a sudden change mid-approval stands out even if the long-term baseline is wide.
@@ -58,6 +58,7 @@ The baseline moves: hands are different at 9 am and at 11 pm, after coffee, afte
 
 - **Only aggregate features leave the STM32.** No raw acceleration, no cursor movement, no clicks, no keystrokes and nothing about *what* the person is doing on the computer. The mouse has no idea what the screen shows.
 - **No camera frames or audio in the baseline.** Those are used only during an approval, as now, and not stored.
+- **Method.** The STM32 keeps a per-sensor, per-hour rolling mean and variance (count capped at 1000, so old habits fade slowly). Linux keeps one feature row per minute, raw samples discarded. See [EDGE-IMPULSE.md](EDGE-IMPULSE.md).
 - **Per-user and consented.** Each team member agrees to it; the person can **see their own data, pause collection and delete it**. Reading emotion at work is restricted in some places (for example the EU), so the framing stays *context risk scoring for consenting people*.
 - **Retention:** minute rows for about 30 days, then only the hourly aggregates (kept for months). Compression keeps it small.
 - **A visible indicator.** The device never collects while a "pause" is set, and the pause state is shown on the matrix when the mouse is picked up.
@@ -76,8 +77,7 @@ If someone else uses the mouse for days, they would teach it *their* hands. So:
 |---|---|---|
 | Quiet-window filter, band-pass, per-minute features | STM32 (`sketch.ino`) | 2 |
 | Minute rows collected and posted | Linux (`main.py` background logger) to the dashboard | 2 |
-| Hypertable, hourly continuous aggregates, retention, compression | Tiger Data | 2 |
-| Baseline lookup (hour bucket, fallbacks, prior) | Verifier, passed to Gemini with the verdict request | 2 to 3 |
+| Baseline lookup (hour bucket, fallbacks, prior) | Verifier, passed to the on-device model with the verdict request | 2 to 3 |
 | Pause, view and delete my data | Dashboard | 3 |
 
 ## For the hackathon
@@ -85,5 +85,5 @@ If someone else uses the mouse for days, they would teach it *their* hands. So:
 There is no all-day data yet. So:
 
 - **Use the mouse as your own mouse from now until the demo** (see the "needs to be a real mouse" note in [MOUSE-DESIGN.md](MOUSE-DESIGN.md)). Even a few hours of real use gives a real baseline to show.
-- Start with the **one-minute enrolment and the population prior**, then switch to the hourly buckets as rows arrive. The dashboard shows the baseline filling in over the day, which is a good demo for the Tiger Data prize.
+- Start with the **one-minute enrolment and the population prior**, then switch to the hourly buckets as rows arrive. The dashboard shows the baseline filling in over the day.
 - Do not invent numbers. Show real rows, and say how many hours they cover.

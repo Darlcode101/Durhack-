@@ -22,7 +22,7 @@ This page says how that works, what the crypto now looks like, and, just as impo
                                            │ 4 STM32 releases the unlock salt                 │
                                            │ 5 Linux unwraps the ML-DSA key (YubiKey in       │
                                            │   the dock, no touch)                            │
-                                           │ 6 Gemini scores duress; STM32 decides N/S/D      │
+                                           │ 6 on-board model scores duress; STM32 decides   │
                                            │ 7 STM32 tags it, attesting the feature summary;  │
                                            │   Linux signs the envelope                       │
                                            └────────────────────────────────────────────────┬─┘
@@ -33,7 +33,7 @@ This page says how that works, what the crypto now looks like, and, just as impo
 
 The person did one thing: the click they were going to make anyway.
 
-**Does clicking "Process transaction" start the check? Yes, with one catch.** The *physical click* is the trigger, and the STM32 has to see it on the real button. The check itself (sensors, baseline, camera, Gemini) is what runs "in the background", and it runs **only at the moment of a transaction**: everyday use is learned from but never judged for duress. The catch is that the STM32 cannot tell *which* click it was, only that a hand was clicking. That is the biggest new weak point (below).
+**Does clicking "Process transaction" start the check? Yes, with one catch.** The *physical click* is the trigger, and the STM32 has to see it on the real button. The check itself (sensors, baseline, camera, the on-board model) is what runs "in the background", and it runs **only at the moment of a transaction**: everyday use is learned from but never judged for duress. The catch is that the STM32 cannot tell *which* click it was, only that a hand was clicking. That is the biggest new weak point (below).
 
 ## What the STM32 does now
 
@@ -42,7 +42,7 @@ Same small trusted core ([`yuseal_mcu.h`](../app/sketch/yuseal_mcu.h) today, cha
 1. **Senses the physical button**, not the operating system. The mouse's switch contact is wired (read-only) to an STM32 pin, so malware on the laptop can fake an OS click but **cannot fake a switch closing**. Each click edge is stored with its time and whether the palm was on the grip.
 2. **`arm(digest)`**: Linux gives it the approval's digest. The STM32 accepts only if there was a click with the grip held in the last **~1.5 seconds**, it isn't already armed, and it hasn't been armed too often this hour (a rate limit that replaces the PIN lockout).
 3. **Releases the unlock salt** (`HMAC(K_REL, "unlock-salt")`), the same salt for every outcome, so Linux learns nothing about the result.
-4. **`seal(score, veto)`**: as before, decides **N**, **S** or **D** from Gemini's number and the onboard veto, and returns the tag.
+4. **`seal(score, veto)`**: as before, decides **N**, **S** or **D** from the model's number and the onboard veto, and returns the tag.
 
 **The tag** is now `HMAC(K_TAG, "YS3/tag" | status | request digest | click_age_ms | grip | hash of the feature summary)`. It proves that *this STM32 saw a real click with the palm on the grip, this many milliseconds before this request*, what the status is, and **which sensor summary it was based on**. The envelope carries that summary (a dozen aggregate numbers) so the **verifier can recompute the owner check itself** ([OWNER-CHECK.md](OWNER-CHECK.md)). The verifier recomputes it for N, S and D and checks `click_age_ms` is small. As before, normal and duress tags look like the same 32 random bytes to anyone without the tag key.
 
@@ -54,7 +54,7 @@ Same small trusted core ([`yuseal_mcu.h`](../app/sketch/yuseal_mcu.h) today, cha
 | What the STM32 tag covers | status, hash of the text on the matrix, digest | status, digest, **click age**, grip |
 | Key release | salt after the correct PIN | salt after **arm with a recent click and palm** |
 | YubiKey | signature over the digest, **touch required** | signature or hmac-secret **without a touch** (see below) |
-| Duress signal | duress PIN **or** Gemini | **Gemini and the onboard veto only, judged only at the moment of a transaction** |
+| Duress signal | duress PIN **or** a cloud model | **The on-device Edge Impulse model and the onboard veto only, judged only at the moment of a transaction** |
 | Who is it? | the PIN, plus a YubiKey touch | **The owner check**: the verifier compares the STM32-attested click, movement, grip and body features with the registered user's baseline, and quietly rejects other hands ([OWNER-CHECK.md](OWNER-CHECK.md)) |
 | Lockout | 5 wrong PINs | **Rate limit on arming** |
 | Request display | LED matrix, trusted | **None** |
@@ -71,7 +71,7 @@ Same small trusted core ([`yuseal_mcu.h`](../app/sketch/yuseal_mcu.h) today, cha
 | Normal request, owner-like hand, calm | **Nothing extra** | The whole point |
 | Hand is **uncertain** (not quite the owner, or little data for this hour) | **A step-up result** for the customer's system to handle | A real owner having an odd day is slowed, not locked out |
 | Hand is **clearly not the owner** | Nothing; the requester sees an ordinary failure | The impostor can retry forever and never pass; repeats lock the member |
-| Duress score high, or Gemini or the sensors can't give a verdict | **Verdict `duress`**; the requester is told "accepted" | Fail closed, quietly |
+| Duress score high, or the model or the sensors can't give a verdict | **Verdict `duress`**; the requester is told "accepted" | Fail closed, quietly |
 
 ## Misdirection: what an attacker sees in the logs
 
@@ -93,18 +93,17 @@ This is not as strong as v2. In plain words:
 
 1. **No trusted display, so no protection against a swapped transaction.** In v2 the LED matrix showed exactly what was signed on a screen the laptop didn't control, so malware could not change "pay 10 to Alice" into "pay 10,000 to Mallory" without the person seeing. **Now the only screen is the laptop's.** Malware on the laptop can show Alice and send Mallory, and the user's normal click approves it. *This breaks Jonah's earlier hard rule* (2026-11-11) that the device screen shows exactly what is being approved.
 2. **The trigger can't tell which click it was.** The STM32 sees a real click, not "the click on Process transaction". Malware can **wait for any ordinary click** (the user clicks all day) and arm a request of its own within the ~1.5 s window. It can't act while the user is away from the mouse, but it can ride their clicks.
-3. **No deliberate duress signal.** The victim cannot say "I'm being forced". Detection is purely passive and happens only at the moment of a transaction: Gemini reading the sensors and one camera frame. A calm or well-trained victim, a coercer who is careful, or an ordinary bad day on the sensors can all go the wrong way. Errors cut both ways: missed duress and false alarms.
+3. **No deliberate duress signal.** The victim cannot say "I'm being forced". Detection is purely passive and happens only at the moment of a transaction: the on-device model reading the sensors. A calm or well-trained victim, a coercer who is careful, or an ordinary bad day on the sensors can all go the wrong way. Errors cut both ways: missed duress and false alarms.
 4. **No PIN, so no knowledge factor.** Anyone who can grip the mouse and click while the YubiKey is in the dock can *start* an approval. The **owner check** is what stands in for the PIN, and it is statistical: it can wrongly reject the real owner and can wrongly accept a determined, informed impostor. We haven't measured its error rates.
 5. **YubiKey without a touch** proves the key is plugged in, not that a person approved.
 6. **A compromised UNO Q Linux side is more dangerous.** In v2 a rooted Linux still needed the PIN and the displayed text. Now it only needs a click to piggyback on.
 
 ## Best mitigations (what we actually rely on)
 
-Because the device can no longer vouch for *what* is being approved, the weight moves to the **verifier** and to **Gemini**:
+Because the device can no longer vouch for *what* is being approved, the weight moves to the **verifier** and to the **on-device model**:
 
 | Mitigation | What it covers |
 |---|---|
-| **Gemini checks the transaction, not just the person.** It is given the request and the user's usual pattern (amounts, destinations, times) and flags odd requests. It cannot see the laptop screen, so this finds *unusual* requests, not every swap | The swap in point 1 and the piggyback in point 2, when they are unusual |
 | **Click quality.** The STM32 only counts a click with a natural button-press impulse on the accelerometer and the palm on the grip | Cheap injected signals |
 | **Narrow window (~1.5 s) and an arming rate limit** | Slows piggybacking |
 | **Owner-likelihood and duress from the baseline** | A thief, or a stressed owner, gets a step-up or a hold |
@@ -130,7 +129,7 @@ This is built (2026-11-15), tested on a laptop and **not yet run on the board**:
 - **`approve.py`, and the reference `Verifier` in `yuseal.py`:** arm on the click, no PIN wait, one uniform public failure.
 - **`sketch.ino`:** reads the switch line (read-only) and computes the ten features at arm time.
 - **Tests:** swap, replay, forged-tag, wrong-key, piggyback and click-age tests, plus the owner check.
-- **Not built:** Tiger Data baseline storage.
+- **Not built:** the all-day baseline storage in the verifier.
 - **Hardware:** a donor mouse with a read-only tap on its left-button switch.
 
 ## For the hackathon

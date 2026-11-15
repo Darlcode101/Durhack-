@@ -4,15 +4,15 @@
 
 > **Note (2026-11-15):** this overview describes the first design (PIN on buttons, LED matrix). The design is now the zero-input mouse, and the code implements that. See the [README](../README.md) and [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md) for the current flow.
 
-To wire it up, see the step-by-step **[hardware plan](HARDWARE-PLAN.md)**. For the team schedule and software checklist, see **[PLAN.md](PLAN.md)**. For how YuDuino targets each DurHack challenge (RS/Arduino, Gemini, Tiger Data and add-ons), see the **[challenge plan](CHALLENGES.md)**. For the build order, wave by wave, see the **[prototype and development plan](DEV-PLAN.md)**. For the cryptography (keys, the hidden duress status, login and audit trail), see the **[YuSeal crypto design](CRYPTO.md)**.
+To wire it up, see the step-by-step **[hardware plan](HARDWARE-PLAN.md)**. For the team schedule and software checklist, see **[PLAN.md](PLAN.md)**. For how YuDuino targets each DurHack challenge (RS/Arduino and add-ons), see the **[challenge plan](CHALLENGES.md)**. For the build order, wave by wave, see the **[prototype and development plan](DEV-PLAN.md)**. For the cryptography (keys, the hidden duress status, login and audit trail), see the **[YuSeal crypto design](CRYPTO.md)**.
 
 ## 1. The pitch: selling peace of mind
 
-> **The core idea: a language the attacker can never read.** While you approve, your body is "speaking": tremor, sweat, touch rhythm, voice, face and the scene around you. Each reading means nothing on its own; a shaky hand might just be coffee. Only when the readings are **aggregated** do they form a signal, and **Gemini is the translator** that turns them into one verdict: under duress or not. The attacker is in the room and sees everything, but can't read the language, and the response looks identical either way.
+> **The core idea: a language the attacker can never read.** While you approve, your body is "speaking": tremor, sweat, touch rhythm, voice, face and the scene around you. Each reading means nothing on its own; a shaky hand might just be coffee. Only when the readings are **aggregated** do they form a signal, and **the on-device Edge Impulse model is the translator** that turns them into one verdict: under duress or not. The attacker is in the room and sees everything, but can't read the language, and the response looks identical either way.
 
 YuDuino is a small desk device that sits between a person and anything dangerous they can approve: moving money, deploying to production, letting an AI agent act. Nothing happens until a named person physically approves on it. Each approval is a **cryptographic signature, never an "OK" message**, so malware on a laptop can't fake one.
 
-Hardware keys (YubiKeys, Ledger devices, HSMs) are the best security available today, but **none of them help when someone in the room forces you to enter your PIN**. YuDuino reads that hidden language while you approve: shaking hands, sweaty palms, an odd PIN rhythm, a scared voice, a second face in the camera. None of these is proof alone; together, translated by Gemini, they are. If the translation says duress, it hands the attacker a **fake approval** that looks real but moves nothing and silently raises the alarm.
+Hardware keys (YubiKeys, Ledger devices, HSMs) are the best security available today, but **none of them help when someone in the room forces you to enter your PIN**. YuDuino reads that hidden language while you approve: shaking hands, sweaty palms, an odd PIN rhythm, a scared voice, a second face in the camera. None of these is proof alone; together, translated by the on-device model, they are. If the translation says duress, it hands the attacker a **fake approval** that looks real but moves nothing and silently raises the alarm.
 
 ## 2. Why it matters: the Binance heist (29 October 2026)
 
@@ -33,7 +33,7 @@ Everything below is in our hackathon inventory except the YubiKey, which we brin
 
 | Part | Role in YuDuino | Connects to |
 |---|---|---|
-| **Arduino UNO Q** | The brain. Its Linux side (Qualcomm QRB2210) runs the camera, microphone, feature extraction and the Gemini call. Its microcontroller side (STM32U585) reads sensors in real time and will hold the post-quantum key | Everything |
+| **Arduino UNO Q** | The brain. Its Linux side (Qualcomm QRB2210) runs the camera, microphone, feature extraction and the Edge Impulse model. Its microcontroller side (STM32U585) reads sensors in real time and will hold the post-quantum key | Everything |
 | **UNO Q built-in LED matrix** (8×13) | The **trusted display**: scrolls the amount and destination being approved, then the result | Built in |
 | **Arduino USB-C hub** | The UNO Q has one USB-C port; the hub splits it for power, camera and YubiKey | UNO Q USB-C |
 | **Arduino power adaptor** + **USB-C to C cable** | 5 V 3 A into the hub's power-in port | Hub |
@@ -55,15 +55,15 @@ The DFRobot sensors and Modulinos live inside one **computer mouse** (cardboard 
 2. **Show.** The UNO Q decodes the raw request and scrolls it on the LED matrix: action, amount, the last characters of the destination, and any unusual permission. Anything too long to show is refused, never cut short. The laptop screen is never trusted for this.
 3. **Hold and enter PIN.** The user rests a hand on the mouse (the touch sensor confirms the palm is there) and enters their PIN on the Modulino Buttons. An 8-second capture window records tremor, humidity, temperature, moisture, PIN rhythm, a camera frame and audio.
 4. **Tap.** The user touches the YubiKey, which signs a hash of exactly what was shown.
-5. **Translate.** The UNO Q turns each reading into a feature compared with the user's own baseline (from Tiger Data). Gemini receives all the features together, plus one camera frame, and **does the duress calculation**: it aggregates the signals and returns a verdict and its reasons as structured JSON.
+5. **Translate.** The UNO Q turns each reading into a feature compared with the user's own baseline (kept on the device). The Edge Impulse model on the board receives all the features together (plus a face count from the camera) and **does the duress calculation**: it aggregates the signals and returns the probability of duress. The model is generic (trained on synthetic data only) and personalised on the device against the user's own baseline, which never leaves the device.
 6. **Respond.** Low risk: a real approval. Uncertain: a step-up result. Duress (or the duress PIN): a **fake approval**. The LED matrix shows exactly what a real one would, but the signature carries a hidden marker. The customer's verifier reads the hidden marker and decides what to do.
 
-**Safeguards around Gemini's verdict:**
+**Safeguards around the model's verdict:**
 
-- **Fail closed.** No reply, a late reply or a malformed reply from Gemini means the decoy key, never the real one.
-- **Pinned HTTPS to Google.** The UNO Q only accepts Google's certificate, so nobody on the network can impersonate Gemini and send "all clear".
-- **The final decision and the keys stay on the STM32.** Gemini's verdict is an input; the microcontroller chooses which key signs.
-- **Gemini can't approve on its own.** The PIN and the YubiKey touch are always required. PINs are never sent to Gemini.
+- **Fail closed.** No model, a model fault or a malformed output means the decoy key, never the real one.
+- **No cloud call.** The model runs on the board, so nobody on the network can block it or impersonate it.
+- **The final decision and the keys stay on the STM32.** The model's verdict is an input; the microcontroller chooses which key signs.
+- **The model can't approve on its own.** The click and the YubiKey are always required.
 
 ## 5. Release a key, never an "OK"
 
@@ -80,7 +80,7 @@ A large quantum computer running Shor's algorithm would break the elliptic-curve
 
 - **Three proofs per approval.** The YubiKey's P-256 signature, a **tag** from the STM32U585 (HMAC-SHA-256, so quantum-safe), and an **ML-DSA** (NIST FIPS 204) signature over everything. The verifier requires all three. Full design: [CRYPTO.md](CRYPTO.md).
 - **The UNO Q key earns its place.** The YubiKey can't do post-quantum signing, and it can't see the duress result. The UNO Q key does both: it only signs after the duress check, and under duress it signs with the decoy marker.
-- **The PIN, the display text and the duress status stay on the microcontroller side**, never on the Linux side where camera and Gemini code run. Moving the ML-DSA key there too is future work.
+- **The PIN, the display text and the duress status stay on the microcontroller side**, never on the Linux side where camera and model code run. Moving the ML-DSA key there too is future work.
 - **Crypto-agility:** every message names its algorithm, so algorithms can be swapped later.
 
 ML-DSA is built into Python's `cryptography` library (version 48 or newer), so it is part of Wave 1, not a stretch goal.
@@ -89,7 +89,7 @@ ML-DSA is built into Python's `cryptography` library (version 48 or newer), so i
 
 Raw camera, audio and sensor data stays on the UNO Q. Encrypted traffic to AI services can still leak content through packet sizes and timing ([Weiss et al., USENIX Security 2024](https://cdn.arstechnica.net/wp-content/uploads/2024/03/LLM-Side-Channel.pdf); [Microsoft Whisper Leak, 2025](https://www.microsoft.com/en-us/security/blog/2025/11/07/whisper-leak-a-novel-side-channel-cyberattack-on-remote-language-models/)), and cloud logs of biometric data can leak or be subpoenaed.
 
-For the hackathon, Gemini receives **the aggregated features and one frame**, never PINs or raw audio. If Gemini is slow, offline or returns nonsense, the device fails closed to the decoy, so a failed call can never cause a real approval. Later version: a small local model (such as Gemma) on the UNO Q's Linux side, and padded, fixed-interval messages.
+The Edge Impulse model runs on the board, so the aggregated features and the camera frame never leave it. If the model is missing or returns nonsense, the device fails closed to the decoy, so a fault can never cause a real approval. Later version: padded, fixed-interval messages.
 
 ## 8. Hard requirements
 
@@ -126,20 +126,19 @@ Ledger Enterprise offers approval devices with trusted screens, and Fireblocks o
 | A calm, well-informed attacker can beat physiological checks | Duress PIN, time delays and 2-of-3 approval as backstops |
 | Doesn't stop the initial malware infection | It limits what stolen access is worth |
 | The UNO Q has no dedicated secure element | Key on the microcontroller side only; signed firmware; secure element in a later version |
-| Cloud Gemini conflicts with "everything onboard", and the duress verdict depends on it | Features and one frame only; pinned HTTPS; fail closed to the decoy; local model later |
 | Emotion recognition is legally sensitive (the EU AI Act restricts it at work) | Frame it as context risk scoring; consenting teammates only on camera; frames never stored |
 
 ## 12. Hackathon goals
 
 - **Demo:** replay the Binance attack. An "attack script" on the laptop requests a transfer; the LED matrix shows it; nothing moves without a real tap. Then a forced approval: the duress check fires, the attacker sees "OK", and the verifier silently freezes the funds.
-- **Target challenges** (details in the [challenge plan](CHALLENGES.md)): RS/Arduino (main), MLH Best Use of Gemini API, MLH Best Use of Tiger Data. Cheap add-ons: DEV, ElevenLabs; Stretch goals if time: Solana and MongoDB Atlas.
+- **Target challenges** (details in the [challenge plan](CHALLENGES.md)): RS/Arduino (main). Cheap add-ons: DEV, ElevenLabs; Stretch goals if time: Solana and MongoDB Atlas.
 - Use the free 3D printer for the mouse shell and the YubiKey dock.
 
 ## 13. Open decisions
 
 - [x] Fake approval design details: one signing key plus a status hidden inside the STM32's tag, which only the verifier can read (see [CRYPTO.md](CRYPTO.md))
 - [ ] YubiKey on the laptop (WebAuthn) or directly on the UNO Q (USB)
-- [x] Gemini does the duress calculation in the cloud (features and one frame), with fail-closed and pinned HTTPS; local model later
+- [x] An Edge Impulse model on the board does the duress calculation, a generic model personalised on the device against the user's own baseline, which never leaves the device; fail closed
 - [x] Verifier: a small reference library the customer calls from their own system (`Verifier` in `yuseal.py`); a Solana devnet wallet program as a stretch goal
-- [x] Database: Tiger Data for per-usage scores and baselines, written after the decision. MongoDB Atlas (profiles, incidents) is a stretch goal if time
-- [x] Core vision: the readings are a language the attacker can't read; each means nothing alone, aggregated they form a signal, Gemini translates (secret gesture optional)
+- [x] Storage: a local store on the board for per-usage scores and baselines, written after the decision. MongoDB Atlas (profiles, incidents) is a stretch goal if time
+- [x] Core vision: the readings are a language the attacker can't read; each means nothing alone, aggregated they form a signal, the on-device model translates (secret gesture optional)

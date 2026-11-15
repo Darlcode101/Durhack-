@@ -84,7 +84,7 @@
   .on-green { background: var(--green); } .on-orange { background: var(--orange); } .on-red { background: var(--red); }
   .t-green { color: var(--green); } .t-orange { color: var(--orange); } .t-red { color: var(--red); }
 
-  /* Gemini */
+  /* On-device model */
   .gem { padding: 16px; }
   .gem .top2 { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
   .gem .v { font-size: 28px; font-weight: 600; }
@@ -168,7 +168,7 @@
     <div>
       <div class="sh"><h2>Assessment</h2><span class="aside" id="g-meta"></span></div>
       <div class="card gem">
-        <div class="top2"><div class="v num" id="g-score">–</div><div class="meta">Gemini duress score</div></div>
+        <div class="top2"><div class="v num" id="g-score">–</div><div class="meta">Model duress score</div></div>
         <p id="g-reason"></p>
       </div>
       <div class="sh"><h2>Last two minutes</h2></div>
@@ -211,7 +211,7 @@ const fmtZ = (z) => z == null ? "" : (z >= 0 ? "+" : "−") + Math.abs(z).toFixe
 const ago = (t) => { const s = Math.max(0, Date.now() / 1000 - t); return s < 60 ? "Just now" : s < 3600 ? Math.round(s / 60) + " min ago" : s < 86400 ? Math.round(s / 3600) + " h ago" : new Date(t * 1000).toLocaleDateString(); };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const icon = (id, size = 15) => `<svg width="${size}" height="${size}"><use href="#${id}"/></svg>`;
-let range = "15m", tigerInfo = null, lastLive = 0;
+let range = "15m", storeInfo = null, lastLive = 0;
 
 /* ---------- live ---------- */
 const zColor = (z) => z == null ? "" : z > 3 ? "t-red" : z > 2 ? "t-orange" : "";
@@ -234,11 +234,11 @@ function renderLive(s) {
     : s.signals.length ? s.signals.join(", ").replace(/^./, (c) => c.toUpperCase()) + "." : "Everything is within your normal range.";
   const A = s.assessment || {};
   const path = s.decided_by === "sensors"
-    ? "Decided by the body sensors. The camera and Gemini weren’t needed."
-    : s.baseline_ready ? "The body sensors were unsure, so the camera and Gemini made the call."
-                       : "Still learning your normal, so the camera and Gemini are making the call.";
+    ? "Decided by the body sensors. The camera and the model weren’t needed."
+    : s.baseline_ready ? "The body sensors were unsure, so the camera and the model made the call."
+                       : "Still learning your normal, so the camera and the model are making the call.";
   const expl = (A.explanations || []).map((e) => e.replace(/^./, (c) => c.toUpperCase()) + ".").join(" ");
-  // Outside a transaction nothing is decided (and Gemini is never asked), so only explain the readings.
+  // Outside a transaction nothing is decided (and the model is never run), so only explain the readings.
   $("v-path").textContent = inTx ? (expl ? `${path} ${expl}` : path) : expl;
   $("v-score").textContent = fmt(s.score);
   $("v-score").className = "v num" + (!inTx || s.verdict === "NORMAL" ? "" : ` t-${tone}`);
@@ -250,15 +250,15 @@ function renderLive(s) {
   if (tx.active) {
     $("tx-dot").className = "dot on-orange";
     $("tx-title").textContent = `Checking a transaction… ${tx.elapsed} s`;
-    $("tx-sub").textContent = "Sensors first; the camera and Gemini only if they’re unsure.";
+    $("tx-sub").textContent = "Sensors first; the camera and the model only if they’re unsure.";
   } else if (last) {
     $("tx-dot").className = "dot " + txTone(last.verdict);
     $("tx-title").textContent = `${last.outcome}`;
     const why = (last.signals || []).join(", ");
-    $("tx-sub").textContent = `${ago(last.t)} · score ${fmt(last.score)} · decided by ${last.decided_by === "sensors" ? "the body sensors" : "the camera and Gemini"}${why ? " · " + why : ""}`;
+    $("tx-sub").textContent = `${ago(last.t)} · score ${fmt(last.score)} · decided by ${last.decided_by === "sensors" ? "the body sensors" : "the camera and the model"}${why ? " · " + why : ""}`;
   }
 
-  const f = s.features || {}, r = s.baseline_ready, g = s.gemini;
+  const f = s.features || {}, r = s.baseline_ready, g = s.edge;
   const peopleCap = !s.camera_ok ? "Camera offline"
     : s.over_shoulder ? `Over your shoulder for ${Math.round(s.dwell)} s`
     : s.watching ? `Watching your screen, ${Math.round(s.dwell)} s`
@@ -283,15 +283,15 @@ function renderLive(s) {
   }
   t += tile("i-key", "--gray", "YubiKey", s.yubikey ? "Connected" : s.yubikey === false ? "Missing" : "–", "", "Presence only", s.yubikey === false ? "t-red" : "");
   t += !g.needed
-    ? tile("i-spark", "--indigo", "Gemini", "Standby", "", "Only asked when sensors are unsure", "")
-    : tile("i-spark", "--indigo", "Gemini", fmt(g.score), "", g.score != null && g.latency != null ? `${g.latency} s to respond` : (g.error ? "No answer" : "Asking…"), g.score >= 0.6 ? "t-red" : g.score >= 0.35 ? "t-orange" : "");
+    ? tile("i-spark", "--indigo", "Edge model", "Standby", "", "Only run when sensors are unsure", "")
+    : tile("i-spark", "--indigo", "Edge model", fmt(g.score), "", g.score != null && g.latency != null ? `${g.latency} s to respond` : (g.error ? "No answer" : "Running…"), g.score >= 0.6 ? "t-red" : g.score >= 0.35 ? "t-orange" : "");
   $("tiles").innerHTML = t;
   $("base-text").textContent = !r ? `Learning normal, ${Math.round(s.baseline_progress * 30)} of 30 s`
     : A.kind ? `Compared with your ${A.kind.replace("usual for this hour", "usual at this hour")}` : "Normal learned";
   const hh = A.hour != null ? String(A.hour).padStart(2, "0") + ":00" : "this hour";
   const usualMin = Math.round((A.usual_n || 0) / 60);
-  $("learn-note").textContent = tigerInfo && tigerInfo.enabled
-    ? `Learned from Tiger: ${usualMin} min of calm use around ${hh} over the last 14 days${usualMin < 10 ? " (needs 10 min before it replaces this session’s calibration)" : ""}, and ${Math.round((A.recent_n || 0) / 30)} min of your last 20.` +
+  $("learn-note").textContent = storeInfo && storeInfo.enabled
+    ? `Learned on this device: ${usualMin} min of calm use around ${hh} over the last 14 days${usualMin < 10 ? " (needs 10 min before it replaces this session’s calibration)" : ""}, and ${Math.round((A.recent_n || 0) / 30)} min of your last 20.` +
       (A.false_alarms ? ` ${A.false_alarms} false alarm${A.false_alarms === 1 ? "" : "s"} near this time widened the tolerance to ${A.tolerance}×.` : "")
     : "";
 
@@ -300,14 +300,14 @@ function renderLive(s) {
   $("g-score").textContent = fmt(g.score);
   $("g-score").className = "v num" + (g.score >= 0.6 ? " t-red" : g.score >= 0.35 ? " t-orange" : "");
   $("g-reason").textContent = !g.needed
-    ? "Not needed right now. The body sensors are clear, so no image is sent. Gemini is only asked when they’re unsure."
-    : g.reasoning || (g.error ? "Gemini didn’t answer. A real approval would fall back to the decoy." : "Asking Gemini…");
+    ? "Not needed right now. The body sensors are clear, so nothing is run. The on-board model is only used when they’re unsure."
+    : g.reasoning || (g.error ? "The on-board model gave no answer. A real approval would fall back to the decoy." : "Running the on-board model…");
   $("g-reason").style.color = g.needed && g.reasoning ? "" : css("--label2");
 
   renderConns(s);
   if ((s.history || []).length > 1) {
     const h = s.history;
-    upsert("ch-live", riskOpts(false), [h.map((p) => p.t), h.map((p) => p.score), h.map((p) => p.gemini)]);
+    upsert("ch-live", riskOpts(false), [h.map((p) => p.t), h.map((p) => p.score), h.map((p) => p.edge)]);
   }
 }
 
@@ -318,17 +318,17 @@ function connRow(iconId, color, name, sub, ok, statusText) {
     <div class="trail"><span class="dot ${dot}"></span>${statusText}</div></div>`;
 }
 function renderConns(s) {
-  const g = s.gemini, t = tigerInfo;
-  const tigerOk = !t || !t.enabled ? null : t.connected;
+  const g = s.edge, t = storeInfo;
+  const storeOk = !t || !t.enabled ? null : t.connected;
   $("conns").innerHTML =
     connRow("i-camera", "--gray", "Camera", s.camera_ok ? `${s.detector || ""}, ${Math.round(s.fps)} fps` : "", s.camera_ok, s.camera_ok ? "Connected" : "Offline") +
     connRow("i-chip", "--blue", "Sensors", s.sensors_ok ? "Thermo, Movement, touch, moisture" : "The App Lab sensor app isn’t running", s.sensors_ok ? true : "warn", s.sensors_ok ? "Connected" : "Offline") +
     connRow("i-key", "--orange", "YubiKey", "", s.yubikey === null ? null : s.yubikey, s.yubikey ? "Connected" : s.yubikey === false ? "Missing" : "Checking") +
-    connRow("i-spark", "--indigo", "Gemini", `${g.model || ""}${g.model ? ", " : ""}only asked when the sensors are unsure`,
+    connRow("i-spark", "--indigo", "Edge Impulse model", `${g.model || "no model loaded"}, run on the board when the sensors are unsure`,
             !g.needed ? null : g.score != null ? true : g.error ? "warn" : null,
-            !g.needed ? "Standby" : g.score != null ? "Responding" : g.error ? "No answer" : "Asking") +
-    connRow("i-db", "--teal", "Tiger Cloud", !t ? "" : !t.enabled ? "Not set up" : t.connected ? `${(t.stats && t.stats.total_rows || 0).toLocaleString()} readings stored` : (t.error || "Connecting"),
-            tigerOk, !t || !t.enabled ? "Off" : t.connected ? "Connected" : "Offline");
+            !g.needed ? "Standby" : g.score != null ? "Responding" : g.error ? "No answer" : "Running") +
+    connRow("i-db", "--teal", "Local store", !t ? "" : !t.enabled ? "Not set up" : t.connected ? `${(t.stats && t.stats.total_rows || 0).toLocaleString()} readings stored` : (t.error || "Connecting"),
+            storeOk, !t || !t.enabled ? "Off" : t.connected ? "Connected" : "Offline");
 }
 
 /* ---------- charts ---------- */
@@ -340,7 +340,7 @@ const thresholds = () => ({ draw: [(u) => {
   [[0.6, css("--red")], [0.35, css("--orange")]].forEach(([v, c]) => { const y = u.valToPos(v, "y", true); ctx.strokeStyle = c; ctx.globalAlpha = .6; ctx.beginPath(); ctx.moveTo(u.bbox.left, y); ctx.lineTo(u.bbox.left + u.bbox.width, y); ctx.stroke(); });
   ctx.restore(); }] });
 function riskOpts(withPeak) {
-  const series = [{}, { label: "Risk", stroke: css("--blue"), width: 2, fill: "rgba(0,122,255,.08)" }, { label: "Gemini", stroke: css("--indigo"), width: 1.5 }];
+  const series = [{}, { label: "Risk", stroke: css("--blue"), width: 2, fill: "rgba(0,122,255,.08)" }, { label: "Edge model", stroke: css("--indigo"), width: 1.5 }];
   if (withPeak) series.push({ label: "Peak", stroke: css("--gray"), width: 1, dash: [3, 3] });
   return { series, scales: { y: { range: [0, 1] } }, axes: [xaxis(), axis()], hooks: thresholds(), cursor: { points: { size: 6 } } };
 }
@@ -353,20 +353,20 @@ function upsert(id, opts, data) {
 function empty(id, msg) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } $(id).innerHTML = `<div class="empty">${esc(msg)}</div>`; }
 new ResizeObserver(() => Object.entries(charts).forEach(([id, c]) => c.setSize({ width: $(id).clientWidth, height: 220 }))).observe(document.body);
 
-/* ---------- Tiger ---------- */
+/* ---------- Local store ---------- */
 async function getJSON(u) { const r = await fetch(u, { cache: "no-store" }); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText); return j; }
 
-async function loadTiger() {
+async function loadStore() {
   try {
-    tigerInfo = await getJSON("/api/tiger");
-    const t = tigerInfo, st = t.stats || {};
+    storeInfo = await getJSON("/api/store");
+    const t = storeInfo, st = t.stats || {};
     const feats = Object.entries(t.features || {});
     const failed = feats.filter(([, v]) => v !== true).map(([k]) => k);
     $("data-note").textContent = !t.enabled
-      ? "History is off. Run tools/set_tiger_url.sh on your laptop to store readings in Tiger Cloud."
-      : `Readings are stored once a second in Tiger Cloud (TimescaleDB), with per-minute and per-hour rollups, compression after 7 days and deletion after 90.${st.size_bytes != null ? ` ${(st.size_bytes / 1048576).toFixed(1)} MB so far.` : ""} Only numbers are stored: no images, PINs or keys.${failed.length ? ` Not available on this service: ${failed.join(", ")}.` : ""}`;
+      ? "History is off."
+      : `Readings are stored once a second in a file on this device and never leave it; readings older than 90 days are deleted.${st.size_bytes != null ? ` ${(st.size_bytes / 1048576).toFixed(1)} MB so far.` : ""} Only numbers are stored: no images, PINs or keys.`;
     return t;
-  } catch (e) { tigerInfo = { enabled: true, connected: false, error: e.message }; return null; }
+  } catch (e) { storeInfo = { enabled: true, connected: false, error: e.message }; return null; }
 }
 
 async function loadHistory() {
@@ -374,7 +374,7 @@ async function loadHistory() {
     const h = await getJSON("/api/history?range=" + range);
     $("h-src").textContent = h.source.startsWith("readings_1m") ? "From per-minute rollups." : "From individual readings.";
     if (h.t.length < 2) { empty("ch-risk", "Not enough history yet."); empty("ch-body", "Not enough history yet."); return; }
-    upsert("ch-risk", riskOpts(true), [h.t, h.score, h.gemini, h.max_score]);
+    upsert("ch-risk", riskOpts(true), [h.t, h.score, h.edge, h.max_score]);
     upsert("ch-body", {
       series: [{}, { label: "Humidity %", stroke: css("--teal"), width: 2, scale: "h" }, { label: "Movement g", stroke: css("--blue"), width: 1.5, scale: "s" }],
       axes: [xaxis(), { ...axis(), scale: "h" }, { ...axis(), scale: "s", side: 1, grid: { show: false } }],
@@ -426,11 +426,11 @@ async function pollLive() {
   $("updated").textContent = !lastLive ? "Connecting…" : secs < 3 ? "Live" : `Last update ${Math.round(secs)} s ago`;
   setTimeout(pollLive, 500);
 }
-async function pollTiger() {
-  const t = await loadTiger();
+async function pollStore() {
+  const t = await loadStore();
   if (t && t.enabled) await Promise.all([loadHistory(), loadIncidents()]);
   else { ["ch-risk", "ch-body", "ch-normal"].forEach((id) => empty(id, "History is off.")); $("incidents").innerHTML = `<div class="empty">History is off.</div>`; }
-  setTimeout(pollTiger, 10000);
+  setTimeout(pollStore, 10000);
 }
 async function pollNormal() { await loadNormal(); setTimeout(pollNormal, 60000); }
 let camURL = null;
@@ -462,7 +462,7 @@ $("incidents").onclick = async (e) => {
   loadIncidents();
 };
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => Object.keys(charts).forEach((id) => { charts[id].destroy(); delete charts[id]; }));
-pollLive(); pollTiger(); pollCam(); setTimeout(pollNormal, 1500);
+pollLive(); pollStore(); pollCam(); setTimeout(pollNormal, 1500);
 </script>
 </body>
 </html>

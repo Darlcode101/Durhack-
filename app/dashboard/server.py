@@ -7,8 +7,9 @@ Inputs, all passive (no buttons, no user input):
   * sensors (STM32 -> App Lab relay -> live/features.json): sweat (moisture + palm humidity),
     movement (Modulino Movement shake), grip (touch), palm temperature
   * YubiKey: plugged in or not (presence only; no touch is requested)
-  * Gemini: ONLY during a transaction, and only when the sensors are unsure: one frame + a summary
-    of the above -> duress score with reasons. Everyday use is learned from, never judged or flagged.
+  * Edge Impulse model, on the board: ONLY during a transaction, and only when the sensors are unsure:
+    a summary of the above -> duress score. Nothing is sent anywhere. Everyday use is learned from,
+    never judged or flagged.
 
 Sensor signals are judged against the user's OWN normal, learned for 30 s at start (or on
 "Learn my normal"). Frames are kept in memory only, never written to disk.
@@ -34,16 +35,16 @@ import uvicorn  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse  # noqa: E402
 
-from fusion_gemini import gemini_score  # noqa: E402
+import edge_model  # noqa: E402
 
 sys.path.insert(0, HERE)
 import baseline_model as bm  # noqa: E402
-import tiger  # noqa: E402  (reads TIGER_DATABASE_URL, so it must come after load_dotenv)
+import store  # noqa: E402  (reads STORE_PATH, so it must come after load_dotenv)
 
 FEATURES_PATH = os.environ.get(
     "FEATURES_PATH", os.path.expanduser("~/ArduinoApps/durhack-sensors/live/features.json"))
 PORT = int(os.environ.get("DASHBOARD_PORT", "8080"))
-GEMINI_EVERY_S = float(os.environ.get("GEMINI_EVERY_S", "5"))
+EDGE_EVERY_S = float(os.environ.get("EDGE_EVERY_S", "2"))
 LEARN_SECONDS = 30
 DURESS_AT, WATCH_AT = 0.60, 0.35
 
@@ -52,7 +53,7 @@ cam = {"jpeg": None, "raw": None, "faces": 0, "others": 0, "far": 0, "ok": False
        "watching": 0, "dwell": 0.0, "over_shoulder": False, "user_facing": None}
 recent_others = collections.deque(maxlen=6)   # smooth face-count flicker over ~0.6 s
 yubikey = {"present": None, "checked": 0.0}
-gemini = {"result": None, "at": 0.0, "latency": None, "error": None, "calls": 0}
+edge = {"result": None, "at": 0.0, "latency": None, "error": None, "calls": 0}
 history = collections.deque(maxlen=240)       # 2 minutes at 2 Hz
 
 
@@ -255,54 +256,62 @@ def yubikey_loop():
         time.sleep(3)
 
 
-# ------------------------------------------------------------------ Gemini
-def gemini_loop():
-    """Gemini is a tie-breaker: it is only asked while the body sensors are uncertain.
-    When the sensors are clearly normal or clearly alarming, no frame leaves the board."""
+# ------------------------------------------------------------------ Edge Impulse (on the board)
+def _load_model():
+    """The enrolled user's Edge Impulse model, decrypted from their profile (key from the STM32)."""
+    try:
+        user = os.environ.get("YU_USER") or json.load(open(os.environ.get(
+            "DEVICE_STATE", os.path.join(os.path.dirname(__file__), "..", "python", "device.json")))).get("user")
+        from bridge import StmBridge
+        from userprofile import Profile
+        return edge_model.get_model(user, Profile.from_bridge(StmBridge()))
+    except (Exception, SystemExit) as e:   # no device state, or the STM32 relay isn't up yet
+        m = edge_model.EdgeModel(runner=None, path="")
+        m.error = f"model not loaded: {e}"
+        return m
+
+
+def edge_loop():
+    """The model is a tie-breaker: it is only asked while the body sensors are uncertain.
+    It runs on the board; no frame or reading leaves it. With no model loaded, the camera and
+    the body score decide alone."""
     last_call = 0.0
+    model = _load_model()
+    if not model.ready:
+        with lock:
+            edge.update(error=model.error or "no model loaded")
+        print(f"[edge] {model.error}: deciding from the body sensors and camera only", flush=True)
     while True:
         time.sleep(0.25)
         with lock:
-            raw = cam["raw"]
             state = dict(current_state)
-        # Only during a transaction: everyday use (gaming, a busy day) never sends a frame anywhere.
-        if state.get("mode") != "approval" or not state.get("uncertain"):
+            recent = list(recent_features)
+        # Only during a transaction: everyday use (gaming, a busy day) is never judged.
+        if not model.ready or state.get("mode") != "approval" or not state.get("uncertain"):
             continue
-        if time.time() - last_call < GEMINI_EVERY_S and last_call >= approval.get("start", 0):
-            continue
-        if not raw or not os.environ.get("GEMINI_API_KEY"):
+        if time.time() - last_call < EDGE_EVERY_S and last_call >= approval.get("start", 0):
             continue
         last_call = time.time()
-        summary = {
-            "context": ("The body sensors were borderline, so you are the tie-breaker. Shared workspaces "
-                        "and offices are normal: people in the background, or a colleague nearby, are NOT "
-                        "duress on their own. Look for coercion: someone standing over the user, physical "
-                        "contact, the user being directed or looking back at someone, signs of fear."),
-            "people_in_view": state.get("faces"),
-            "other_people_close_to_user": state.get("others"),
-            "someone_watching_screen_over_shoulder_seconds": state.get("dwell"),
-            "distant_people_in_background": state.get("far"),
-            "sweat_z_vs_own_normal": state.get("sweat_z"),
-            "movement_z_vs_own_normal": state.get("move_z"),
-            "grip_held": state.get("touch"),
-            "yubikey_connected": state.get("yubikey"),
-            "baseline_ready": state.get("baseline_ready"),
-            "note": "z = standard deviations above this user's own calm baseline; null = not available",
-        }
+        context = {"faces": state.get("faces"), "others_close": state.get("others"),
+                   "sweat_z": state.get("sweat_z"), "move_z": state.get("move_z")}
+        try:
+            from bridge import StmBridge
+            from userprofile import hour_z
+            context.update(hour_z(StmBridge(), datetime.now().hour))   # the STM32's per-hour z-scores
+        except (Exception, SystemExit):
+            pass
         t = time.time()
-        r = gemini_score(raw, summary, timeout_s=10)
+        r = model.score(recent[-10:], context)
         with lock:
-            gemini["calls"] += 1
+            edge["calls"] += 1
             if r is None:
-                gemini.update(error="no usable answer (timeout, quota or bad reply)", latency=None)
+                edge.update(error=model.error or "no usable answer from the model", latency=None)
             else:
-                gemini.update(result=r, at=time.time(), latency=round(time.time() - t, 1), error=None)
-        if r is None:
-            time.sleep(10)   # back off on quota / outage
+                edge.update(result=r, at=time.time(), latency=round(time.time() - t, 3), error=None)
 
 
 # ------------------------------------------------------------------ decision
-# The body sensors decide first. Only in the uncertain band do the camera and Gemini get a say.
+# The body sensors decide first. Only in the uncertain band do the camera and the model get a say.
 CLEAR_NORMAL_BELOW = float(os.environ.get("CLEAR_NORMAL_BELOW", "0.25"))
 CLEAR_DURESS_FROM = float(os.environ.get("CLEAR_DURESS_FROM", "0.75"))
 
@@ -317,7 +326,7 @@ def decide(body, c, g_score, others):
     if body is not None and body >= CLEAR_DURESS_FROM:
         return "DURESS", body, "sensors", ["strong stress signals from the body sensors"]
 
-    # Uncertain (or no baseline yet): ask the camera, then Gemini.
+    # Uncertain (or no baseline yet): ask the camera, then the model.
     reasons = ["body signals borderline" if body is not None else "no personal baseline yet"]
     base = body if body is not None else 0.4
     shoulder = c["over_shoulder"]
@@ -326,14 +335,14 @@ def decide(body, c, g_score, others):
     if shoulder:
         reasons.append(f"someone watching over your shoulder for {c['dwell']:.0f}s")
     if g_concern:
-        reasons.append(f"Gemini sees possible coercion ({g_score:.2f})")
+        reasons.append(f"the model sees possible coercion ({g_score:.2f})")
     if shoulder and g_concern:
         return "DURESS", max(0.8, base), "camera", reasons
     if shoulder or g_alarm:
         return "WATCH", max(0.5, base), "camera", reasons
     if g_concern:
         return "WATCH", max(0.4, base), "camera", reasons
-    # Camera and Gemini found nothing: the borderline reading is explained away.
+    # Camera and model found nothing: the borderline reading is explained away.
     if others and not shoulder:
         reasons.append("people nearby, but nobody watching the screen")
     else:
@@ -341,26 +350,26 @@ def decide(body, c, g_score, others):
     return "NORMAL", min(base, 0.3), "camera", reasons
 
 
-# ------------------------------------------------------------------ learning from Tiger
+# ------------------------------------------------------------------ learning from the local store
 learned = {}   # usual (this hour), recent (last 20 min + return/trend), tolerance, refreshed every 20 s
 
 
 def learn_loop():
-    """Pull this user's learned normal from Tiger. Deterministic: plain aggregates and statistics."""
+    """Pull this user's learned normal from the local store. Deterministic: plain aggregates and statistics."""
     from zoneinfo import ZoneInfo
     while True:
-        if tiger.URL and tiger.status.get("connected"):
+        if store.status.get("connected"):
             try:
-                hour = datetime.now(ZoneInfo(tiger.TZ)).hour
-                usual = tiger.usual_for_hour(hour)
-                recent = bm.recent_from_rows(tiger.recent_rows(30), time.time())
-                fa = tiger.false_alarms_near_hour(hour)
+                hour = datetime.now(ZoneInfo(store.TZ)).hour
+                usual = store.usual_for_hour(hour)
+                recent = bm.recent_from_rows(store.recent_rows(30), time.time())
+                fa = store.false_alarms_near_hour(hour)
                 with lock:
                     learned.update(usual=usual, recent=recent, false_alarms=fa, tolerance=bm.tolerance_for(fa),
                                    hour=hour, at=time.time(), error=None)
             except Exception as e:
                 with lock:
-                    learned["error"] = tiger._safe(e)
+                    learned["error"] = store._safe(e)
         time.sleep(20)
 
 
@@ -385,7 +394,7 @@ def compute_state():
         others_conf = sorted(recent_others)[len(recent_others) // 2] if recent_others else 0  # median
         c = dict(cam)
         yk = yubikey["present"]
-        g = dict(gemini)
+        g = dict(edge)
 
     with lock:
         L = dict(learned)
@@ -404,14 +413,14 @@ def compute_state():
             approval["active"] = False          # abandoned window: drop it without a verdict
         mode = "approval" if approval["active"] else "background"
     uncertain = body is None or CLEAR_NORMAL_BELOW <= body < CLEAR_DURESS_FROM
-    # Gemini's answer only counts if it was given during this uncertain spell.
+    # The model's answer only counts if it was given during this uncertain spell.
     if uncertain and "since" not in _uncertain:
         _uncertain["since"] = time.time()
     if not uncertain:
         _uncertain.clear()
     g_fresh = (mode == "approval" and uncertain and g["result"] is not None
                and g["at"] >= max(_uncertain.get("since", 0), approval["start"])
-               and time.time() - g["at"] < 3 * GEMINI_EVERY_S + 10)
+               and time.time() - g["at"] < 3 * EDGE_EVERY_S + 10)
     g_score = g["result"]["duress_score"] if g_fresh else None
 
     verdict, score, path, reasons = decide(body, c, g_score, others_conf)
@@ -445,41 +454,39 @@ def compute_state():
                        "recent_n": (L.get("recent") or {}).get("n", 0), "hour": L.get("hour"),
                        "false_alarms": L.get("false_alarms", 0), "learn_error": L.get("error")},
         "yubikey": yk,
-        "gemini": {"score": g_score, "fresh": g_fresh, "needed": uncertain and mode == "approval", "latency": g["latency"],
+        "edge": {"score": g_score, "fresh": g_fresh, "needed": uncertain and mode == "approval", "latency": g["latency"],
                    "error": g["error"] if uncertain and mode == "approval" else None,
-                   "calls": g["calls"], "model": os.environ.get("GEMINI_MODEL"),
+                   "calls": g["calls"], "model": os.environ.get("PROFILE_DIR"),
                    "signals": (g["result"] or {}).get("signals") if g_fresh else None,
                    "reasoning": (g["result"] or {}).get("reasoning") if g_fresh else None},
     }
     with lock:
         current_state.clear()
         current_state.update(st)
-        history.append({"t": st["t"], "score": st["score"], "local": st["local_score"], "gemini": g_score,
+        history.append({"t": st["t"], "score": st["score"], "local": st["local_score"], "edge": g_score,
                         "uncertain": uncertain})
-    store(st, s)
+    store_reading(st, s)
 
 
-# ------------------------------------------------------------------ Tiger Data
+# ------------------------------------------------------------------ Local store
 _last_store = 0.0
 
 
-def store(st, s):
-    """One reading per second into the hypertable; open/update/close incidents on verdict changes."""
+def store_reading(st, s):
+    """One reading per second into the local store."""
     global _last_store
-    if not tiger.URL:
-        return
     if st["t"] - _last_store >= 1.0:
         _last_store = st["t"]
         f = s or {}
-        tiger.record({
+        store.record({
             "time": datetime.fromtimestamp(st["t"], timezone.utc),
-            "device": tiger.DEVICE, "verdict": st["verdict"], "score": st["score"],
-            "local_score": st["local_score"], "gemini_score": st["gemini"]["score"],
+            "device": store.DEVICE, "verdict": st["verdict"], "score": st["score"],
+            "local_score": st["local_score"], "edge_score": st["edge"]["score"],
             "faces": st["faces"], "close_people": st["others"], "far_people": st["far"],
             "humidity": f.get("humidity"), "temp_c": f.get("temp_c"), "shake_rms": f.get("shake_rms"),
             "moisture": f.get("moisture"), "touch": bool(f.get("touch")) if f else None,
             "sweat_z": st["sweat_z"], "move_z": st["move_z"], "yubikey": st["yubikey"],
-            "gemini_latency": st["gemini"]["latency"] if st["gemini"]["fresh"] else None,
+            "edge_latency": st["edge"]["latency"] if st["edge"]["fresh"] else None,
             "decided_by": st["decided_by"],
             # Enough to recompute this verdict: which baseline, the z-scores and each signal's state.
             "body_score": st["body_score"],
@@ -492,7 +499,7 @@ def store(st, s):
 
 # ------------------------------------------------------------------ transactions
 # Only a transaction is judged. Everyday readings feed the learned baseline and the live view,
-# but nothing is raised from them and no frame is sent to Gemini.
+# but nothing is raised from them and no model is run.
 APPROVAL_MAX_S = 20
 approval = {"active": False, "start": 0.0, "label": None, "samples": [], "last": None}
 _RANK = {"NORMAL": 0, "WATCH": 1, "DURESS": 2}
@@ -524,10 +531,10 @@ def finish_approval() -> dict | None:
                   duress_score=result["score"])
     with lock:
         approval["last"] = result
-    tiger.record_approval(start, label, result)
+    store.record_approval(start, label, result)
     if result["verdict"] != "NORMAL":
-        tiger.incident_open(start, result["verdict"], result["score"], result["signals"], result["reasoning"])
-        tiger.incident_update(start, result["verdict"], result["score"], result["signals"], result["reasoning"], ended=True)
+        store.incident_open(start, result["verdict"], result["score"], result["signals"], result["reasoning"])
+        store.incident_update(start, result["verdict"], result["score"], result["signals"], result["reasoning"], ended=True)
     return result
 
 
@@ -562,39 +569,37 @@ def calibrate():
     return {"ok": True}
 
 
-def _tiger(fn, *args):
-    if not tiger.URL:
-        return JSONResponse({"error": "Tiger not configured (set TIGER_DATABASE_URL in .env)"}, status_code=503)
+def _store(fn, *args):
     try:
         return JSONResponse(fn(*args))
     except Exception as e:
-        return JSONResponse({"error": tiger._safe(e)}, status_code=502)
+        return JSONResponse({"error": store._safe(e)}, status_code=502)
 
 
-@app.get("/api/tiger")
-def api_tiger():
-    out = dict(tiger.status)
-    if tiger.URL and tiger.status["connected"]:
+@app.get("/api/store")
+def api_store():
+    out = dict(store.status)
+    if store.status["connected"]:
         try:
-            out["stats"] = tiger.stats()
+            out["stats"] = store.stats()
         except Exception as e:
-            out["stats_error"] = tiger._safe(e)
+            out["stats_error"] = store._safe(e)
     return JSONResponse(out)
 
 
 @app.get("/api/history")
 def api_history(range: str = "15m"):
-    return _tiger(tiger.history, range)
+    return _store(store.history, range)
 
 
 @app.get("/api/normal")
 def api_normal():
-    return _tiger(tiger.normal_by_hour)
+    return _store(store.normal_by_hour)
 
 
 @app.get("/api/incidents")
 def api_incidents():
-    return _tiger(tiger.incidents)
+    return _store(store.incidents)
 
 
 @app.post("/api/approval/start")
@@ -610,15 +615,15 @@ def api_approval_finish():
 @app.post("/api/assess")
 def api_assess(label: str | None = None, seconds: float = 3.0):
     """One-shot transaction check for app/python/main.py: opens a window, gathers `seconds` of
-    readings (plus Gemini if the sensors are unsure, up to 12 s), and returns the verdict in
-    fusion_gemini's format (duress_score, signals, reasoning) plus verdict/decided_by/outcome."""
+    readings (plus the on-board model if the sensors are unsure, up to 12 s), and returns the verdict in
+    edge_model's format (duress_score, signals, reasoning) plus verdict/decided_by/outcome."""
     start_approval(label)
     time.sleep(max(1.0, min(seconds, 10.0)))
     deadline = time.time() + 12
-    while time.time() < deadline:   # sensors unsure: wait for Gemini to break the tie
+    while time.time() < deadline:   # sensors unsure: wait for the model to break the tie
         with lock:
             st = dict(current_state)
-        if not st.get("uncertain") or st.get("gemini", {}).get("fresh") or st.get("gemini", {}).get("error"):
+        if not st.get("uncertain") or st.get("edge", {}).get("fresh") or st.get("edge", {}).get("error"):
             break
         time.sleep(0.25)
     return JSONResponse(finish_approval())
@@ -628,7 +633,7 @@ def api_assess(label: str | None = None, seconds: float = 3.0):
 def api_label(t: float, label: str):
     """Mark an incident as a false alarm (widens tolerance at that time of day, capped) or confirmed.
     Demo only: in a real deployment this would need compliance/security sign-in."""
-    return _tiger(lambda: {"ok": tiger.label_incident(t, None if label == "clear" else label)})
+    return _store(lambda: {"ok": store.label_incident(t, None if label == "clear" else label)})
 
 
 @app.get("/frame.jpg")
@@ -666,8 +671,8 @@ def video():
 
 
 if __name__ == "__main__":
-    print("Tiger Data:", "configured" if tiger.URL else "not configured (live view only)", flush=True)
-    for fn in (camera_loop, yubikey_loop, gemini_loop, fusion_loop, tiger.writer_loop, learn_loop):
+    print("Local store:", store.PATH, flush=True)
+    for fn in (camera_loop, yubikey_loop, edge_loop, fusion_loop, store.writer_loop, learn_loop):
         threading.Thread(target=fn, daemon=True).start()
     print(f"Dashboard on http://0.0.0.0:{PORT}  (sensors from {FEATURES_PATH})", flush=True)
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")

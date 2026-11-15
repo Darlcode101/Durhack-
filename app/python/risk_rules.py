@@ -1,4 +1,4 @@
-"""Offline rules engine. Always runs, so the system still works if Gemini is slow or down.
+"""Offline rules engine. Always runs, so the system still works if the model is missing.
 
 Scores are deltas from the user's enrolled resting baseline, never absolute values:
 skin, sweat and shaking differ a lot between people.

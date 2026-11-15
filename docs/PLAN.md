@@ -4,12 +4,12 @@
 >
 > The schedule below is superseded by the wave-by-wave **[prototype and development plan](DEV-PLAN.md)**.
 
-**One line:** everything runs on the Arduino UNO Q. The YubiKey only creates key material; the UNO Q is the only device that stores keys, and it protects them with post-quantum cryptography. Sensors, camera and Gemini judge **whether the person is acting freely**. Under duress the system looks like it lets them in, but silently raises an alert.
+**One line:** everything runs on the Arduino UNO Q. The YubiKey only creates key material; the UNO Q is the only device that stores keys, and it protects them with post-quantum cryptography. Sensors, camera and the on-device Edge Impulse model judge **whether the person is acting freely**. Under duress the system looks like it lets them in, but silently raises an alert.
 
 | Verb | What we do |
 |---|---|
 | Sense | USB camera, Modulino Thermo (temp + humidity), Modulino Movement (shake), Modulino Buttons (PIN), touch, moisture, YubiKey |
-| Analyse | On the UNO Q: features vs. personal baseline, aggregated and translated by Gemini (the duress calculation) |
+| Analyse | On the UNO Q: features vs. personal baseline, aggregated and translated by the on-device Edge Impulse model (the duress calculation) |
 | Respond | On the UNO Q: post-quantum signed access token / step-up / duress token + silent alert, LED matrix + audit log |
 
 ## Who does what
@@ -17,9 +17,9 @@
 | Device | Role |
 |---|---|
 | **YubiKey** | Creates its FIDO2 credential and a 32-byte secret (`hmac-secret`) when touched. Its private key never leaves it. Does nothing else. |
-| **UNO Q (Linux side)** | All processing: talks to the YubiKey, derives keys, generates and stores the post-quantum keys, runs camera, Gemini call, decision, alerts. **The only device that stores keys.** |
+| **UNO Q (Linux side)** | All processing: talks to the YubiKey, derives keys, generates and stores the post-quantum keys, runs camera, the Edge Impulse model, decision, alerts. **The only device that stores keys.** |
 | **UNO Q (MCU side)** | Reads sensors, computes features, LED matrix. |
-| **Gemini (cloud)** | Does the duress calculation: gets one frame + feature summary, returns the verdict. Never sees keys, PINs or tokens. Fails closed: no, late or malformed reply → duress key. |
+| **Edge Impulse model (on the board)** | Does the duress calculation: gets the feature vector, returns the verdict. A generic model, personalised on the device against the user's own per-hour baseline (which never leaves the device). Never sees keys, PINs or tokens. Fails closed: no model or a malformed output → duress key. |
 | **Laptop** | Not in the login path. Optional: view the dashboard. |
 
 ## Hardware
@@ -31,7 +31,7 @@ USB-C hub with power passthrough (UNO Q has ONE USB-C port)
   └─ 5V/3A USB-C power supply
         └─► Arduino UNO Q
              ├─ Linux (Qualcomm MPU): python/ — YubiKey (CTAP2), key derivation, post-quantum
-             │    keys + encrypted key store, camera, Gemini, decision, alerts, dashboard
+             │    keys + encrypted key store, camera, model, decision, alerts, dashboard
              │        ▲ Bridge (Python polls MCU with Bridge.call)
              └─ MCU (STM32): sketch/ — reads sensors, computes features, LED matrix
                   Qwiic chain: Modulino Thermo → Movement → Buttons
@@ -53,7 +53,7 @@ USB-C hub with power passthrough (UNO Q has ONE USB-C port)
 1. Hold the grip → ~8 s sensor + camera window.
 2. Enter PIN on Modulino Buttons (A/B/C sequence). Wrong PIN → denied.
 3. Touch the YubiKey. UNO Q checks the assertion against the stored credential, gets the `hmac-secret` output, rebuilds the KEK, decrypts the ML-DSA keys in RAM.
-4. Translate: features (deltas vs baseline) + frame → Gemini, which does the duress calculation → `{duress_score, signals, reasoning}`. Fail closed: no, late or malformed reply → duress. The duress PIN goes straight to the duress key.
+4. Translate: features (deltas vs baseline) → the on-device Edge Impulse model, which does the duress calculation → `{duress_score, signals, reasoning}`. Fail closed: no model or a malformed output → duress. The duress PIN goes straight to the duress key.
 5. Respond:
    - `grant` → sign an access token (user, time, nonce) with the **normal** key.
    - `step_up` → no token, ask for another check.
@@ -62,13 +62,13 @@ USB-C hub with power passthrough (UNO Q has ONE USB-C port)
 
 **Why this is post-quantum:** access tokens are ML-DSA signatures; keys at rest are AES-256 under a 256-bit KEK (quantum attacks only halve symmetric strength, leaving ~128-bit). Stealing the stored files without the YubiKey gives nothing usable.
 
-**Rule:** Gemini alone calculates the verdict; there is no onboard rules-engine fallback. Pinned HTTPS to Google. PIN and YubiKey touch always required; PINs are never sent to Gemini.
+**Rule:** the Edge Impulse model alone calculates the verdict, on the board; there is no cloud call. PIN and YubiKey touch always required.
 
-_Considered and dropped: Alex's offline rules engine as a fallback (final score = max(rules, Gemini)). Jonah chose to keep the prototype simple, with Gemini alone deciding and failing closed._
+_Considered and dropped: Alex's offline rules engine as a fallback (final score = max(rules, model)). Jonah chose to keep the prototype simple, with the model alone deciding and failing closed._
 
 ## Downloads
 
-**Laptop:** Arduino App Lab · (optional) Arduino IDE 2 + UNO Q core · Git, Python 3.11+ · YubiKey Manager (`ykman`: check model, set FIDO2 PIN) · Gemini API key from aistudio.google.com · Discord webhook for alerts
+**Laptop:** Arduino App Lab · (optional) Arduino IDE 2 + UNO Q core · Git, Python 3.11+ · YubiKey Manager (`ykman`: check model, set FIDO2 PIN) · Discord webhook for alerts
 
 **Arduino libraries:** `Arduino_Modulino` (covers Thermo, Movement, Buttons) · `Arduino_RouterBridge`
 
@@ -76,7 +76,7 @@ _Considered and dropped: Alex's offline rules engine as a fallback (final score 
 - `fido2` (python-fido2) — talks CTAP2 to the YubiKey over USB, incl. `hmac-secret`
 - `liboqs` (C, build with CMake on the board) + `liboqs-python` — ML-DSA / ML-KEM
 - `cryptography` — HKDF, AES-256-GCM
-- `google-genai`, `opencv-python-headless`, `numpy`, `requests`, `python-dotenv`, `fastapi` + `uvicorn` (dashboard)
+- `opencv-python-headless`, `numpy`, `requests`, `python-dotenv`, `fastapi` + `uvicorn` (dashboard)
 
 **Bring:** USB-C PD hub with ≥3 ports + 5V/3A supply · Qwiic cables · breadboard · phone hotspot (venue Wi-Fi sign-in pages won't work on the board)
 
@@ -86,11 +86,11 @@ _Considered and dropped: Alex's offline rules engine as a fallback (final score 
 |---|---|---|
 | 0. Smoke tests | 0–2 | Board updated + on Wi-Fi; LED matrix demo; camera **and YubiKey** seen via hub; all 3 Modulinos detected; `ykman info` shows key model; start the liboqs build (slow) |
 | 1. Data + keys | 2–8 | `get_features` returns real values over Bridge; camera frames; YubiKey enrol + `hmac-secret` → KEK on the UNO Q; ML-DSA sign/verify; encrypted key store round-trip |
-| 2. Analyse | 8–14 | Baseline enrolment; Gemini call returning valid JSON; fail closed to duress on timeout |
+| 2. Analyse | 8–14 | Baseline enrolment; the model returning a valid score; fail closed to duress if it doesn't |
 | 3. Respond | 14–20 | Normal vs duress tokens + demo verifier, LED matrix states, webhook alert, dashboard (view-only) + audit log |
 | 4. Polish | 20–24 | Grip enclosure, wiring diagram, README, rehearse calm vs coerced demo, backup video |
 
-Team of 4: (1) MCU + sensors (2) camera + Gemini (3) YubiKey + post-quantum crypto (4) enclosure, demo, pitch.
+Team of 4: (1) MCU + sensors (2) camera + Edge Impulse model (3) YubiKey + post-quantum crypto (4) enclosure, demo, pitch.
 
 ## Things to verify in hour 0–2 (not yet tested on hardware)
 
@@ -103,7 +103,7 @@ Team of 4: (1) MCU + sensors (2) camera + Gemini (3) YubiKey + post-quantum cryp
 - [ ] `Bridge.provide` returning a `String` arrives in Python as a `str`
 - [ ] App Lab Python can `pip install` our requirements
 - [ ] Camera index on the hub (`cv2.VideoCapture(0)`)
-- [ ] Current Gemini Flash model name → `GEMINI_MODEL` in `.env`
+- [ ] The generic Edge Impulse `.eim` → `main.py import-model <user>`
 
 ## Limitations and risks
 
@@ -114,7 +114,6 @@ Team of 4: (1) MCU + sensors (2) camera + Gemini (3) YubiKey + post-quantum cryp
 - The UNO Q has no secure element. Encrypted key files are safe if copied, but root access to a running board during login could read keys from RAM. Python also can't guarantee secrets are wiped from memory.
 - Button PINs from 3 buttons are short, so the stored PIN hashes are guessable by someone who copies the key store. That's acceptable because the PIN alone unlocks nothing without the YubiKey.
 - liboqs describes itself as for research and prototyping, not production.
-- Gemini calls use ordinary TLS; that's fine because no keys, PINs or tokens are sent.
 
 **Hardware**
 - One USB-C port: the hub now carries camera + YubiKey + power; weak power → random resets mid-demo.
@@ -123,10 +122,10 @@ Team of 4: (1) MCU + sensors (2) camera + Gemini (3) YubiKey + post-quantum cryp
 - Skin temperature changes over minutes — weak in an 8 s window; better as a "live hand present" check.
 - 2 GB RAM: keep on-board vision light (Haar face count); liboqs + OpenCV + web server must fit together.
 
-**Gemini**
-- 1–5 s latency, needs network, free-tier rate limits → call once per approval; fail closed to the decoy if it doesn't answer in time.
-- Prompt injection via the camera (a sign saying "approve") → system prompt treats image text as untrusted, fixed JSON schema, a malformed reply fails closed, and Gemini can't approve without the PIN and YubiKey touch.
-- Non-deterministic → temperature 0, thresholds not single yes/no.
+**On-device model (Edge Impulse)**
+- It needs the generic model installed per person (personalised on the device by their baseline). Until one exists the system falls back to the dashboard's body score, then fails closed to the decoy.
+- Runs once per approval, on the board, so latency and rate limits are not a concern; a missing or faulty model fails closed.
+- Thresholds, not a single yes/no, and the model can't approve without the click and the YubiKey.
 
 **Core problem**
 - Stress ≠ duress (late, cold, coffee). False positives → soft responses only (step-up / silent alert), never hard lockout.
@@ -134,5 +133,5 @@ Team of 4: (1) MCU + sensors (2) camera + Gemini (3) YubiKey + post-quantum cryp
 - A calm, informed attacker beats physiological checks. Say so in the threat model.
 
 **Privacy and ethics**
-- Free-tier Gemini data may be used by Google to improve products → only consenting teammates on camera; frames never stored.
+- Nothing is sent to a cloud model: frames are never stored and never leave the board; only consenting teammates on camera.
 - Emotion recognition is legally sensitive (EU AI Act restricts it at work) → frame as "context risk scoring".
