@@ -4,7 +4,7 @@ Test cases for the **YuSeal cryptography only** ([CRYPTO.md](CRYPTO.md)): the th
 
 Tick a case only when you saw the expected result. Write the **result, who and when** in the last column, and the exact error text for any failure. **Result key:** `P` pass, `F` fail, `-` not run.
 
-**Status on 2026-11-15 morning:** group 1 is automated and passes on a laptop (57 tests). Groups 2 to 7 have not been run on the board.
+**Status on 2026-11-15 afternoon:** group 1 is automated: 74 of 75 pass on a520585; `test_baseline_matches_python` fails every run (cases 1.0, 1.10, 1.13, 1.14). On the board, 2.1 passed and 2.2 failed on b9fb028; groups 3 to 7 have not been run. See the results log.
 
 ---
 
@@ -14,21 +14,21 @@ Run: `cd app/python && python3 -m unittest test_yuseal -v`. Each row names the t
 
 | ID | Case | Proves | Result |
 |---|---|---|---|
-| 1.0 | Fresh clone, new venv, `pip install -r app/python/requirements.txt`, tests say `OK` (57) | Someone else can run it | |
-| 1.1 | `test_calm_owner_approval_executes`, `test_no_touch_is_needed` | The happy path verifies all three proofs, with no YubiKey touch | |
-| 1.2 | `test_duress_looks_identical_from_outside_but_holds`, `test_linux_learns_nothing_about_the_status` | The tag hides the status (normal, step-up, duress): same sizes and same salt; only the verifier can read it | |
-| 1.3 | `test_model_duress_and_step_up`, `test_fail_closed` | The decision rule: a missing, garbled or out-of-range score, or a veto, means duress | |
-| 1.4 | `test_nothing_without_a_click`, `test_click_is_single_use`, `test_no_palm_on_the_grip_no_arm`, `test_session_times_out`, `test_tag_is_one_shot`, `test_rate_limit` | The STM32 releases the salt and tag only for a fresh physical click, once, within its limits | |
-| 1.5 | `test_cannot_swap_request_under_a_real_click`, `test_cannot_arm_for_another_digest_without_a_fresh_click` | A rooted Linux side can't change what a click approves | |
-| 1.6 | `test_cannot_turn_duress_into_normal`, `test_cannot_change_the_attested_sensor_summary`, `test_cannot_backdate_the_click` | A tag can't be moved, edited or back-dated | |
-| 1.7 | `ProtocolTest`: swapped destination, replay, expiry, other service, audit log, Merkle root | Request binding, one-time nonce timed by the verifier, service binding, tamper-evident log | |
-| 1.8 | `HmacSha1FallbackTest`, `test_hmac_sha1_mode_through_the_whole_stack` | The no-touch fallback works and can't be used to downgrade a FIDO2 member (or the reverse) | |
-| 1.9 | `test_verifier_state_round_trips_through_json` | The reference verifier's state (members, nonces, baseline) survives being saved and loaded | |
-| 1.10 | `CppCoreTest` | The real STM32 C++ gives the same salt, tag and attestation bytes as the Python model, and refuses what it refuses | |
-| 1.11 | `LinuxFlowTest`: wrong YubiKey can't unlock, state survives a restart, no click signs nothing | The Linux flow against a fake STM32 | |
-| 1.14 | `HourBaselineTest`, `ProfileTest`, `LearnerTest`, `test_the_last_minute_is_kept_for_the_transaction_and_no_more`, `test_the_transaction_scores_the_last_minute_against_the_baseline`, `test_profile_key_matches`, `test_baseline_matches_python` | The per-hour rolling baseline (C++ and Python agree), the encrypted profile (wrong key or tampering refused), a 15-minute seeding giving a baseline and training rows, and the transaction scoring the last minute (and ignoring a stale one) | |
-| 1.12 | `EdgeModelTest` | The Edge Impulse integration with a fake model: the input vector, the duress probability becoming the score, and a missing, faulty or nonsense model failing closed | |
-| 1.13 | The same, 10 times in a row | Nothing depends on randomness or timing luck | |
+| 1.0 | Fresh clone, new venv, `pip install -r app/python/requirements.txt`, tests say `OK` (57) | Someone else can run it | | F: fresh clone + venv: `Ran 75 tests`, `FAILED (failures=1)`; `test_baseline_matches_python` fails: `AssertionError` at `test_yuseal.py:464`, `self.assertEqual(bytes.fromhex(tail[4]), py.export_hour(9))` (the C++ and Python hour-9 baseline bytes differ) (a520585). Alex + Claude, 2026-11-15 |
+| 1.1 | `test_calm_owner_approval_executes`, `test_no_touch_is_needed` | The happy path verifies all three proofs, with no YubiKey touch | | P (a520585). Alex + Claude, 2026-11-15 |
+| 1.2 | `test_duress_looks_identical_from_outside_but_holds`, `test_linux_learns_nothing_about_the_status` | The tag hides the status (normal, step-up, duress): same sizes and same salt; only the verifier can read it | | P (a520585). Alex + Claude, 2026-11-15 |
+| 1.3 | `test_model_duress_and_step_up`, `test_fail_closed` | The decision rule: a missing, garbled or out-of-range score, or a veto, means duress | | P (a520585). Alex + Claude, 2026-11-15 |
+| 1.4 | `test_nothing_without_a_click`, `test_click_is_single_use`, `test_no_palm_on_the_grip_no_arm`, `test_session_times_out`, `test_tag_is_one_shot`, `test_rate_limit` | The STM32 releases the salt and tag only for a fresh physical click, once, within its limits | | P, all 6 (a520585). Alex + Claude, 2026-11-15 |
+| 1.5 | `test_cannot_swap_request_under_a_real_click`, `test_cannot_arm_for_another_digest_without_a_fresh_click` | A rooted Linux side can't change what a click approves | | P (a520585). Alex + Claude, 2026-11-15 |
+| 1.6 | `test_cannot_turn_duress_into_normal`, `test_cannot_change_the_attested_sensor_summary`, `test_cannot_backdate_the_click` | A tag can't be moved, edited or back-dated | | P (a520585). Alex + Claude, 2026-11-15 |
+| 1.7 | `ProtocolTest`: swapped destination, replay, expiry, other service, audit log, Merkle root | Request binding, one-time nonce timed by the verifier, service binding, tamper-evident log | | P, 7/7 (a520585). Alex + Claude, 2026-11-15 |
+| 1.8 | `HmacSha1FallbackTest`, `test_hmac_sha1_mode_through_the_whole_stack` | The no-touch fallback works and can't be used to downgrade a FIDO2 member (or the reverse) | | P, 3/3 + whole-stack test (a520585). Alex + Claude, 2026-11-15 |
+| 1.9 | `test_verifier_state_round_trips_through_json` | The reference verifier's state (members, nonces, baseline) survives being saved and loaded | | P (a520585). Alex + Claude, 2026-11-15 |
+| 1.10 | `CppCoreTest` | The real STM32 C++ gives the same salt, tag and attestation bytes as the Python model, and refuses what it refuses | | F: 8/9; `test_baseline_matches_python` fails: `AssertionError` at `test_yuseal.py:464`, `self.assertEqual(bytes.fromhex(tail[4]), py.export_hour(9))` (the C++ and Python hour-9 baseline bytes differ) (a520585). Alex + Claude, 2026-11-15 |
+| 1.11 | `LinuxFlowTest`: wrong YubiKey can't unlock, state survives a restart, no click signs nothing | The Linux flow against a fake STM32 | | P, 11/11 (a520585). Alex + Claude, 2026-11-15 |
+| 1.14 | `HourBaselineTest`, `ProfileTest`, `LearnerTest`, `test_the_last_minute_is_kept_for_the_transaction_and_no_more`, `test_the_transaction_scores_the_last_minute_against_the_baseline`, `test_profile_key_matches`, `test_baseline_matches_python` | The per-hour rolling baseline (C++ and Python agree), the encrypted profile (wrong key or tampering refused), a 15-minute seeding giving a baseline and training rows, and the transaction scoring the last minute (and ignoring a stale one) | | F: HourBaseline 4/4, Profile 6/6, Learner 5/5 (both new last-minute tests pass), `test_profile_key_matches` ok; `test_baseline_matches_python` fails: `AssertionError` at `test_yuseal.py:464`, `self.assertEqual(bytes.fromhex(tail[4]), py.export_hour(9))` (the C++ and Python hour-9 baseline bytes differ) (a520585). Alex + Claude, 2026-11-15 |
+| 1.12 | `EdgeModelTest` | The Edge Impulse integration with a fake model: the input vector, the duress probability becoming the score, and a missing, faulty or nonsense model failing closed | | P, EdgeModelTest 6/6 (a520585). Alex + Claude, 2026-11-15 |
+| 1.13 | The same, 10 times in a row | Nothing depends on randomness or timing luck | | F: 10 of 10 runs `FAILED (failures=1)`, always the same test (deterministic, not flaky) (a520585). Alex + Claude, 2026-11-15 |
 
 ## 2. The STM32 core on the board
 
@@ -36,17 +36,17 @@ The same C++ the laptop test compiled, now on the real chip.
 
 | ID | Case | Steps | Expect | Result |
 |---|---|---|---|---|
-| 2.1 | It compiles for the UNO Q | App Lab with `app/sketch/` and `secrets.h` from `python3 tools/provision.py` | Builds and uploads. **Note every compile error text** | |
-| 2.2 | Core on its own | `app/bringup/step4_core`, click with the palm on the grip | `armed`, then `sealed ...` once per click | |
-| 2.3 | No palm | Click without touching the grip | `refused` | |
-| 2.4 | One click, one arm | Trigger a second arm from the same click | `refused` | |
-| 2.5 | Old click | Click, wait over 1.5 s, then arm | `refused` | |
-| 2.6 | Salt only when armed | Call `get_unlock_salt` and `get_attest` with no click | Both answer `-` | |
-| 2.7 | Same bytes as Python | Arm with a known digest and features, seal with score 10; compute the tag in Python with `ys.mcu_tag` and the same key | The tag matches byte for byte | |
-| 2.8 | **Bridge String arguments** | `Bridge.call("arm_approval", "00"*32)` then `Bridge.call("seal_approval", "10", "0")` | Returns text, no argument error. If it errors, use the pack-into-one-string fix in `docs/BUILD-FLOW.md` §5 item 1 | |
-| 2.9 | Same answer for every outcome | Seal with scores 0, 50 and 90, and with veto | Always a 64-hex-character tag, same salt each time | |
-| 2.10 | Power cycle | Arm, power-cycle, ask for the salt | `-` (nothing survives a reboot) | |
-| 2.11 | Duress is only judged at a transaction | Leave the app running idle for 5 minutes with the mouse in use, no approval started | No tag is made (`get_attest` and `seal_approval` answer `-`), no model run is counted, and no incident appears; the STM32 only ever decides a status inside an armed approval | |
+| 2.1 | It compiles for the UNO Q | App Lab with `app/sketch/` and `secrets.h` from `python3 tools/provision.py` | Builds and uploads. **Note every compile error text** | P on **b9fb028** (bench click `CLICK_FROM_MODULINO_BUTTON` on, button A then): built and uploaded, no errors or warnings. Not re-run since the sketch gained `baseline_mcu.h`. Alex + Claude, 2026-11-15 |
+| 2.2 | Core on its own | `app/bringup/step4_core`, click with the palm on the grip | `armed`, then `sealed ...` once per click | F on **b9fb028**: `arduino-app-cli app start ~/ArduinoApps/bringup-core` gave `sketch.ino:6:10: fatal error: ../../sketch/yuseal_mcu.h: No such file or directory` (fixed in f6812f4: include by name, copy the headers in). Re-run with that fix, button C as the click and the palm on the touch pad: one press printed `refused` (an earlier two-press try printed `armed`/`sealed 69EF66E8`/`refused`/`armed`/`sealed 7852CBC2`/`refused`/`refused`). Cause not established; f6812f4 adds a per-click debug line (`grip_at_press`, `hold_ms`) for the next try. Alex + Claude, 2026-11-15 |
+| 2.3 | No palm | Click without touching the grip | `refused` | -: not run (stopped at 2.2) |
+| 2.4 | One click, one arm | Trigger a second arm from the same click | `refused` | -: not run (stopped at 2.2) |
+| 2.5 | Old click | Click, wait over 1.5 s, then arm | `refused` | -: not run (stopped at 2.2) |
+| 2.6 | Salt only when armed | Call `get_unlock_salt` and `get_attest` with no click | Both answer `-` | -: not run (stopped at 2.2) |
+| 2.7 | Same bytes as Python | Arm with a known digest and features, seal with score 10; compute the tag in Python with `ys.mcu_tag` and the same key | The tag matches byte for byte | -: not run (stopped at 2.2) |
+| 2.8 | **Bridge String arguments** | `Bridge.call("arm_approval", "00"*32)` then `Bridge.call("seal_approval", "10", "0")` | Returns text, no argument error. If it errors, use the pack-into-one-string fix in `docs/BUILD-FLOW.md` §5 item 1 | -: not run (stopped at 2.2) |
+| 2.9 | Same answer for every outcome | Seal with scores 0, 50 and 90, and with veto | Always a 64-hex-character tag, same salt each time | -: not run (stopped at 2.2) |
+| 2.10 | Power cycle | Arm, power-cycle, ask for the salt | `-` (nothing survives a reboot) | -: not run (stopped at 2.2) |
+| 2.11 | Duress is only judged at a transaction | Leave the app running idle for 5 minutes with the mouse in use, no approval started | No tag is made (`get_attest` and `seal_approval` answer `-`), no model run is counted, and no incident appears; the STM32 only ever decides a status inside an armed approval | -: not run (stopped at 2.2) |
 
 ## 3. The YubiKey
 
@@ -128,7 +128,8 @@ Each one must be rejected, and each is a thing the Binance attackers could have 
 
 | Date and time | Who | Commit tested (`git rev-parse --short HEAD`) | Groups run | Failures (case ID and exact message) |
 |---|---|---|---|---|
-| | | | | |
+| 2026-11-15 morning | Alex + Claude | b9fb028 | 1 (58 tests, OK, 10/10 runs); 2.1 P; 2.2 F, then stopped | 2.2: `fatal error: ../../sketch/yuseal_mcu.h: No such file or directory`; after the include fix, a palm-on-grip press of button C printed `refused`. YubiKey probe not run (mode unknown) |
+| 2026-11-15 afternoon | Alex + Claude | a520585 (laptop only) | 1 | 74 of 75 pass. 1.0/1.10/1.13/1.14: `test_baseline_matches_python` (`test_yuseal.py:464`): `AssertionError: b"\xe[23 chars]x80F@''7<\xa6\x88\xf5?\xe8\x03:\xce\xb0\xb5\x9[116 chars]xb6?" != b"\xe[23 chars]x80F@('7<\xa6\x88\xf5?\xe8\x03;\xce\xb0\xb5\x9[116 chars]xb6?"`. Also failed on 8bb4bdd and f6812f4 |
 
 **Blockers to settle first, in order:** 2.1 (the sketch compiles), 2.8 (Bridge String arguments), 3.2 and 3.3 (the YubiKey without a touch). Groups 4 to 7 depend on them.
 
