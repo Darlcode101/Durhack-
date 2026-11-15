@@ -369,7 +369,7 @@ class CppCoreTest(unittest.TestCase):
         root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         cls.tmp = tempfile.mkdtemp()
         cls.exe = os.path.join(cls.tmp, "mcu_host_test")
-        subprocess.run(["g++", "-std=c++17", "-Wall", "-Werror", "-I", os.path.join(root, "app", "sketch"),
+        subprocess.run(["g++", "-std=c++17", "-Wall", "-Werror", "-ffp-contract=off", "-I", os.path.join(root, "app", "sketch"),
                         os.path.join(root, "tools", "mcu_host_test.cpp"), "-o", cls.exe], check=True)
 
     @classmethod

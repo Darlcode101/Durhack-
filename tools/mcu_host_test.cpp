@@ -1,5 +1,6 @@
 // Laptop test for app/sketch/yuseal_mcu.h. Built and run by app/python/test_yuseal.py.
-//   g++ -std=c++17 -I app/sketch tools/mcu_host_test.cpp -o /tmp/mcu_host_test
+//   g++ -std=c++17 -ffp-contract=off -I app/sketch tools/mcu_host_test.cpp -o /tmp/mcu_host_test
+// (-ffp-contract=off: fused multiply-add on aarch64 or -march=native changes the last bits of the baseline doubles)
 // Reads commands on stdin, prints results, so Python can drive the real C++ core:
 //   provision <kmcu hex>
 //   down <grip 0|1> <nowMs>     up <nowMs>     tick <nowMs>
