@@ -298,6 +298,48 @@ def verify_yubikey_assertion(pub: ec.EllipticCurvePublicKey, yk: dict, rp_id: st
     pub.verify(unb64(yk["signature"]), auth_data + sha256(client_data), ec.ECDSA(hashes.SHA256()))
 
 
+def verify_yubikey_proof(m, yk: dict, rp_id: str, challenge: bytes) -> None:
+    """FIDO2 mode checks an ES256 assertion with the credential's public key. The HMAC-SHA1
+    fallback checks the slot's response with the shared key. A member is in exactly one mode,
+    so a proof of the other kind is refused (no downgrade)."""
+    if yk.get("kind") == "hmac-sha1":
+        if m.yk_hmac_key is None:
+            raise ValueError("member is not in HMAC-SHA1 mode")
+        want = _hmac.new(m.yk_hmac_key, challenge, hashlib.sha1).digest()
+        if not _hmac.compare_digest(unb64(yk["response"]), want):
+            raise ValueError("YubiKey HMAC-SHA1 response is wrong")
+        return
+    if m.yk_pub is None:
+        raise ValueError("member is not in FIDO2 mode")
+    verify_yubikey_assertion(m.yk_pub, yk, rp_id, challenge)
+
+
+HMAC_SECRET_LABEL = b"YuDuino/ykhmac/secret"
+
+
+class SoftYubiKeyHmac:
+    """Test stand-in for the HMAC-SHA1 challenge-response slot (YubiKey slot 2, no touch)."""
+
+    def __init__(self):
+        self.key = os.urandom(20)
+        self.public_key = None
+
+    def calc(self, challenge: bytes) -> bytes:
+        return _hmac.new(self.key, challenge, hashlib.sha1).digest()
+
+    def hmac_secret(self, salt: bytes) -> bytes:
+        return sha256(HMAC_SECRET_LABEL + self.calc(salt))
+
+    def register(self, user: str):
+        return b"hmac-sha1", None
+
+    def assert_(self, rp_id: str, challenge: bytes) -> dict:
+        return {"kind": "hmac-sha1", "response": b64(self.calc(challenge))}
+
+    def assert_and_secret(self, rp_id: str, challenge: bytes, salt: bytes):
+        return self.assert_(rp_id, challenge), self.hmac_secret(salt)
+
+
 class SoftYubiKey:
     """Test stand-in that produces the same assertion format as a real YubiKey 5.
 
@@ -395,8 +437,13 @@ def owner_band(score: int | None) -> str:
 
 
 # ---------------------------------------------------------------- 6. the envelope
+def _yk_proof_bytes(yk: dict) -> bytes:
+    """The part of the YubiKey proof that is unique to it: an ES256 signature or an HMAC-SHA1 response."""
+    return unb64(yk["signature"] if "signature" in yk else yk["response"])
+
+
 def _pq_tbs(env: dict) -> bytes:
-    return sha256(canonical({"core": env["core"], "yk_sig": sha256(unb64(env["yk"]["signature"])).hex(),
+    return sha256(canonical({"core": env["core"], "yk_sig": sha256(_yk_proof_bytes(env["yk"])).hex(),
                              "mcu": env["mcu"], "attest": env["attest"], "prev": env["prev"]}))
 
 
@@ -410,9 +457,10 @@ def make_envelope(core: dict, yk_assertion: dict, tag: bytes, attest: bytes, pre
 @dataclass
 class Member:
     """What the guardian knows about one approver (from their membership certificate)."""
-    yk_pub: ec.EllipticCurvePublicKey
+    yk_pub: ec.EllipticCurvePublicKey | None   # FIDO2 mode: the credential's public key
     pq_pub: mldsa.MLDSA65PublicKey
     k_tag: bytes  # shared with that device's STM32
+    yk_hmac_key: bytes | None = None  # HMAC-SHA1 fallback mode: the slot's key. Weaker: the guardian holds a secret
     baseline: Baseline = field(default_factory=Baseline)
     unknown_hands: list = field(default_factory=list)  # times of recent not-the-owner rejections
     locked: bool = False
@@ -459,7 +507,7 @@ class Verifier:
             if now - issued > NONCE_TTL_S:
                 raise ValueError("approval expired")
             digest = core_digest(core)
-            verify_yubikey_assertion(m.yk_pub, env["yk"], self.rp_id, digest)
+            verify_yubikey_proof(m, env["yk"], self.rp_id, digest)
             m.pq_pub.verify(unb64(env["pq_sig"]), _pq_tbs(env), PQ_CONTEXT)
             click_age, grip, features = parse_attest(unb64(env["attest"]))
             if grip != 1:

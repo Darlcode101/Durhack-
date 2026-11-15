@@ -133,9 +133,11 @@ def enrol(*, bridge, yk, guardian, state: DeviceState, user: str, device: str, r
                       pq_pub=ys.b64(pq_key.public_key().public_bytes_raw()))
     state.save()
     _, _, seed = ys.parse_attest(attest)
-    return {"yk_pub_der": ys.b64(yk_pub.public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)),
-            "pq_pub": ys.b64(pq_key.public_key().public_bytes_raw()),
-            "seed": [seed]}  # the caller adds k_tag from tools/out/guardian_tag_key.json and POSTs it
+    body = {"yk_pub_der": "", "pq_pub": ys.b64(pq_key.public_key().public_bytes_raw()),
+            "seed": [seed]}  # the caller adds k_tag (and yk_hmac_key in HMAC mode) and POSTs it
+    if yk_pub is not None:
+        body["yk_pub_der"] = ys.b64(yk_pub.public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo))
+    return body
 
 
 # ---------------------------------------------------------------- one approval

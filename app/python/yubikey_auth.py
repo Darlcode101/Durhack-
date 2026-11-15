@@ -11,10 +11,15 @@ UNVERIFIED on hardware. Needs read/write access to /dev/hidraw* on the board
 (udev rule or run as root); App Lab's container may block USB — if so run this
 as a normal Python process on the board's Debian.
 """
+import hashlib
+import json
 import os
+import subprocess
 
 from fido2.client import DefaultClientDataCollector, Fido2Client, UserInteraction
+from fido2.ctap2 import Ctap2
 from fido2.ctap2.extensions import HmacSecretExtension
+from fido2.ctap2.pin import ClientPin
 from fido2.hid import CtapHidDevice
 from fido2.server import Fido2Server
 from fido2.webauthn import AttestedCredentialData
@@ -95,24 +100,33 @@ def credential_public_key(credential_data: bytes) -> ec.EllipticCurvePublicKey:
         int.from_bytes(cose[-2], "big"), int.from_bytes(cose[-3], "big"), ec.SECP256R1()).public_key()
 
 
+def _ctap_device():
+    """The first YubiKey on USB that supports hmac-secret, as a raw CTAP2 device."""
+    for dev in CtapHidDevice.list_devices():
+        if "hmac-secret" in Ctap2(dev).info.extensions:
+            return dev
+    raise RuntimeError("No YubiKey with hmac-secret found on USB")
+
+
 class RealYubiKey:
     """Same interface as yuseal.SoftYubiKey, backed by the real key over USB.
 
-    UNVERIFIED on hardware. The YubiKey must sign challenge = SHA-256(core) and return the raw
-    authenticatorData, clientDataJSON and signature, which the guardian re-checks. python-fido2's
-    get_assertion() takes the challenge in the options; the origin must be https://<RP_ID> and
-    RP_ID must equal the guardian's service ID (FIDO_RP_ID in .env, same on both).
+    UNVERIFIED on hardware: run `python3 tools/yk_probe.py` first.
 
-    MOUSE MODE: nobody touches the key, so the assertion must be made with user presence OFF
-    (CTAP2 get_assertion option up=false). python-fido2's Fido2Client does not expose that, so on
-    the board this likely needs Ctap2(dev).get_assertion(..., options={"up": False}) directly,
-    and whether the hmac-secret is still returned without a touch must be checked on the
-    YubiKey 5 NFC. If the key insists on a touch, the YubiKey is a pure presence prompt and
-    this design needs a rethink: say so rather than hide it.
+    MOUSE MODE: nobody touches the key, so by default the assertion and the hmac-secret are asked
+    for with user presence OFF (CTAP2 get_assertion option up=false) through the raw Ctap2 API.
+    Whether a YubiKey 5 NFC gives the hmac-secret without a touch must be checked on the key. With
+    touch=True the old touch path (Fido2Client) is used instead: it works, but needs a touch per
+    approval, which breaks "zero input". If neither works, use YK_MODE=hmac-sha1 (RealYubiKeyHmac).
+
+    The YubiKey signs challenge = SHA-256(core) and we return the raw authenticatorData,
+    clientDataJSON and signature, which the guardian re-checks. The origin is https://<RP_ID> and
+    RP_ID must equal the guardian's service ID (FIDO_RP_ID in .env, same on both).
     """
 
-    def __init__(self, credential_data: bytes | None = None):
+    def __init__(self, credential_data: bytes | None = None, touch: bool = False):
         self.credential = credential_data
+        self.touch = touch
 
     def register(self, user: str):
         cred, _salt, _secret = enrol(user)  # touches twice; the salt and secret here are discarded
@@ -121,13 +135,72 @@ class RealYubiKey:
 
     def assert_and_secret(self, rp_id: str, challenge: bytes, salt: bytes):
         assert rp_id == RP_ID, "FIDO_RP_ID must equal the guardian's service ID"
-        client = _client()
-        creds = [AttestedCredentialData(self.credential)]
-        options, _state = _server.authenticate_begin(creds, user_verification=UV, challenge=challenge)
-        result = client.get_assertion(
-            {**options["publicKey"], "extensions": {"hmacGetSecret": {"salt1": salt}}}).get_response(0)
         b64 = lambda b: base64.urlsafe_b64encode(bytes(b)).rstrip(b"=").decode()
-        assertion = {"authenticator_data": b64(result.response.authenticator_data),
-                     "client_data_json": b64(result.response.client_data),
-                     "signature": b64(result.response.signature)}
-        return assertion, result.client_extension_results.hmac_get_secret.output1
+        if self.touch:
+            client = _client()
+            creds = [AttestedCredentialData(self.credential)]
+            options, _state = _server.authenticate_begin(creds, user_verification=UV, challenge=challenge)
+            result = client.get_assertion(
+                {**options["publicKey"], "extensions": {"hmacGetSecret": {"salt1": salt}}}).get_response(0)
+            assertion = {"authenticator_data": b64(result.response.authenticator_data),
+                         "client_data_json": b64(result.response.client_data),
+                         "signature": b64(result.response.signature)}
+            return assertion, result.client_extension_results.hmac_get_secret.output1
+        # No touch: raw CTAP2 with up=false. Build the client data ourselves, as yuseal.SoftYubiKey does.
+        client_data = json.dumps({"type": "webauthn.get", "challenge": b64(challenge),
+                                  "origin": f"https://{rp_id}"}, sort_keys=True, separators=(",", ":")).encode()
+        ctap = Ctap2(_ctap_device())
+        cp = ClientPin(ctap)
+        key_agreement, shared = cp._get_shared_secret()
+        salt_enc = cp.protocol.encrypt(shared, salt)
+        salt_auth = cp.protocol.authenticate(shared, salt_enc)
+        resp = ctap.get_assertion(
+            rp_id, hashlib.sha256(client_data).digest(),
+            allow_list=[{"type": "public-key", "id": AttestedCredentialData(self.credential).credential_id}],
+            extensions={"hmac-secret": {1: key_agreement, 2: salt_enc, 3: salt_auth, 4: cp.protocol.VERSION}},
+            options={"up": False})
+        ext = (resp.auth_data.extensions or {}).get("hmac-secret")
+        if not ext:
+            raise RuntimeError("YubiKey gave no hmac-secret without a touch: use touch=True or YK_MODE=hmac-sha1")
+        secret = cp.protocol.decrypt(shared, ext)[:32]
+        assertion = {"authenticator_data": b64(bytes(resp.auth_data)), "client_data_json": b64(client_data),
+                     "signature": b64(resp.signature)}
+        return assertion, secret
+
+
+class RealYubiKeyHmac:
+    """FALLBACK for when FIDO2 will not work without a touch: the YubiKey's HMAC-SHA1
+    challenge-response slot, configured WITHOUT touch (tools/setup_yk_hmac.py).
+
+    Same interface as RealYubiKey. It is weaker: there is no public-key signature, so the guardian
+    holds the slot's secret (tools/out/yk_hmac_key.json) and checks the response itself. The
+    guardian can then fake the YubiKey proof (not the other two), so keep the guardian trusted.
+    Needs the `ykman` command (pip install yubikey-manager) and the YubiKey's OTP interface on.
+    """
+
+    def __init__(self, slot: int = 2):
+        self.slot = slot
+
+    def calc(self, challenge: bytes) -> bytes:
+        out = subprocess.run(["ykman", "otp", "calculate", str(self.slot), challenge.hex()],
+                             capture_output=True, text=True, check=True, timeout=10).stdout.strip()
+        resp = bytes.fromhex(out)
+        if len(resp) != 20:
+            raise RuntimeError(f"unexpected ykman response {out!r}")
+        return resp
+
+    def register(self, user: str):
+        return b"hmac-sha1", None  # nothing to register: the slot was programmed by tools/setup_yk_hmac.py
+
+    def assert_and_secret(self, rp_id: str, challenge: bytes, salt: bytes):
+        b64 = lambda b: base64.urlsafe_b64encode(bytes(b)).rstrip(b"=").decode()
+        proof = {"kind": "hmac-sha1", "response": b64(self.calc(challenge))}
+        return proof, hashlib.sha256(b"YuDuino/ykhmac/secret" + self.calc(salt)).digest()
+
+
+def make_yubikey(credential_data: bytes | None = None):
+    """YK_MODE=fido (default) | fido-touch | hmac-sha1."""
+    mode = os.environ.get("YK_MODE", "fido")
+    if mode == "hmac-sha1":
+        return RealYubiKeyHmac(int(os.environ.get("YK_SLOT", "2")))
+    return RealYubiKey(credential_data, touch=(mode == "fido-touch"))

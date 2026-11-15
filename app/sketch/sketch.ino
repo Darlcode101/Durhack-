@@ -92,6 +92,7 @@ String get_features() {
   s += "\"humidity\":"   + String(thermo.getHumidity(), 2) + ",";
   s += "\"shake_rms\":"  + String(shakeRms(), 4) + ",";
   s += "\"grip\":"       + String(digitalRead(TOUCH_PIN)) + ",";
+  s += "\"touch\":"      + String(digitalRead(TOUCH_PIN)) + ",";   // same as grip; the dashboard reads this name
   s += "\"moisture\":"   + String(analogRead(MOISTURE_PIN)) + ",";
   s += "\"state\":"      + String(int(core.state())) + ",";   // 0 idle, 1 armed
   s += "\"i2c\":\""     + String(i2cFound) + "\"";            // addresses found on Wire1 at boot (debug)

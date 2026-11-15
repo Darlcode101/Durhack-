@@ -57,7 +57,7 @@ Nobody does anything but click. Full flow and the trade-offs: [docs/STEALTH-APPR
 | Track | Priority | How YuDuino hits it |
 |---|---|---|
 | **RS / Arduino:** build an intelligent system that can sense, analyse and respond to the real world | **Main** | **Sense:** the mouse's grip, click, movement and body sensors, all day, plus the camera and mic. **Analyse:** readings against the user's baseline, aggregated by Gemini. **Decide:** real, second approver or decoy. **Act:** signature release, a quiet rejection of other hands, silent alert and frozen funds. Uses all the mandatory hardware (UNO Q, camera, USB hub). Pitched as "smart safety monitoring", with accessibility via spoken readback. |
-| **Overall theme: Composition** (art, music, tech, idea mixing) | **Main** | Many meaningless signals composed into one; a mouse + YubiKey + AI; the hand's sensor stream as a score. [docs/COMPOSITION.md](docs/COMPOSITION.md) |
+| **Overall theme: Composition** (art, music, tech, idea mixing) | **Main** | Many meaningless signals composed into one; a mouse + YubiKey + AI. [docs/COMPOSITION.md](docs/COMPOSITION.md) |
 | **Marshall Wace: New Worlds** (open a door to new data, ideas or something novel) | **Main** | A new world of data, the human hand at the moment of authority, and an authenticator nobody can see. [docs/INSTITUTIONAL-FIT.md](docs/INSTITUTIONAL-FIT.md) |
 | **QRT: Tagged: Information Hidden in Plain Sight** (invent a physical language that encodes digital information) | Optional | **The whole system is the language.** The body's involuntary signals encode one bit, "under duress", that no single reading reveals, and the whole shape of a hand at work says *who* is holding it. Gemini and the owner check translate them. Nobody knows the mouse measures any of it, so there is nothing to steal or copy, and the response looks like an ordinary result either way. |
 | **MLH Best Use of Gemini API** | Target | Gemini **does the duress calculation**: it aggregates every feature plus a camera frame into structured JSON. It also detects a second person in the scene, explains the transaction in plain English, and writes the incident reports. |
@@ -151,6 +151,8 @@ app/
 tools/
   provision.py          makes the STM32's secrets (run once on a laptop)
   mcu_host_test.cpp     lets the tests drive the real STM32 code on a laptop
+  yk_probe.py           run on the board: which YubiKey mode works without a touch
+  setup_yk_hmac.py      fallback: program the YubiKey's HMAC-SHA1 slot without touch
 docs/
 ```
 
@@ -201,7 +203,7 @@ Only derived numbers go to Tiger (no frames, no PINs, no keys). Camera frames st
 
 ## Status
 
-**The crypto, the STM32 core, the owner check and the Linux flow are tested on a laptop (54 tests).** On the UNO Q (14–15 November, with the earlier strong-mode sketch):
+**The crypto, the STM32 core, the owner check and the Linux flow are tested on a laptop (58 tests).** On the UNO Q (14–15 November, with the earlier strong-mode sketch):
 
 | Verified on the board | Notes |
 |---|---|

@@ -429,6 +429,17 @@ def frame():
     return Response(jpg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/snapshot")
+def snapshot():
+    """The latest UNannotated frame, for app/python/camera.py: the dashboard owns the camera, so
+    the approval flow asks it for a frame instead of opening the device a second time."""
+    with lock:
+        jpg, faces = cam["raw"], cam["faces"]
+    if not jpg:
+        return Response(status_code=503)
+    return Response(jpg, media_type="image/jpeg", headers={"Cache-Control": "no-store", "X-Faces": str(faces)})
+
+
 @app.get("/video.mjpg")
 def video():
     def frames():
