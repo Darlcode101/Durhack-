@@ -2,9 +2,34 @@
 
 **Hardware approval you can't fake, even under threat.** Built at DurHack 2026 on an Arduino UNO Q with a YubiKey 5 NFC.
 
+**Peace of mind in an AI-accelerated world.** The past few months were the worst ever for cyber security (the Binance attack, where an attacker used a compromised laptop and an internal AI tool to make Binance's own signer approve theft of about US$6.3 billion). YuDuino is a **future-proof, post-quantum-signed** approval system that **new users can use without understanding it, because there are no inputs**: it is hidden inside a computer mouse that works exactly like a normal mouse. No screen, no PIN, nothing extra to do: the user just clicks, and the authentication happens in the background. To our knowledge it is a **new combination** of known parts that we couldn't find put together before ([prior art](docs/PRIOR-ART.md)). It also learns the owner's hand all day and **quietly rejects anyone else**. See [the target design](#the-target-design-a-mouse-you-just-use) below.
+
 Everything runs on an **Arduino UNO Q**. Every approval is a sealed envelope with three independent proofs: a **YubiKey** signature (who touched it), a tag from the board's **STM32 microcontroller** (the PIN was pressed on the real buttons for exactly the text on the LED matrix), and an **ML-DSA-65** post-quantum signature over everything. A handheld grip (shake, palm humidity and temperature, grip, sweat) and a USB camera feed Gemini, which judges **whether the person is acting freely**. Under duress the screen shows a normal "OK" and the envelope looks identical, but the STM32's tag secretly says "duress", which only the verifier can read, so it can raise a silent alarm. Details: **[crypto design](docs/CRYPTO.md)**.
 
 **Test it:** [docs/TESTING.md](docs/TESTING.md) (laptop tests first, then the board).
+
+## Who it's for: an institutional trading firm
+
+The main audience is **Marshall Wace** (the hedge fund), whose challenge is **"New Worlds"** (open a door to new data, ideas or something novel), and the overall DurHack theme is **Composition**; see below. The fit: **trader and treasury authorisation** (wire releases, beneficiary changes, limit overrides, deployments), **insider and coercion risk** (the owner check rejects a borrowed key; duress detection raises a silent alarm), and **audit trails** (a signed, hash-chained log that names who authorised what). Suggestions, likely objections, a demo and questions to ask: **[docs/INSTITUTIONAL-FIT.md](docs/INSTITUTIONAL-FIT.md)**. Our answer to New Worlds is three doors: **new data** (the human hand at the moment of authority), a **new idea** (invisible authentication) and **something novel** (a hand's signature as a language, even audible as music).
+
+## The theme: Composition
+
+DurHack's theme is **Composition** (art, music and tech; idea mixing; new combinations), judged on creativity, technical execution, research and polish. YuDuino is a composition at every level: many meaningless signals composed into one; three proofs composed into one approval; a mouse + a YubiKey + AI. Suggested music angle: **play the live sensor stream as a score** on the dashboard, so an owner sounds consonant, a borrowed mouse sounds out of tune and a coerced approval adds tension. [docs/COMPOSITION.md](docs/COMPOSITION.md).
+
+## The target design: a mouse you just use
+
+Design change (2026-11-14): the whole device now lives **inside a normal-working mouse**. The user does **nothing extra**: no PIN, no gesture, no screen. They click "Process transaction" like any button, the STM32 sees that **real physical click**, and the check runs silently from sensor data.
+
+- **Hidden.** Nothing about it looks like an authenticator. [docs/MOUSE-DESIGN.md](docs/MOUSE-DESIGN.md)
+- **It learns you all day.** A mouse is held for hours, so it builds a rich, per-hour baseline of your grip, tremor, sweat and temperature in Tiger Data, which fixes the "not enough data to know what's irregular" problem. [docs/BASELINE.md](docs/BASELINE.md)
+- **It knows whose hand it is.** The guardian compares aggregated click, movement, grip and body features with the **YubiKey's registered user** and **quietly rejects anyone else**. An impostor sees only ordinary failures, can retry forever, and never passes. [docs/OWNER-CHECK.md](docs/OWNER-CHECK.md)
+- **The approval is invisible.** A physical click is the trigger and everything else is background. [docs/STEALTH-APPROVAL.md](docs/STEALTH-APPROVAL.md)
+
+**Misdirection.** The mouse is so unusual that even the system logs and the transaction breakdown would make an attacker assume a remote key or another ledger. That is misdirection on top of the crypto, not instead of it ([docs/STEALTH-APPROVAL.md](docs/STEALTH-APPROVAL.md#misdirection-what-an-attacker-sees-in-the-logs)).
+
+**Be clear about the trade-off.** This gives up the **trusted display** and the **PIN**. Without a screen, malware on the laptop could show one transaction and send another, and there is no deliberate "I'm being forced" signal; duress is detected purely passively. The guardian's limits, step-up, Gemini's check of the request and a cancel window are what cover that. The owner check is statistical and will sometimes turn away the real owner (handled by a second approver). Details and the full list of weak spots are in [STEALTH-APPROVAL.md](docs/STEALTH-APPROVAL.md#what-we-lose-read-this).
+
+**What the code does today.** The repo implements the earlier **strong mode** (PIN on buttons, text on the LED matrix), which is tested. The invisible design is documented and is the plan for the build; it can sit beside the strong mode, which is better for large amounts.
 
 ## The vision: a language the attacker can never read
 
@@ -18,11 +43,13 @@ The attacker is standing right there and can see everything, but can't read the 
 
 **Why now:** on 29 October 2026, about US$6.34 billion was stolen from Binance hot wallets after attackers drove the signing service directly, with no human ever asked to approve ([details in the overview](docs/YuDuino-Overview.md#2-why-it-matters-the-binance-heist-29-october-2026)).
 
-## How an approval works
+## How an approval works (strong mode, what the code does today)
+
+The invisible version of this flow, with no display and no PIN, is in [docs/STEALTH-APPROVAL.md](docs/STEALTH-APPROVAL.md).
 
 1. **Request:** a laptop, server or AI agent asks for an action, with a one-time nonce and a 2-minute expiry.
 2. **Show:** the UNO Q scrolls exactly what will be signed on its own LED matrix. The laptop screen is never trusted.
-3. **Hold and enter PIN:** the user holds the sensor grip and enters their PIN on the Modulino Buttons (short and long presses). The PIN goes to the STM32 only; Linux never sees it. The sensors record every reading meanwhile.
+3. **Hold and enter PIN:** the user rests a hand on the mouse (palm on the grip pad) and enters their PIN on the Modulino Buttons (short and long presses). The PIN goes to the STM32 only; Linux never sees it. The sensors record every reading meanwhile.
 4. **Tap:** the YubiKey signs a hash of exactly what was shown.
 5. **Translate:** each reading is compared with the user's own baseline, and Gemini aggregates them all, plus one camera frame, into a verdict with reasons.
 6. **Respond:** the STM32 turns the verdict into a tag that says real approval, second approver, or decoy, and only the verifier can read it. The verifier trusts signatures and tags, never an "OK".
@@ -33,14 +60,18 @@ The attacker is standing right there and can see everything, but can't read the 
 
 | Track | Priority | How YuDuino hits it |
 |---|---|---|
-| **RS / Arduino:** build an intelligent system that can sense, analyse and respond to the real world | **Main** | **Sense:** grip sensors, camera and mic. **Analyse:** readings against the user's baseline, aggregated by Gemini. **Decide:** real, second approver or decoy. **Act:** LED matrix, signature release, silent alert and frozen funds. Uses all the mandatory hardware (UNO Q, camera, USB hub). Pitched as "smart safety monitoring", with accessibility via spoken readback. |
-| **Tagged: Information Hidden in Plain Sight** (invent a physical language that encodes digital information) | Optional | **The whole system is the language.** The body's involuntary signals encode one bit, "under duress", that no single reading reveals. Gemini translates it. The attacker sees everything and can't read it, and the response looks the same either way. |
+| **RS / Arduino:** build an intelligent system that can sense, analyse and respond to the real world | **Main** | **Sense:** the mouse's grip, click, movement and body sensors, all day, plus the camera and mic. **Analyse:** readings against the user's baseline, aggregated by Gemini. **Decide:** real, second approver or decoy. **Act:** signature release, a quiet rejection of other hands, silent alert and frozen funds. Uses all the mandatory hardware (UNO Q, camera, USB hub). Pitched as "smart safety monitoring", with accessibility via spoken readback. |
+| **Overall theme: Composition** (art, music, tech, idea mixing) | **Main** | Many meaningless signals composed into one; a mouse + YubiKey + AI; the hand's sensor stream as a score. [docs/COMPOSITION.md](docs/COMPOSITION.md) |
+| **Marshall Wace: New Worlds** (open a door to new data, ideas or something novel) | **Main** | A new world of data, the human hand at the moment of authority, and an authenticator nobody can see. [docs/INSTITUTIONAL-FIT.md](docs/INSTITUTIONAL-FIT.md) |
+| **QRT: Tagged: Information Hidden in Plain Sight** (invent a physical language that encodes digital information) | Optional | **The whole system is the language.** The body's involuntary signals encode one bit, "under duress", that no single reading reveals, and the whole shape of a hand at work says *who* is holding it. Gemini and the owner check translate them. Nobody knows the mouse measures any of it, so there is nothing to steal or copy, and the response looks like an ordinary result either way. |
 | **MLH Best Use of Gemini API** | Target | Gemini **does the duress calculation**: it aggregates every feature plus a camera frame into structured JSON. It also detects a second person in the scene, explains the transaction in plain English, and writes the incident reports. |
-| **MLH Best Use of Tiger Data** | Target | **One record per usage** (feature scores, verdict, decision, label) in a hypertable. **Per-user and time-of-day baselines** as continuous aggregates, built from enrolment, every usage, a population prior and a within-session check. **False-alarm labels** tune it over time. Feeds the live dashboard. |
+| **MLH Best Use of Tiger Data** | Target | **Rolling time-series from the mouse:** one row of aggregate features a minute, all day, in a **hypertable**. **Continuous aggregates** give per-user baselines by hour of day, **`time_bucket` queries** give the z-score at approval time, and **compression and retention** keep raw rows for days and aggregates for months. Approvals and false-alarm labels sit alongside. Feeds the live dashboard. See [docs/CHALLENGES.md](docs/CHALLENGES.md#4-mlh-best-use-of-tiger-data). |
 | **MLH Best Use of Vultr** | Add-on | One Vultr server is the **guardian backend**: the signature verifier, the stored incident reports and an **admin dashboard**. Its **response engine** runs the security protocol: alert the on-call team (Telegram, SMS or email), escalate if nobody responds, freeze the funds and require a second approver. It can lock and alert but never approve. |
 | **MLH Best Use of ElevenLabs** | Add-on | Reads the transaction aloud for accessibility, and generates calm and scared test voices for a reliable demo. (It doesn't detect fear; Gemini does the translating.) |
 | **DEV Writing Challenge** | Add-on | Publish the build story after the weekend. |
-| **Free 3D printer** | Build | A handheld **sensor grip** with palm pads, a **UNO Q enclosure** with an LED-matrix window and a YubiKey dock, a **privacy hood** over the PIN buttons, and a **camera mount**. |
+| **Free 3D printer** | Build | A base plate, standoffs and inserts for a **donor mouse** (or a prototype shell) that hide the whole device, plus a dock for the YubiKey and a **camera mount**. See [docs/MOUSE-DESIGN.md](docs/MOUSE-DESIGN.md). |
+| **SGX FX:** protect assets in a trading market storm | Overlap (small) | A "tilt guard": a market storm from their data combined with the operator's state from the mouse raises step-up and an early warning. Only if their data is quick to use |
+| **Neptune North:** actors that stay resilient when comms fail | Mention only | Each mouse decides locally and fails closed offline. A real offline mode is an open problem |
 | **MLH Best Use of Solana** | Stretch | A devnet wallet program: a valid YuDuino signature releases funds, a decoy freezes them on-chain. |
 | **MLH Best Use of MongoDB Atlas** | Stretch | Document data: user and device profiles, policies (spend limits, allow-lists, second-approver rules), guardian contacts and incident reports. |
 
@@ -50,11 +81,11 @@ Full details: **[challenge plan](docs/CHALLENGES.md)**.
 
 The tracks above set what we spend time on:
 
-1. **The end-to-end approval loop (RS/Arduino).** Request, trusted display, PIN, YubiKey, verdict, real or decoy signature, verifier. Everything else depends on it working.
+1. **The end-to-end approval loop (RS/Arduino).** Request, the physical click, background checks, verdict, real or decoy signature, verifier. Everything else depends on it working.
 2. **The hidden language (Tagged + Gemini).** Every sensor feeds the aggregate; Gemini's translation is the heart of the demo. Calm and coerced approvals must give visibly different verdicts.
-3. **Personal baselines (Tiger Data).** One record per usage, with continuous-aggregate baselines, so the translation is about *this* person *right now*.
+3. **Personal baselines (Tiger Data).** A rolling stream from the mouse, rolled up by continuous aggregates into per-hour baselines, so the translation is about *this* person *right now*.
 4. **A real-world response (Vultr).** Alerts, frozen funds and incident reports, so judges see the system *act*.
-5. **A device that looks like a product (3D printer).** Grip, enclosure, YubiKey dock.
+5. **A device nobody looks at twice, that learns you all day (3D printer).** The whole device hides inside a computer mouse. Because a mouse is held for hours, it also **passively collects a rich baseline** of your grip, tremor, sweat and temperature, which solves the "not enough data to know what's irregular" problem ([docs/BASELINE.md](docs/BASELINE.md)). The YubiKey and camera sit in a dock.
 6. **Polish and accessibility (ElevenLabs, DEV).** Spoken readback, demo voices, write-up.
 7. **Stretch goals, only if time (post-quantum ML-DSA signature, Solana, MongoDB).**
 
@@ -65,11 +96,11 @@ The tracks above set what we spend time on:
 | Part | Role |
 |---|---|
 | **Arduino UNO Q** | The brain. **STM32 side** (the trusted core): buttons and PIN, sensors, the LED matrix, the tag that proves a person pressed the PIN for the displayed text. **Linux side:** YubiKey, the ML-DSA key, camera, mic, Gemini call |
-| **UNO Q LED matrix** | The trusted display |
-| **Arduino USB-C hub, power adaptor, USB-C cable** | Power, camera and YubiKey on the UNO Q's single USB-C port |
+| **UNO Q LED matrix** | Strong mode only: the trusted display. Dark inside the mouse |
+| **Arduino USB-C hub, power adaptor, USB-C cable** | The **dock** outside the mouse: power, camera and YubiKey on the UNO Q's single USB-C port, through the mouse's thin cable |
 | **Arduino USB camera with mic** | Face, scene and voice |
 | **YubiKey 5 NFC** | Proves who is approving |
-| **Modulino Buttons** | PIN, approve and reject, PIN rhythm |
+| **Modulino Buttons** | Strong mode: the PIN. In the mouse, replaced by a read-only tap on the donor mouse's own switches |
 | **Modulino Movement** | Hand tremor |
 | **Modulino Thermo** | Palm temperature and humidity (sweat) |
 | **DFRobot touch sensor (D2)** | Is the grip actually held? |
@@ -84,6 +115,13 @@ Wiring and step-by-step bring-up: **[hardware plan](docs/HARDWARE-PLAN.md)**.
 - **[Challenge plan](docs/CHALLENGES.md):** how we target each DurHack track.
 - **[Development plan](docs/DEV-PLAN.md):** build waves, each advancing hardware, cryptography and extensions together, with a demo at the end of every wave.
 - **[Hardware plan](docs/HARDWARE-PLAN.md):** wiring, pins and the bring-up order.
+- **[All-day baseline](docs/BASELINE.md):** how the mouse learns each person's normal all day, the privacy limits, filtering out mouse movement, and time-of-day drift.
+- **[Prior art](docs/PRIOR-ART.md):** what already exists (mouse dynamics, biometric and sensor mice, duress detection, decoy wallets, post-quantum keys), what is genuinely different, and what we must not claim.
+- **[Composition](docs/COMPOSITION.md):** the DurHack theme: YuDuino as a composition, a music angle, the judging map and a demo.
+- **[Marshall Wace: New Worlds](docs/INSTITUTIONAL-FIT.md):** our answer to their challenge, plus the institutional fit: treasury and trader authorisation, insider and coercion risk, audit trails, objections and a demo.
+- **[Invisible approval](docs/STEALTH-APPROVAL.md):** no screen, no PIN, no extra input: the flow, what we lose and how we cover it.
+- **[Owner check](docs/OWNER-CHECK.md):** how the mouse tells the registered user from anyone else, and what happens on a false reject.
+- **[Mouse design](docs/MOUSE-DESIGN.md):** the device hidden inside a computer mouse: layout, sensor map, display, 3D-printed shell, and the security trade-offs.
 - **[Crypto design (YuSeal)](docs/CRYPTO.md):** keys, the three proofs, the hidden duress status, login, audit log, threat coverage, weak spots.
 - **[Build flow](docs/BUILD-FLOW.md):** for each piece of hardware, what to code where, the test for each step, and the demo script.
 - **[Design brief](docs/DESIGN-BRIEF.md):** the requirements the crypto was designed against, and why version 1 was replaced.

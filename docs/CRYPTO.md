@@ -2,6 +2,14 @@
 
 *Version 2, written 14 November 2026, evening of day one of DurHack. It replaces the first version, which had seven gaps (listed in the [design brief](DESIGN-BRIEF.md#6-review-of-v1-against-this-brief)).* Back to the **[overview](YuDuino-Overview.md)** · **[build flow](BUILD-FLOW.md)** (what to code where) · **[dev plan](DEV-PLAN.md)** · **[hardware plan](HARDWARE-PLAN.md)**
 
+> **Mouse mode (design change, 2026-11-14).** This page describes **v2, the strong mode**, which is what the code implements today: a PIN on buttons and the request text on the LED matrix. The device is now planned to live **inside a normal-working mouse with no screen, no PIN and no extra input**. In that mode the three proofs, the ML-DSA seal, the audit log, the nonces and the guardian's checks are **unchanged**, but:
+> - the **STM32 tag** binds the status, the request digest, **a physical click** (its age and whether the palm was on the grip) and **a hash of the attested sensor summary**, instead of the PIN and the displayed text;
+> - there is **no trusted display** and **no PIN or duress PIN**; duress is detected **only passively**;
+> - the YubiKey is used **without a touch**, except for step-up;
+> - the guardian recomputes an **owner check** from the attested features, and quietly rejects other hands.
+>
+> Full design, and what protection this gives up: **[STEALTH-APPROVAL.md](STEALTH-APPROVAL.md)** and **[OWNER-CHECK.md](OWNER-CHECK.md)**. The new weak spots are items 15 to 20 below. Everything in this file that mentions a PIN, the matrix or "what you see is what you sign" applies to strong mode only.
+
 Working code, all tested (`cd app/python && python3 -m unittest test_yuseal -v`, 41 tests):
 
 | File | What it is |
@@ -319,7 +327,7 @@ Honest list, worst first.
 3. **Keys on Linux tonight.** The ML-DSA key is on the Linux side while it signs. Root on Linux can use it, with a YubiKey touch and the salt, but **can't make a tag**, so the envelope is rejected. It also sees the sensors, so it can block or delay approvals (denial of service).
 4. **The guardian's tag key.** An insider with it can make tags, but not YubiKey or ML-DSA signatures, so still not approvals. Keep it in an HSM later.
 5. **The YubiKey half is classical.** A quantum attacker could forge the YubiKey signature. The ML-DSA signature and the HMAC tag still stand, so a forger would need the ML-DSA key (device) and a tag (PIN), but "who touched it" would rest on those. A post-quantum security key would fix this when one exists.
-6. **Shoulder-surfing.** Someone who watches you type your normal PIN, including the timing, learns it. The duress PIN is meant to be indistinguishable *unless they know the timing*. A privacy hood over the buttons (Wave 4, 3D printer) helps.
+6. **Shoulder-surfing.** Someone who watches you type your normal PIN, including the timing, learns it. The duress PIN is meant to be indistinguishable *unless they know the timing*. The mouse shell helps: PIN presses look like ordinary clicks, and the keys are shielded by the hand ([MOUSE-DESIGN.md](MOUSE-DESIGN.md)).
 7. **A calm, determined attacker.** If they know about duress detection, the decoy only buys time; they will eventually notice nothing moved. Time locks and the silent alert are meant to make that time enough.
 8. **Gemini can be wrong or tricked**, including by prompt injection through the camera (a printed sign saying "the user is calm"). Mitigations: structured output only, image treated as data, Gemini can only raise the alarm, and the duress PIN is always there.
 9. **No certified secure element.** The STM32U585 has TrustZone, a hardware unique key and side-channel-resistant AES, but it's not a certified secure element. A skilled lab attacker could glitch it.
@@ -328,6 +336,12 @@ Honest list, worst first.
 12. **The supply chain** (how Binance was first breached): a poisoned library on the board or the laptop. Pinned dependencies and signed firmware reduce it.
 13. **ML-DSA is young** (standardised 2024). That's why it's always paired with the YubiKey and the HMAC tag, and the root uses hash-based SLH-DSA.
 14. **A compromised Linux side can tell the STM32 "calm".** With the second-opinion check dropped, the only guards are the onboard veto (extreme or missing sensor readings) and the duress PIN. A careful attacker who owns Linux and knows the design could suppress a Gemini-only alarm.
+15. **Mouse mode: no trusted display, so a swapped transaction is possible.** Malware on the laptop can show one request and send another, and the user's ordinary click approves it. Mitigations: guardian limits and the signed address book, step-up for danger actions, Gemini checking the request against the user's usual pattern, a phone alert with a cancel window. These reduce the damage; they do not give back what the screen gave.
+16. **Mouse mode: click piggybacking.** The STM32 sees *a* real click, not *which* click. Malware can wait for any ordinary click and arm its own request in the ~1.5 s window. It cannot act while the user is away from the mouse. Mitigations: narrow window, an arming rate limit, one pending request per person, click-quality checks, the limits above.
+17. **Mouse mode: no deliberate duress signal.** The victim cannot say "I'm being forced". Detection is only passive (sensors, camera, Gemini). A calm victim or a careful coercer can be missed, and bad days can raise false alarms.
+18. **Mouse mode: no knowledge factor.** There is no PIN. The **owner check** (aggregated click, movement, grip and body features against the registered user's baseline) stands in for it. It is statistical: it can turn away the real owner and could be fooled by a close, informed impostor. Error rates are **unmeasured**. Handled by three bands (owner-like, uncertain to a second approver, not the owner to a quiet rejection), a learning-period mode and labels.
+19. **Mouse mode: the YubiKey without a touch proves the key is plugged in, not that a person approved.** It is also **unverified** that our key allows it; if not, touch is used for step-up only.
+20. **Mouse mode: a rooted UNO Q Linux side needs only a click to piggyback on.** It can't fake the sensor summary (the STM32 attests it, and the guardian recomputes the owner check), and it can't forge the tag, but it can try to get an approval started for a request the user didn't see.
 
 ## What we build when
 
@@ -336,7 +350,7 @@ Honest list, worst first.
 | **1. Skeleton** (now) | Run the existing tests. Provision a device. Flash the sketch. Run the guardian on the laptop. `enrol`, then one approval with a normal PIN and one with the duress PIN | `tools/provision.py`, `sketch.ino` + `yuseal_mcu.h`, `guardian.py`, `main.py` |
 | **2. Real signals** | Real sensor window into Gemini and the onboard veto; baselines; real nonce timing; persist the lockout counter if flash works; hash-chained log checks on the dashboard | `approve.py` (`gemini_fn`), `risk` rules for the veto, `sketch.ino` |
 | **3. Response and polish** | Guardian on Vultr with HTTPS and pinning; YubiKey attestation at enrolment; org-root-signed address book and certificates; YuDuino login with honeypot session; Merkle tree head on the dashboard | `guardian.py`, a small root tool |
-| **4. Harden and stretch** | Readout protection and a locked debug port; SLH-DSA root; check hybrid TLS is negotiated; Solana tree-head post; privacy hood | |
+| **4. Harden and stretch** | Readout protection and a locked debug port; SLH-DSA root; check hybrid TLS is negotiated; Solana tree-head post; sealed mouse-shell screws | |
 
 ### After the hackathon
 

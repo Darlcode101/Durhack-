@@ -12,7 +12,7 @@ We build in **waves**. Every wave moves **all three tracks forward together**: h
 
 **Keep it simple.** Gemini alone does the duress calculation. The device fails closed: no reply, a late reply or a malformed reply means the decoy, over pinned HTTPS to Google. There is no second onboard calculation.
 
-**Timing assumption:** about 16 hours of building left (19:15 Saturday to roughly 11:00 Sunday, before judging). If the deadline is different, shrink or stretch Wave 3 and Wave 4, never Waves 1 and 2.
+**Timing assumption:** about 16 hours of building left (19:15 Saturday to roughly 11:00 Sunday, before judging). If the deadline is different, shrink or stretch Wave 3 and Wave 4, never Waves 1 and 2. The opening ceremony slides say hacking begins at **12:00 Saturday** for **24 hours**, which points to about **12:00 Sunday**; the judging time is not on the slides, so **confirm the submission deadline with the organisers**.
 
 ## The waves at a glance
 
@@ -42,9 +42,9 @@ We build in **waves**. Every wave moves **all three tracks forward together**: h
 
 | Track | What changes |
 |---|---|
-| **Hardware** | Add Modulino Thermo, the moisture sensor, and microphone audio. Everything moves into a **cardboard grip**. Add a one-minute **enrolment** recording of the user's calm baseline. |
+| **Hardware** | Add Modulino Thermo, the moisture sensor, and microphone audio. Everything moves into a **cardboard grip**. Add a one-minute **enrolment** recording of the user's calm baseline, then start the **all-day baseline** from the mouse ([BASELINE.md](BASELINE.md)): one aggregate row a minute, quiet windows only. |
 | **Cryptography** | Move the real and decoy keys to the **STM32 microcontroller side**: Linux sends the verdict, the STM32 chooses which key signs. Add nonce and expiry checks to the verifier (replays fail). Start the **hash-chained audit log** (each entry includes the previous entry's hash). |
-| **Extensions** | **Tiger Data:** one row per usage (feature scores, verdict, decision), with a continuous aggregate for each user's baseline. Gemini now gets every feature as a delta from that baseline. **Vultr:** stand up the server and move the verifier onto it, with **pinned HTTPS** for the Gemini call. **3D printer:** collect the grip; start the UNO Q enclosure and YubiKey dock. |
+| **Extensions** | **Tiger Data:** the mouse's rolling per-minute rows in a hypertable, an hourly continuous aggregate per user for the baseline, and approvals alongside (see [CHALLENGES.md](CHALLENGES.md#4-mlh-best-use-of-tiger-data)). Gemini now gets every feature as a delta from that baseline. **Vultr:** stand up the server and move the verifier onto it, with **pinned HTTPS** for the Gemini call. **3D printer:** collect the grip; start the UNO Q enclosure and YubiKey dock. |
 
 **Done when:** the same person approving calmly and then while shaking and breathing fast gets different Gemini verdicts with sensible reasons; both usages appear in Tiger Data; replaying an old approval is rejected.
 
@@ -54,9 +54,9 @@ We build in **waves**. Every wave moves **all three tracks forward together**: h
 
 | Track | What changes |
 |---|---|
-| **Hardware** | Move into the **3D-printed grip and enclosure**, with the YubiKey moved from the laptop into the dock on the UNO Q (stretch: if USB access is blocked, keep it on the laptop). Camera on a printed mount. Tidy the wiring. |
+| **Hardware** | A **donor mouse** with a read-only switch tap and a 3D-printed base plate ([MOUSE-DESIGN.md](MOUSE-DESIGN.md)); no screen and no PIN ([STEALTH-APPROVAL.md](STEALTH-APPROVAL.md)); the **owner check** ([OWNER-CHECK.md](OWNER-CHECK.md)), with the YubiKey moved from the laptop into the dock (the hub the mouse's cable plugs into) (stretch: if USB access is blocked, keep it on the laptop). Camera on a printed mount. Tidy the wiring. |
 | **Cryptography** | The verifier on Vultr becomes the only route to "execute" (no back door). Show the audit log chain on the dashboard and check it on load. YubiKey **attestation** check at enrolment, so only genuine YubiKeys can register. |
-| **Extensions** | **Vultr response engine:** on a decoy, alert the on-call team via Telegram or email, escalate if nobody acknowledges, freeze funds, and require a second approver. **Gemini** writes the incident report and the plain-English explanation of the transaction. **Admin dashboard** with live charts from Tiger Data and the incident reports. **ElevenLabs** reads the transaction aloud. |
+| **Extensions** | **Composition angle:** play the live sensor stream as music on the dashboard (Web Audio, about two hours; [COMPOSITION.md](COMPOSITION.md)). **Vultr response engine:** on a decoy, alert the on-call team via Telegram or email, escalate if nobody acknowledges, freeze funds, and require a second approver. **Gemini** writes the incident report and the plain-English explanation of the transaction. **Admin dashboard** with live charts from Tiger Data and the incident reports. **ElevenLabs** reads the transaction aloud. |
 
 **Done when:** a coerced approval looks normal on the device, while within seconds a phone receives a Telegram alert and the dashboard shows a Gemini-written incident report and frozen funds.
 
@@ -66,7 +66,7 @@ We build in **waves**. Every wave moves **all three tracks forward together**: h
 
 | Track | What changes |
 |---|---|
-| **Hardware** | Privacy hood over the PIN buttons. Spare cables and a backup power bank. Label the parts for judges (the "hackiest hack" angle). |
+| **Hardware** | Sealed shell screws (tamper evidence). Spare cables and a backup power bank. Label the parts for judges (the "hackiest hack" angle). |
 | **Cryptography** | The ML-DSA signature and the STM32 tag are already in Wave 1 (see [CRYPTO.md](CRYPTO.md)). Wave 4 hardens: lock the STM32's debug port, SLH-DSA root, confirm hybrid post-quantum TLS. Moving the ML-DSA key itself onto the STM32 is future work. |
 | **Extensions** | Rehearse the **Binance-replay demo** twice and record a backup video. **ElevenLabs** calm and scared test voices for a reliable voice demo. **Stretch, if time:** Solana devnet wallet program (a valid signature releases funds, a decoy freezes them); MongoDB Atlas for profiles, policies and incidents. **DEV** write-up after the weekend. |
 
