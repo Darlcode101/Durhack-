@@ -118,4 +118,4 @@ Stack, from the bottom: **base plate** with the UNO Q on four M2.5 standoffs (ch
 
 ## What changes in the code
 
-See [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md#what-needs-to-change-in-the-code-not-done-yet). The repo is still the v2 code (PIN and matrix) until those changes are built.
+See [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md#what-needs-to-change-in-the-code-not-done-yet). The code now implements mouse mode; the PIN-and-matrix v2 code was removed (it is in git history at commit `2c455f8`).

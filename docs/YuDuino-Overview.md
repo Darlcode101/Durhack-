@@ -1,18 +1,27 @@
-# YuDuino: hardware approval you can't fake, even under threat
+# YuDuino: peace of mind in a new world
 
-*Project overview by Jonah, 14 November 2026. Built for DurHack on an Arduino UNO Q with a YubiKey 5 NFC.*
+*Project overview by Jonah and Alex. Built at DurHack 2026 on an Arduino UNO Q with a YubiKey 5 NFC. **2nd place in the RS / Arduino track.** Updated 16 November 2026 to match the [pitch deck](../presentation/YuDuino-DurHack-2026-pitch.pdf).*
 
-> **Note (2026-11-15):** this overview describes the first design (PIN on buttons, LED matrix). The design is now the zero-input mouse, and the code implements that. See the [README](../README.md) and [STEALTH-APPROVAL.md](STEALTH-APPROVAL.md) for the current flow.
+Wiring: **[hardware plan](HARDWARE-PLAN.md)**. Track and result: **[challenges](CHALLENGES.md)**. Cryptography: **[YuSeal crypto design](CRYPTO.md)**. The model: **[Edge Impulse](EDGE-IMPULSE.md)**.
 
-To wire it up, see the step-by-step **[hardware plan](HARDWARE-PLAN.md)**. For the team schedule and software checklist, see **[PLAN.md](PLAN.md)**. For how YuDuino targets each DurHack challenge (RS/Arduino and add-ons), see the **[challenge plan](CHALLENGES.md)**. For the build order, wave by wave, see the **[prototype and development plan](DEV-PLAN.md)**. For the cryptography (keys, the hidden duress status, login and audit trail), see the **[YuSeal crypto design](CRYPTO.md)**.
+## 1. The pitch
 
-## 1. The pitch: selling peace of mind
+2026 is one of the worst years for security on record: Black October (the Binance attack and the PHP attack), state-sponsored attacks, huge amounts of capital invested in breaches, and open-weight AI models making attacks more accessible than ever. Transaction desks need a unique solution, and they need it fast.
 
-> **The core idea: a language the attacker can never read.** While you approve, your body is "speaking": tremor, sweat, touch rhythm, voice, face and the scene around you. Each reading means nothing on its own; a shaky hand might just be coffee. Only when the readings are **aggregated** do they form a signal, and **the on-device Edge Impulse model is the translator** that turns them into one verdict: under duress or not. The attacker is in the room and sees everything, but can't read the language, and the response looks identical either way.
+**YuSeal** gives every security measure you could want going into 2027:
 
-YuDuino is a small desk device that sits between a person and anything dangerous they can approve: moving money, deploying to production, letting an AI agent act. Nothing happens until a named person physically approves on it. Each approval is a **cryptographic signature, never an "OK" message**, so malware on a laptop can't fake one.
+- an **ML-DSA post-quantum seal** (NIST FIPS 204);
+- **keys never leave the hardware**;
+- **STM32 click attestation** (a real finger made the click);
+- **AES-256-GCM** encryption at rest;
+- a **private, chip-derived unlock salt**;
+- a **tamper-evident audit chain**.
 
-Hardware keys (YubiKeys, Ledger devices, HSMs) are the best security available today, but **none of them help when someone in the room forces you to enter your PIN**. YuDuino reads that hidden language while you approve: shaking hands, sweaty palms, an odd PIN rhythm, a scared voice, a second face in the camera. None of these is proof alone; together, translated by the on-device model, they are. If the translation says duress, it hands the attacker a **fake approval** that looks real but moves nothing and silently raises the alarm.
+**But something is missing:** the best encryption doesn't stop someone standing at your desk forcing you to approve. So **the key hides in plain sight, inside an office mouse**:
+
+- **Invisible.** It looks and works completely like an office mouse.
+- **Zero input.** No PIN, no screen, no additional buttons.
+- **It knows your hand.** It checks that it's you, and that you're okay, at the moment of a transaction.
 
 ## 2. Why it matters: the Binance heist (29 October 2026)
 
@@ -23,49 +32,49 @@ About **US$6.34 billion** was stolen from Binance hot wallets in under four hour
 3. **20 October:** the attacker used an internal AI tool to take over more engineers' machines and found a container deployment token.
 4. **29 October:** they drove the wallet signing service directly, outside the normal approval process, including EIP-7702 delegations that kept draining a wallet after withdrawals were suspended.
 
-No human approved those transactions, because the system never asked one. Every step relied on a **copyable credential** or a **compromised computer**. YuDuino's answer: the wallet won't sign without a signature that only exists after a person presses a physical button, having seen the real transaction on a display the laptop doesn't control.
+No human approved those transactions, because the system never asked one. Every step relied on a **copyable credential** or a **compromised computer**. YuDuino's answer: the wallet won't sign without a sealed signature that only exists after the owner's real hand physically clicks on the mouse.
 
 Sources: [Binance initial report](https://x.com/binance/status/2117626126214504729), [Reuters, 3 Nov 2026](https://www.reuters.com/world/binance-says-hackers-used-fake-job-interview-compromise-computer-before-63-2026-11-03/), [Chainalysis](https://www.chainalysis.com/blog/binance-exploit-latest-findings-and-response/).
 
-## 3. The kit and what each part does
+## 3. Hardware
 
-Everything below is in our hackathon inventory except the YubiKey, which we bring.
+| Part | Role |
+|---|---|
+| **Arduino UNO Q** | The brain. **STM32 side** (the trusted core): reads the click and the sensors, keeps the per-hour baseline, makes the final decision and the tag. **Linux side:** YubiKey, the ML-DSA key, camera, the anomaly model |
+| **Arduino USB-C hub, power adaptor, USB-C cable** | Power, camera and YubiKey on the UNO Q's single USB-C port |
+| **Arduino USB camera** | The over-the-shoulder rule: is someone close and watching the screen? Frames stay in memory on the board |
+| **YubiKey 5 NFC** | Proves who is approving, with no touch needed |
+| **Modulino Movement** | Hand tremor and movement |
+| **Modulino Thermo** | Palm temperature and humidity (sweat) |
+| **DFRobot touch sensor** | Is a hand actually on the mouse? Readings only count while it is |
+| **DFRobot moisture sensor** | A second sweat and contact signal |
+| **The mouse's own click** | The trigger: the STM32 sees the real physical click on "process transaction" |
 
-| Part | Role in YuDuino | Connects to |
-|---|---|---|
-| **Arduino UNO Q** | The brain. Its Linux side (Qualcomm QRB2210) runs the camera, microphone, feature extraction and the Edge Impulse model. Its microcontroller side (STM32U585) reads sensors in real time and will hold the post-quantum key | Everything |
-| **UNO Q built-in LED matrix** (8×13) | The **trusted display**: scrolls the amount and destination being approved, then the result | Built in |
-| **Arduino USB-C hub** | The UNO Q has one USB-C port; the hub splits it for power, camera and YubiKey | UNO Q USB-C |
-| **Arduino power adaptor** + **USB-C to C cable** | 5 V 3 A into the hub's power-in port | Hub |
-| **Arduino USB camera, Full HD, with mic** (USB-A) | Face count (is someone else there?), expression, voice stress; pulse from the face as a stretch goal | Hub USB-A |
-| **YubiKey 5 NFC** | Proves **who** is approving. Its private key never leaves its chip, and the touch is sensed inside the chip, so software can't press it | Laptop (milestone 1), then hub USB-A |
-| **Modulino Buttons** | PIN entry as a sequence of A, B and C presses; approve and reject; press rhythm for duress; a secret **duress PIN** | Qwiic chain |
-| **Modulino Movement** | Hand tremor from the accelerometer, inside the grip | Qwiic chain |
-| **Modulino Thermo** | Palm temperature and humidity. Humidity near the palm is our best sweat signal | Qwiic chain |
-| **DFRobot touch sensor v2** | "Is the grip actually being held?" Gates the capture window | Pin D2 |
-| **DFRobot moisture sensor v2** | Second, crude sweat/contact signal. Only its change from the user's own baseline counts | Pin A1 |
-| **Male-to-male jumpers** | Wiring the two DFRobot sensors into the UNO Q's female headers | Headers |
-| **32 GB microSD + Icy Box** | Spare storage: offline backup of the audit log and the user's baseline | Not needed for the core |
+## 4. How it works
 
-The DFRobot sensors and Modulinos live inside one **computer mouse** (cardboard and hot glue first, then a 3D-printed shell; see [MOUSE-DESIGN.md](MOUSE-DESIGN.md)), so every approval happens while the user is holding it.
+**Knowing it's you (sensing).** Every minute you use the mouse, it records how you grip, move, sweat and click, and builds a personal profile on the device. A stranger's hand doesn't match your patterns, so they are quietly rejected with an ordinary-looking failure.
 
-## 4. How an approval works
+**Spotting duress (analysing).** When you click to make a transaction, your last minute is compared against your baseline. Stress shows up in several places at once: a tighter grip, more tremor, more sweat, a warmer palm, a sharper click. No single sensor decides: a locally hosted anomaly detection model uses all the data channels to reach a conclusion. Duress is judged **only at the moment of a transaction**; everyday use is learned from, never judged.
 
-1. **Request.** A laptop, server or AI agent asks for an action. The request carries a one-time nonce and a 2-minute expiry.
-2. **Show.** The UNO Q decodes the raw request and scrolls it on the LED matrix: action, amount, the last characters of the destination, and any unusual permission. Anything too long to show is refused, never cut short. The laptop screen is never trusted for this.
-3. **Hold and enter PIN.** The user rests a hand on the mouse (the touch sensor confirms the palm is there) and enters their PIN on the Modulino Buttons. An 8-second capture window records tremor, humidity, temperature, moisture, PIN rhythm, a camera frame and audio.
-4. **Tap.** The user touches the YubiKey, which signs a hash of exactly what was shown.
-5. **Translate.** The UNO Q turns each reading into a feature compared with the user's own baseline (kept on the device). The Edge Impulse model on the board receives all the features together (plus a face count from the camera) and **does the duress calculation**: it aggregates the signals and returns the probability of duress. The model is generic (trained on synthetic data only) and personalised on the device against the user's own baseline, which never leaves the device.
-6. **Respond.** Low risk: a real approval. Uncertain: a step-up result. Duress (or the duress PIN): a **fake approval**. The LED matrix shows exactly what a real one would, but the signature carries a hidden marker. The customer's verifier reads the hidden marker and decides what to do.
+**The approval.**
 
-**Safeguards around the model's verdict:**
+1. **Request:** a transfer request arrives with a one-time nonce and an expiry.
+2. **Click:** the user clicks "process transaction" like any other button. The STM32 sees the real click.
+3. **Arm and unlock:** the STM32 only arms for a fresh click and releases the chip-derived salt that lets the YubiKey (no touch) unlock the post-quantum key.
+4. **Analyse:** the last minute against the baseline, scored by the anomaly model.
+5. **Seal:** the STM32 makes a tag over the status (normal or duress), the request digest and the click. Under duress the envelope looks identical, but the hidden status says duress, so it is a **decoy**.
+6. **Check:** the customer's verifier checks all three proofs (YubiKey, STM32 tag, ML-DSA seal) and the owner check, and decides what to do.
 
-- **Fail closed.** No model, a model fault or a malformed output means the decoy key, never the real one.
-- **No cloud call.** The model runs on the board, so nobody on the network can block it or impersonate it.
-- **The final decision and the keys stay on the STM32.** The model's verdict is an input; the microcontroller chooses which key signs.
-- **The model can't approve on its own.** The click and the YubiKey are always required.
+**Fails closed:** no model, a model fault or a malformed output counts as duress, and the click, the YubiKey and the STM32 tag are always required.
 
-## 5. Release a key, never an "OK"
+## 5. Key design decisions
+
+1. **Keeping it local.** We originally used Gemini and Tiger Data. We moved to storing user data on the device and using classical ML rather than a cloud LLM. Profile data and the model are AES-256-GCM encrypted on the board. Nothing leaves the device.
+2. **Edge cases.** Coworkers and passers-by don't count (the over-the-shoulder rule), and readings only register while your hand is on the mouse.
+3. **K-means anomaly detection.** Trained on 2000 calm rows; 17 input columns go into a K-means anomaly block. The inputs measure how far you are from your own mean, so it is personalised without retraining: z = (x − μ) / σ against your mean for that time of day.
+4. **Someone just back from a run.** After 5+ minutes away from the mouse, if sweat or shake is high but falling, that's recovery from exercise. The body score is capped below the duress threshold, so that alone can't signal duress.
+
+## 6. Release a key, never an "OK"
 
 There is **no "approve = true" message anywhere**, because anyone who controls the computer sending it could spoof it. The **verifier** (whatever actually holds the wallet key: an HSM, co-signing server or smart contract) rebuilds the hash from the transaction it is about to run and checks the signatures, nonce and expiry itself. Only then does it sign.
 
@@ -74,71 +83,19 @@ There is **no "approve = true" message anywhere**, because anyone who controls t
 - Replaying an old approval fails: its nonce is used or expired.
 - The check must be the **last step before signing, with no other route in**. That back route is exactly what the Binance attackers used.
 
-## 6. Post-quantum security
-
-A large quantum computer running Shor's algorithm would break the elliptic-curve and RSA signatures a YubiKey 5 uses. YuDuino plans for that:
-
-- **Three proofs per approval.** The YubiKey's P-256 signature, a **tag** from the STM32U585 (HMAC-SHA-256, so quantum-safe), and an **ML-DSA** (NIST FIPS 204) signature over everything. The verifier requires all three. Full design: [CRYPTO.md](CRYPTO.md).
-- **The UNO Q key earns its place.** The YubiKey can't do post-quantum signing, and it can't see the duress result. The UNO Q key does both: it only signs after the duress check, and under duress it signs with the decoy marker.
-- **The PIN, the display text and the duress status stay on the microcontroller side**, never on the Linux side where camera and model code run. Moving the ML-DSA key there too is future work.
-- **Crypto-agility:** every message names its algorithm, so algorithms can be swapped later.
-
-ML-DSA is built into Python's `cryptography` library (version 48 or newer), so it is part of Wave 1, not a stretch goal.
-
-## 7. Onboard processing
-
-Raw camera, audio and sensor data stays on the UNO Q. Encrypted traffic to AI services can still leak content through packet sizes and timing ([Weiss et al., USENIX Security 2024](https://cdn.arstechnica.net/wp-content/uploads/2024/03/LLM-Side-Channel.pdf); [Microsoft Whisper Leak, 2025](https://www.microsoft.com/en-us/security/blog/2025/11/07/whisper-leak-a-novel-side-channel-cyberattack-on-remote-language-models/)), and cloud logs of biometric data can leak or be subpoenaed.
-
-The Edge Impulse model runs on the board, so the aggregated features and the camera frame never leave it. If the model is missing or returns nonsense, the device fails closed to the decoy, so a fault can never cause a real approval. Later version: padded, fixed-interval messages.
-
-## 8. Hard requirements
-
-1. **Cannot be operated remotely.** A person must physically touch the YubiKey; the touch is sensed inside its chip.
-2. **The display shows exactly what gets signed.** The signed hash is computed from the bytes shown, never from a laptop's summary.
-3. **No remote control paths** on the device: no remote desktop or over-the-air updates. Firmware only over USB.
-4. **No "OK" signal anywhere.** Only signatures, checked by whatever holds the wallet key.
-5. **Doesn't rely only on biometrics.** The YubiKey, PIN and touch are the proof; sensors only detect duress.
-
-## 9. Traceability: who approved it
+## 7. Traceability: who approved it
 
 - **One YubiKey per person**, never shared. The verifier maps each public key to a named approver.
 - **Genuine hardware:** the YubiKey's attestation certificate proves the key was made inside a real YubiKey.
 - **Tamper-evident log:** each approval entry includes the hash of the previous one, so nobody, including an insider, can quietly edit history. A copy can be kept on the microSD.
-- **Big actions need 2 of 3 approvers.**
 
-## 10. What makes it different
+## 8. Honest limits
 
-Ledger Enterprise offers approval devices with trusted screens, and Fireblocks offers phone approvals. YuDuino adds:
+- **No screen**, so malware on the laptop could show one transaction and request another; the verifier binds the exact request, but the user can't see it on the device.
+- **Stress isn't always duress.** The over-the-shoulder rule and the recovery rule handle the common cases; the owner check is statistical and can turn away the real owner.
+- **The UNO Q has no dedicated secure element.** Keys and the final decision stay on the STM32 side.
+- **Unverified on the board:** see the status table in the [README](../README.md#status).
 
-- **Duress detection with a fake approval**, the headline feature.
-- **Hardware approval for changes to the wallet system itself** (deployments, permissions, delegations), the route used against Binance.
-- **Approval gates for AI agents**, not just people.
-- **Hybrid post-quantum signatures.**
-- **Cheap and open**, built from off-the-shelf Arduino parts.
+## 9. Demo
 
-## 11. Limitations and honest risks
-
-| Limitation | Mitigation |
-|---|---|
-| The LED matrix is tiny, so long transactions are hard to show | Show amount and destination tail only; refuse anything else; an HDMI screen on the hub in the next version |
-| No real skin-conductance (GSR) or pulse sensor in the kit | Thermo humidity and moisture deltas from the user's own baseline; camera pulse as a stretch goal |
-| Stress isn't duress (late, cold, coffee) | Soft responses only (step-up, a duress verdict), never a hard lockout; the duress PIN is the most reliable signal |
-| A calm, well-informed attacker can beat physiological checks | Duress PIN, time delays and 2-of-3 approval as backstops |
-| Doesn't stop the initial malware infection | It limits what stolen access is worth |
-| The UNO Q has no dedicated secure element | Key on the microcontroller side only; signed firmware; secure element in a later version |
-| Emotion recognition is legally sensitive (the EU AI Act restricts it at work) | Frame it as context risk scoring; consenting teammates only on camera; frames never stored |
-
-## 12. Hackathon goals
-
-- **Demo:** replay the Binance attack. An "attack script" on the laptop requests a transfer; the LED matrix shows it; nothing moves without a real tap. Then a forced approval: the duress check fires, the attacker sees "OK", and the verifier silently freezes the funds.
-- **Target challenges** (details in the [challenge plan](CHALLENGES.md)): RS/Arduino (main). Cheap add-ons: DEV, ElevenLabs; Stretch goals if time: Solana and MongoDB Atlas.
-- Use the free 3D printer for the mouse shell and the YubiKey dock.
-
-## 13. Open decisions
-
-- [x] Fake approval design details: one signing key plus a status hidden inside the STM32's tag, which only the verifier can read (see [CRYPTO.md](CRYPTO.md))
-- [ ] YubiKey on the laptop (WebAuthn) or directly on the UNO Q (USB)
-- [x] An Edge Impulse model on the board does the duress calculation, a generic model personalised on the device against the user's own baseline, which never leaves the device; fail closed
-- [x] Verifier: a small reference library the customer calls from their own system (`Verifier` in `yuseal.py`); a Solana devnet wallet program as a stretch goal
-- [x] Storage: a local store on the board for per-usage scores and baselines, written after the decision. MongoDB Atlas (profiles, incidents) is a stretch goal if time
-- [x] Core vision: the readings are a language the attacker can't read; each means nothing alone, aggregated they form a signal, the on-device model translates (secret gesture optional)
+We opened with the Binance attack, held up a "YubiKey with a quantum seal", then revealed the mouse that had been plugged in the whole time: passive, on-device analysis with zero input. Then a live staged-duress demo: one teammate "threatens" the other at the desk, and the approval goes through as a decoy.

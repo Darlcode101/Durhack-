@@ -4,11 +4,18 @@ The duress judgement is made by an **Edge Impulse model that runs on the UNO Q's
 
 ## The design
 
-- **A generic model, personalised on the device.** Edge Studio trains one *generic* anomaly model on **synthetic** calm data only, never on a real person's data. Each mouse personalises it locally: the features it scores include the user's own reading against **their own per-hour mean and spread** (the STM32's rolling baseline), so the same model means "unusual for this person". Real user data never leaves the device. Studio is used only for the generic model.
+- **Classical ML, not a cloud LLM.** We started with Gemini and Tiger Data and moved everything onto the device.
+- **A generic model, personalised on the device without retraining.** Edge Studio trains one *generic* anomaly model on **synthetic** calm data only, never on a real person's data. Each mouse personalises it locally: the features it scores include the user's own reading against **their own per-hour mean and spread** (the STM32's rolling baseline), so the same model means "unusual for this person". Real user data never leaves the device. Studio is used only for the generic model.
 - **Only at a transaction.** The model runs once, on **the last minute of readings** (plus the readings taken right after the click), scored against the user's per-hour baseline. One minute is short enough that a sudden change isn't averaged away. The last minute is kept in RAM only by the learner (`python3 main.py learn <user>`, which runs all day) and overwritten every second; with no learner running, only the short live sample is scored. Everyday use is learned from (the baseline) but never judged.
 - **The STM32 still decides.** The score goes to the STM32 as a whole number 0 to 100; the STM32 applies the veto and the decision rule (below 40 normal, 40 to 69 step-up, 70 and over duress) and makes the tag. The model can raise the alarm but never lower it.
 - **Fails closed.** No model, a model fault or an out-of-range output means no verdict, which counts as duress.
 - **Encrypted at rest.** The baseline copy, the training rows and the installed model are AES-256-GCM encrypted under a key the STM32 derives (`HMAC(K_MCU, "YS3/profile-key")`). The key is never stored on Linux, so a stolen board reveals nothing. The model is decrypted into RAM only to run.
+
+## Edge cases (as presented)
+
+- **Over-the-shoulder rule.** Coworkers and passers-by don't count. The camera only flags someone who is close and facing the screen for 3 seconds or more (`SHOULDER_DWELL_S` in `app/dashboard/server.py`).
+- **Hand on the mouse.** Readings only register while a palm is on the grip (the touch sensor), so a mouse left on the desk teaches the baseline nothing.
+- **Just back from a run.** After 5+ minutes away from the mouse, if sweat or shake is high but falling, that is treated as recovery from exercise: the body score is capped below the duress threshold, so the body sensors alone can't signal duress (`ABSENCE_S`, `RECOVERY_CAP` in `app/dashboard/baseline_model.py`).
 
 ## How the data becomes a baseline
 
@@ -22,7 +29,7 @@ Seed a demo quickly: `python3 main.py seed <user> 15` (15 minutes with a hand on
 ## Training the generic model (one time, no real data)
 
 1. `python3 tools/gen_generic_training.py generic.csv 2000` makes the synthetic calm set.
-2. In Edge Studio: new project, upload the CSV (one row per sample, header = `FEATURE_NAMES`), create an impulse with a raw-data input of the 17 features in that order and an **anomaly detection** (K-means or GMM) block, train.
+2. In Edge Studio: new project, upload the CSV (one row per sample, header = `FEATURE_NAMES`), create an impulse with a raw-data input of the 17 features in that order and a **K-means anomaly detection** block, train. (Our trained model: 2000 calm rows, 17 input columns.)
 3. Note the anomaly scores for calm and for a staged hold; set `EI_ANOMALY_LIMIT` to the "unusual" level.
 4. Deploy: Linux (AARCH64) `.eim`. `python3 main.py import-model <user> generic.eim` encrypts it into that user's profile; delete the plaintext afterwards.
 5. Test calm against a staged duress on the real mouse.

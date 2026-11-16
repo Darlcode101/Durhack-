@@ -15,7 +15,7 @@ This page says how YuDuino is a composition and maps the project to each judging
 | **The object** | a **mouse** + a **YubiKey** + **AI** (an on-device Edge Impulse model) + a **time-series database** | A new combination: an everyday object that is secretly an authenticator |
 | **The history** | a day of minute-by-minute readings | A person's habitual "piece": their baseline, hour by hour |
 
-The attacker sees readings but not what they add up to. That is the project's core idea ([README](../README.md#the-vision-a-language-the-attacker-can-never-read)), now with a name.
+The attacker sees readings but not what they add up to. That is the project's core idea ([overview](YuDuino-Overview.md#4-how-it-works)), now with a name.
 
 ## Mapping to the judging criteria
 

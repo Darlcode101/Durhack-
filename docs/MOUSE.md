@@ -1,5 +1,7 @@
 # YuDuino as a mouse
 
+> **Historical (DurHack working doc).** Written during the hackathon. Parts describe the earlier PIN-and-LED-matrix design, Gemini/Tiger Data, or add-ons we didn't build (ElevenLabs, Solana, MongoDB). The final design, as presented, is in the [README](../README.md), the [overview](YuDuino-Overview.md) and the [pitch deck](../presentation/YuDuino-DurHack-2026-pitch.pdf).
+
 **Status:** proposal, 14 November 2026. Not built yet. The crypto (YuSeal, keys, verifier) doesn't change; this changes where the sensors live and where the baselines come from.
 
 ## The idea

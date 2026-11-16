@@ -2,7 +2,7 @@
 
 **Hardware approval you can't fake, even under threat.** Built at DurHack 2026 on an Arduino UNO Q with a YubiKey 5 NFC.
 
-**Peace of mind in an AI-accelerated world.** The past few months were the worst ever for cyber security (the Binance attack, where an attacker used a compromised laptop and an internal AI tool to make Binance's own signer approve theft of about US$6.3 billion). YuDuino is a **future-proof, post-quantum-signed** approval system that **new users can use without understanding it, because there are no inputs**: it is hidden inside a computer mouse that works exactly like a normal mouse. No screen, no PIN, nothing extra to do: the user just clicks, and the authentication happens in the background. To our knowledge it is a **new combination** of known parts that we couldn't find put together before ([prior art](docs/PRIOR-ART.md)). It also learns the owner's hand all day and **quietly rejects anyone else**. See [the target design](#the-target-design-a-mouse-you-just-use) below.
+**Peace of mind in a new world.** The past few months were the worst ever for cyber security (the Binance attack, where an attacker used a compromised laptop and an internal AI tool to make Binance's own signer approve theft of about US$6.3 billion). YuDuino is a **future-proof, post-quantum-signed** approval system that **new users can use without understanding it, because there are no inputs**: it is hidden inside a computer mouse that works exactly like a normal mouse. No screen, no PIN, nothing extra to do: the user just clicks, and the authentication happens in the background. To our knowledge it is a **new combination** of known parts that we couldn't find put together before ([prior art](docs/PRIOR-ART.md)). It also learns the owner's hand all day and **quietly rejects anyone else**. See [the design](#the-design-a-mouse-you-just-use) below.
 
 Everything runs on an **Arduino UNO Q**. Every approval is a sealed envelope with three independent proofs: a **YubiKey** signature (possession, no touch), a tag from the board's **STM32 microcontroller** (a real click with a palm on the grip happened just before, over a hash of the sensor summary the owner check is run on), and an **ML-DSA-65** post-quantum signature over everything. A handheld grip (shake, palm humidity and temperature, grip, sweat) and a USB camera feed an **Edge Impulse model running on the board**, which judges **whether the person is acting freely**. A generic model (trained in Edge Studio on synthetic data only) is personalised on the device against the user's own per-hour baseline, which never leaves the device. Under duress the requester just sees a normal "accepted" and the envelope looks identical, but the STM32's tag secretly says "duress", which only the customer's verifier can read, so the customer's system can raise a silent alarm. Details: **[crypto design](docs/CRYPTO.md)**.
 
@@ -12,13 +12,9 @@ Everything runs on an **Arduino UNO Q**. Every approval is a sealed envelope wit
 
 YuDuino came **2nd in the RS / Arduino track at DurHack 2026**. The deck we presented is in **[presentation/YuDuino-DurHack-2026-pitch.pdf](presentation/YuDuino-DurHack-2026-pitch.pdf)**, with the YubiKey + UNO Q diagram used on the slides ([PNG](presentation/yubikey-unoq.png), [SVG](presentation/yubikey-unoq.svg)).
 
-## Who it's for
+## The design: a mouse you just use
 
-The main audience is **Marshall Wace** (the hedge fund), whose challenge is **"New Worlds"**. The pitch, in our own words and with an honest claim about novelty, is in **[docs/INSTITUTIONAL-FIT.md](docs/INSTITUTIONAL-FIT.md)**; what already exists is in **[docs/PRIOR-ART.md](docs/PRIOR-ART.md)**. The overall DurHack theme is **Composition** ([docs/COMPOSITION.md](docs/COMPOSITION.md)).
-
-## The target design: a mouse you just use
-
-Design change (2026-11-14): the whole device now lives **inside a normal-working mouse**. The user does **nothing extra**: no PIN, no gesture, no screen. They click "Process transaction" like any button, the STM32 sees that **real physical click**, and the check runs silently from sensor data.
+The whole device lives **inside a normal-working office mouse**. The user does **nothing extra**: no PIN, no gesture, no screen. They click "Process transaction" like any button, the STM32 sees that **real physical click**, and the check runs silently from sensor data.
 
 - **Hidden.** Nothing about it looks like an authenticator. [docs/MOUSE-DESIGN.md](docs/MOUSE-DESIGN.md)
 - **It learns you all day.** A mouse is held for hours, so it builds a rich, per-hour baseline of your grip, tremor, sweat and temperature on the device, which fixes the "not enough data to know what's irregular" problem. This is learning only: nothing is judged or flagged from everyday use, and duress is checked **only at the moment of a transaction**. [docs/BASELINE.md](docs/BASELINE.md)
@@ -31,17 +27,18 @@ Design change (2026-11-14): the whole device now lives **inside a normal-working
 
 **What the code does today.** The repo implements this zero-input mouse mode: the STM32 core (click, arm, tag, attested sensor summary), the reference verifier's owner check with its quiet rejection, and the Linux flow, all tested on a laptop. The earlier PIN-and-LED-matrix "strong mode" has been removed from the code (it is in git history at commit `2c455f8`). The board glue (click tap, sensors, Bridge, YubiKey without a touch) has not been run on the UNO Q yet.
 
-## The vision: a language the attacker can never read
+## YuSeal: every security measure you could want going into 2027
 
-YuDuino is a small device that sits between a person and anything dangerous they can approve: moving money, deploying to production, letting an AI agent act. Nothing happens until a named person physically approves on it, and every approval is a **cryptographic signature, never an "OK" message**.
+- **ML-DSA post-quantum seal** (NIST FIPS 204)
+- **Keys never leave the hardware**
+- **STM32 click attestation** (a real finger made the click)
+- **AES-256-GCM** at rest
+- **Private, chip-derived unlock salt**
+- **Tamper-evident audit chain**
 
-Hardware keys already prove *who* is approving. None of them help when someone in the room **forces** you to approve. YuDuino does.
+The best encryption still doesn't stop someone standing at your desk. That is what the mouse is for.
 
-While you approve, your body is "speaking" a physical language: tremor, sweat, touch and click timing, voice, your face and the scene around you. **Each reading means nothing on its own**: a shaky hand might just be coffee. Only when the readings are **aggregated** do they form a signal, and **the on-device Edge Impulse model is the translator** that turns them into one verdict: *under duress or not*. This judgement happens **only at the moment of a transaction**; everyday use is learned from but never judged.
-
-The attacker is standing right there and can see everything, but can't read the language. If the translation says duress, YuDuino hands over a **decoy approval** that looks identical to a real one, moves nothing, freezes the funds and silently alerts the team.
-
-**Why now:** on 29 October 2026, about US$6.34 billion was stolen from Binance hot wallets after attackers drove the signing service directly, with no human ever asked to approve ([details in the overview](docs/YuDuino-Overview.md#2-why-it-matters-the-binance-heist-29-october-2026)).
+**Why now:** 2026 is one of the worst years for security on record. On 29 October 2026, about US$6.34 billion was stolen from Binance hot wallets after attackers drove the signing service directly, with no human ever asked to approve ([details in the overview](docs/YuDuino-Overview.md#2-why-it-matters-the-binance-heist-29-october-2026)).
 
 ## How an approval works
 
@@ -56,32 +53,18 @@ Nobody does anything but click. Full flow and the trade-offs: [docs/STEALTH-APPR
 
 **Safeguards:** the model runs on the board, so there is no cloud call to block or impersonate. It fails closed (no model, a model fault or a malformed output means the decoy), and the click, the YubiKey and the STM32's tag are always required.
 
-## The tracks we entered, and how YuDuino hits each one
+## Key design decisions
 
-| Track | Priority | How YuDuino hits it |
-|---|---|---|
-| **RS / Arduino:** build an intelligent system that can sense, analyse and respond to the real world | **Main** | **Sense:** the mouse's grip, click, movement and body sensors (learned all day for the baseline), plus the camera and mic. **Analyse:** at the moment of a transaction, readings against the user's baseline, aggregated by the on-device Edge Impulse model. **Decide:** real, step-up or decoy. **Act:** signature release and a quiet rejection of other hands. Uses all the mandatory hardware (UNO Q, camera, USB hub). Pitched as "smart safety monitoring", with accessibility via spoken readback. |
-| **Overall theme: Composition** (art, music, tech, idea mixing) | **Main** | Many meaningless signals composed into one; a mouse + YubiKey + AI. [docs/COMPOSITION.md](docs/COMPOSITION.md) |
-| **Marshall Wace: New Worlds** (open a door to new data, ideas or something novel) | **Main** | A new world of data, the human hand at the moment of authority, and an authenticator nobody can see. [docs/INSTITUTIONAL-FIT.md](docs/INSTITUTIONAL-FIT.md) |
-| **MLH Best Use of ElevenLabs** | Add-on | Reads the transaction aloud for accessibility, and generates calm and scared test voices for a reliable demo. (It doesn't detect fear; the Edge Impulse model does the translating.) |
-| **DEV Writing Challenge** | Add-on | Publish the build story after the weekend. |
-| **Free 3D printer** | Build | A base plate, standoffs and inserts for a **donor mouse** (or a prototype shell) that hide the whole device, plus a dock for the YubiKey and a **camera mount**. See [docs/MOUSE-DESIGN.md](docs/MOUSE-DESIGN.md). |
-| **MLH Best Use of Solana** | Stretch | A devnet wallet program: a valid YuDuino signature releases funds, a decoy freezes them on-chain. |
+1. **Keeping it local.** We started with Gemini and Tiger Data, then moved to storing user data on the device and using classical ML rather than a cloud LLM. Nothing leaves the device.
+2. **Edge cases.** Coworkers and passers-by don't count (the over-the-shoulder rule), and readings only register while your hand is on the mouse.
+3. **K-means anomaly detection.** Trained on 2000 calm rows; 17 input columns go into a K-means anomaly block. The inputs measure how far you are from your own mean, so the model is personalised without retraining: z = (x − μ) / σ against your mean for that time of day.
+4. **Someone just back from a run.** After 5+ minutes away from the mouse, if sweat or shake is high but falling, that's recovery from exercise. The body score is capped below the duress threshold, so that alone can't signal duress.
 
-Full details: **[challenge plan](docs/CHALLENGES.md)**.
+Details: [docs/EDGE-IMPULSE.md](docs/EDGE-IMPULSE.md).
 
-## Our focuses, in priority order
+## Track
 
-The tracks above set what we spend time on:
-
-1. **The end-to-end approval loop (RS/Arduino).** Request, the physical click, background checks, verdict, real or decoy signature, verifier. Everything else depends on it working.
-2. **The hidden language (Edge Impulse).** Every sensor feeds the aggregate; the model's translation is the heart of the demo. Calm and coerced approvals must give visibly different verdicts.
-3. **Personal baselines (on the device).** A rolling stream from the mouse, rolled up into per-hour baselines kept on the board, so the translation at a transaction is about *this* person *right now*.
-4. **A device nobody looks at twice, that learns you all day (3D printer).** The whole device hides inside a computer mouse. Because a mouse is held for hours, it also **passively learns a rich baseline** of your grip, tremor, sweat and temperature (learning only: duress is checked just at a transaction), which solves the "not enough data to know what's irregular" problem ([docs/BASELINE.md](docs/BASELINE.md)). The YubiKey and camera sit in a dock.
-5. **Polish and accessibility (ElevenLabs, DEV).** Spoken readback, demo voices, write-up.
-6. **Stretch goal, only if time (Solana).**
-
-**Ground rules:** keep the prototype simple; never trust the laptop; the device fails closed; every build wave ends with a working demo.
+Entered in **RS / Arduino** (sense, analyse and respond to the real world) and placed **2nd**. **Sense:** grip, movement, sweat and click, all day, only while a hand is on the mouse. **Analyse:** at a transaction, the last minute against your baseline, scored by the on-device K-means model. **Decide and act:** a real approval, a decoy under duress, or a quiet rejection of someone else's hand. See [docs/CHALLENGES.md](docs/CHALLENGES.md).
 
 ## Hardware
 
@@ -104,8 +87,8 @@ Wiring and step-by-step bring-up: **[hardware plan](docs/HARDWARE-PLAN.md)**.
 
 - **[Pitch deck](presentation/YuDuino-DurHack-2026-pitch.pdf):** the slides we presented at DurHack 2026.
 
-- **[Overview](docs/YuDuino-Overview.md):** the full product write-up: pitch, Binance case, approval flow, key release, post-quantum plan, traceability, limitations.
-- **[Challenge plan](docs/CHALLENGES.md):** how we target each DurHack track.
+- **[Overview](docs/YuDuino-Overview.md):** the full write-up, matching the pitch deck: pitch, Binance case, how it works, key design decisions, limits.
+- **[Challenges and result](docs/CHALLENGES.md):** the track we entered and how it went.
 - **[Development plan](docs/DEV-PLAN.md):** build waves, each advancing hardware, cryptography and extensions together, with a demo at the end of every wave.
 - **[Hardware plan](docs/HARDWARE-PLAN.md):** wiring, pins and the bring-up order.
 - **[Edge Impulse model](docs/EDGE-IMPULSE.md):** the generic model trained on synthetic data, personalised on the device by the user's own baseline, the encrypted profile, and the training steps.

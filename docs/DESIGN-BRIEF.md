@@ -1,5 +1,7 @@
 # YuSeal design brief
 
+> **Historical (DurHack working doc).** Written during the hackathon. Parts describe the earlier PIN-and-LED-matrix design, Gemini/Tiger Data, or add-ons we didn't build (ElevenLabs, Solana, MongoDB). The final design, as presented, is in the [README](../README.md), the [overview](YuDuino-Overview.md) and the [pitch deck](../presentation/YuDuino-DurHack-2026-pitch.pdf).
+
 *Written 14 November 2026, 20:05. This is the brief the YuSeal v2 redesign was written against. If you (or an AI assistant) change the design later, re-read this first and check the change against every section.* Back to the **[crypto design](CRYPTO.md)** · **[build flow](BUILD-FLOW.md)**.
 
 ## 1. The job

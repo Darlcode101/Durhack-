@@ -1,5 +1,7 @@
 # Plan — Duress-aware, post-quantum authentication (DurHack hardware track)
 
+> **Historical (DurHack working doc).** Written during the hackathon. Parts describe the earlier PIN-and-LED-matrix design, Gemini/Tiger Data, or add-ons we didn't build (ElevenLabs, Solana, MongoDB). The final design, as presented, is in the [README](../README.md), the [overview](YuDuino-Overview.md) and the [pitch deck](../presentation/YuDuino-DurHack-2026-pitch.pdf).
+
 > Track: *build an intelligent system that can sense, analyse and respond to the real world.*
 >
 > The schedule below is superseded by the wave-by-wave **[prototype and development plan](DEV-PLAN.md)**.

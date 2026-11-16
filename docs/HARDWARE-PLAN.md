@@ -1,5 +1,7 @@
 # YuDuino hardware plan: getting the basics running
 
+> **Historical (DurHack working doc).** Written during the hackathon. Parts describe the earlier PIN-and-LED-matrix design, Gemini/Tiger Data, or add-ons we didn't build (ElevenLabs, Solana, MongoDB). The final design, as presented, is in the [README](../README.md), the [overview](YuDuino-Overview.md) and the [pitch deck](../presentation/YuDuino-DurHack-2026-pitch.pdf).
+
 A step-by-step bring-up for the kit we actually have. Add one part at a time and don't move on until its test passes, so when something breaks you know which part caused it.
 
 Pin choices match the existing code in [`app/sketch/sketch.ino`](../app/sketch/sketch.ino). Product background is in [YuDuino-Overview.md](YuDuino-Overview.md); team schedule in [PLAN.md](PLAN.md).

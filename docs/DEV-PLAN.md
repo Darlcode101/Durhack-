@@ -1,5 +1,7 @@
 # YuDuino: prototype and development plan
 
+> **Historical (DurHack working doc).** Written during the hackathon. Parts describe the earlier PIN-and-LED-matrix design, Gemini/Tiger Data, or add-ons we didn't build (ElevenLabs, Solana, MongoDB). The final design, as presented, is in the [README](../README.md), the [overview](YuDuino-Overview.md) and the [pitch deck](../presentation/YuDuino-DurHack-2026-pitch.pdf).
+
 *Written 14 November 2026, about 19:15 on day one of DurHack.* Back to the **[overview](YuDuino-Overview.md)** · **[challenge plan](CHALLENGES.md)** · **[hardware plan](HARDWARE-PLAN.md)**
 
 ## How this plan works

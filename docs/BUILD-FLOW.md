@@ -1,5 +1,7 @@
 # YuDuino build flow: hardware and code together
 
+> **Historical (DurHack working doc).** Written during the hackathon. Parts describe the earlier PIN-and-LED-matrix design, Gemini/Tiger Data, or add-ons we didn't build (ElevenLabs, Solana, MongoDB). The final design, as presented, is in the [README](../README.md), the [overview](YuDuino-Overview.md) and the [pitch deck](../presentation/YuDuino-DurHack-2026-pitch.pdf).
+
 *Written 14 November 2026, evening of day one of DurHack.* This page answers one question: **for each piece of hardware, what do I code, in which file, in which language, on which chip, and how do I know it works?** Back to the **[crypto design](CRYPTO.md)** · **[hardware plan](HARDWARE-PLAN.md)** (wiring) · **[dev plan](DEV-PLAN.md)** (the waves).
 
 ## 1. The map: three computers, one rule

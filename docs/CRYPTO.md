@@ -2,6 +2,8 @@
 
 *Version 2, written 14 November 2026, evening of day one of DurHack. It replaces the first version, which had seven gaps (listed in the [design brief](DESIGN-BRIEF.md#6-review-of-v1-against-this-brief)).* Back to the **[overview](YuDuino-Overview.md)** · **[build flow](BUILD-FLOW.md)** (what to code where) · **[dev plan](DEV-PLAN.md)** · **[hardware plan](HARDWARE-PLAN.md)**
 
+> **Final design: mouse mode (v3), as presented at DurHack.** Solana and ElevenLabs below were never built.
+>
 > **Mouse mode (design change, 2026-11-14).** This page was written for **v2 (a PIN on buttons and the request text on the LED matrix)**. The code now implements **v3, mouse mode** (suite `YS3`), because the device lives **inside a normal-working mouse with no screen, no PIN and no extra input**. In that mode the three proofs, the ML-DSA seal, the audit log, the nonces and the verifier's checks are **unchanged**, but:
 > - the **STM32 tag** binds the status, the request digest, **a physical click** (its age and whether the palm was on the grip) and **a hash of the attested sensor summary**, instead of the PIN and the displayed text;
 > - there is **no trusted display** and **no PIN or duress PIN**; duress is detected **only passively, and only at the moment of a transaction**;
