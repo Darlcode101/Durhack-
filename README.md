@@ -8,6 +8,10 @@ Everything runs on an **Arduino UNO Q**. Every approval is a sealed envelope wit
 
 **Test it:** [docs/TESTING.md](docs/TESTING.md) (laptop tests first, then the board).
 
+## Result
+
+YuDuino came **2nd in the RS / Arduino track at DurHack 2026**. The deck we presented is in **[presentation/YuDuino-DurHack-2026-pitch.pdf](presentation/YuDuino-DurHack-2026-pitch.pdf)**, with the YubiKey + UNO Q diagram used on the slides ([PNG](presentation/yubikey-unoq.png), [SVG](presentation/yubikey-unoq.svg)).
+
 ## Who it's for
 
 The main audience is **Marshall Wace** (the hedge fund), whose challenge is **"New Worlds"**. The pitch, in our own words and with an honest claim about novelty, is in **[docs/INSTITUTIONAL-FIT.md](docs/INSTITUTIONAL-FIT.md)**; what already exists is in **[docs/PRIOR-ART.md](docs/PRIOR-ART.md)**. The overall DurHack theme is **Composition** ([docs/COMPOSITION.md](docs/COMPOSITION.md)).
@@ -52,7 +56,7 @@ Nobody does anything but click. Full flow and the trade-offs: [docs/STEALTH-APPR
 
 **Safeguards:** the model runs on the board, so there is no cloud call to block or impersonate. It fails closed (no model, a model fault or a malformed output means the decoy), and the click, the YubiKey and the STM32's tag are always required.
 
-## The tracks we're targeting, and how YuDuino hits each one
+## The tracks we entered, and how YuDuino hits each one
 
 | Track | Priority | How YuDuino hits it |
 |---|---|---|
@@ -63,7 +67,6 @@ Nobody does anything but click. Full flow and the trade-offs: [docs/STEALTH-APPR
 | **DEV Writing Challenge** | Add-on | Publish the build story after the weekend. |
 | **Free 3D printer** | Build | A base plate, standoffs and inserts for a **donor mouse** (or a prototype shell) that hide the whole device, plus a dock for the YubiKey and a **camera mount**. See [docs/MOUSE-DESIGN.md](docs/MOUSE-DESIGN.md). |
 | **MLH Best Use of Solana** | Stretch | A devnet wallet program: a valid YuDuino signature releases funds, a decoy freezes them on-chain. |
-| **MLH Best Use of MongoDB Atlas** | Stretch | Document data: user and device profiles, incident reports. |
 
 Full details: **[challenge plan](docs/CHALLENGES.md)**.
 
@@ -76,7 +79,7 @@ The tracks above set what we spend time on:
 3. **Personal baselines (on the device).** A rolling stream from the mouse, rolled up into per-hour baselines kept on the board, so the translation at a transaction is about *this* person *right now*.
 4. **A device nobody looks at twice, that learns you all day (3D printer).** The whole device hides inside a computer mouse. Because a mouse is held for hours, it also **passively learns a rich baseline** of your grip, tremor, sweat and temperature (learning only: duress is checked just at a transaction), which solves the "not enough data to know what's irregular" problem ([docs/BASELINE.md](docs/BASELINE.md)). The YubiKey and camera sit in a dock.
 5. **Polish and accessibility (ElevenLabs, DEV).** Spoken readback, demo voices, write-up.
-6. **Stretch goals, only if time (post-quantum ML-DSA signature, Solana, MongoDB).**
+6. **Stretch goal, only if time (Solana).**
 
 **Ground rules:** keep the prototype simple; never trust the laptop; the device fails closed; every build wave ends with a working demo.
 
@@ -99,6 +102,8 @@ Wiring and step-by-step bring-up: **[hardware plan](docs/HARDWARE-PLAN.md)**.
 
 ## Documentation
 
+- **[Pitch deck](presentation/YuDuino-DurHack-2026-pitch.pdf):** the slides we presented at DurHack 2026.
+
 - **[Overview](docs/YuDuino-Overview.md):** the full product write-up: pitch, Binance case, approval flow, key release, post-quantum plan, traceability, limitations.
 - **[Challenge plan](docs/CHALLENGES.md):** how we target each DurHack track.
 - **[Development plan](docs/DEV-PLAN.md):** build waves, each advancing hardware, cryptography and extensions together, with a demo at the end of every wave.
@@ -111,6 +116,7 @@ Wiring and step-by-step bring-up: **[hardware plan](docs/HARDWARE-PLAN.md)**.
 - **[Invisible approval](docs/STEALTH-APPROVAL.md):** no screen, no PIN, no extra input: the flow, what we lose and how we cover it.
 - **[Owner check](docs/OWNER-CHECK.md):** how the mouse tells the registered user from anyone else, and what happens on a false reject.
 - **[Mouse design](docs/MOUSE-DESIGN.md):** the device hidden inside a computer mouse: layout, sensor map, 3D-printed shell, and the security trade-offs.
+- **[Test cases](docs/TEST-CASES.md):** the YuSeal crypto test cases and their results, on the laptop and on the board.
 - **[Crypto design (YuSeal)](docs/CRYPTO.md):** keys, the three proofs, the hidden duress status, login, audit log, threat coverage, weak spots.
 - **[Build flow](docs/BUILD-FLOW.md):** for each piece of hardware, what to code where, the test for each step, and the demo script.
 - **[Design brief](docs/DESIGN-BRIEF.md):** the requirements the crypto was designed against, and why version 1 was replaced.
@@ -148,6 +154,7 @@ app/
     edge_model.py       the on-device Edge Impulse model: sensor window → duress score
     pq_keystore.py, verifier.py, responder.py, risk_rules.py
                         the first scaffold (separate duress key). Superseded by YuSeal; kept for reference
+presentation/            the DurHack 2026 pitch deck (PDF) and the slide diagram
 tools/
   provision.py          makes the STM32's secrets (run once on a laptop)
   gen_generic_training.py  makes the synthetic training set for the generic Edge Impulse model
