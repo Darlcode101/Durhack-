@@ -215,7 +215,7 @@ void setup() {
 #else
   pinMode(CLICK_PIN, INPUT_PULLUP);
 #endif
-  // The DFRobot touch and moisture sensors take power from D7 / D8 (docs/HARDWARE-PLAN.md):
+  // The DFRobot touch and moisture sensors take power from D7 / D8 (docs/HARDWARE.md):
   // the UNO Q has one 3V3 pin, and a shared joint there left both unpowered.
   pinMode(7, OUTPUT); digitalWrite(7, HIGH);   // touch VCC
   pinMode(8, OUTPUT); digitalWrite(8, HIGH);   // moisture VCC

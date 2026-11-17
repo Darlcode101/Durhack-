@@ -17,7 +17,7 @@ tools/setup_yk_hmac.py). Run `python3 tools/yk_probe.py` first to see which one 
 
 Run over SSH on the board, with the App Lab sensor app running (it carries the STM32 calls via
 app/dashboard/applab_relay.py). There is nothing to type or press but the mouse's own click: it
-works like any mouse. See docs/BUILD-FLOW.md.
+works like any mouse. See docs/HOW-IT-WORKS.md.
 """
 import json
 import os

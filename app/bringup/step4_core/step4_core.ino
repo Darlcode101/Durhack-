@@ -17,7 +17,7 @@
 ModulinoButtons buttons;
 #endif
 const int CLICK_PIN = 3, TOUCH_PIN = 2;
-const int TOUCH_PWR_PIN = 7;   // the touch sensor is powered from D7 (docs/HARDWARE-PLAN.md)
+const int TOUCH_PWR_PIN = 7;   // the touch sensor is powered from D7 (docs/HARDWARE.md)
 yuseal::Mcu core; bool prev = false;
 bool gripAtDown = false;       // debug: the grip reading the core was given at the press
 void setup() {
