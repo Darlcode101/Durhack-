@@ -1,5 +1,5 @@
 // YuSeal v3 (mouse mode) trusted core for the STM32 side of the UNO Q.
-// See docs/STEALTH-APPROVAL.md and docs/OWNER-CHECK.md.
+// See docs/HOW-IT-WORKS.md and docs/CRYPTO.md.
 //
 // Plain C++ with no Arduino dependencies, so the same file is compiled and tested
 // on a laptop (tools/mcu_host_test.cpp) and checked against the Python model.

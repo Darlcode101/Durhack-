@@ -1,4 +1,4 @@
-"""The Linux side of one YuSeal approval, and of enrolment. See docs/BUILD-FLOW.md.
+"""The Linux side of one YuSeal approval, and of enrolment. See docs/HOW-IT-WORKS.md.
 
 Zero-input mouse mode: nobody does anything but click. Everything outside this file is injected,
 so the same code runs on the board (real Bridge, real YubiKey) and in tests (fake STM32, soft YubiKey).

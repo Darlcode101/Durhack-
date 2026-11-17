@@ -87,7 +87,7 @@ def login(credential_data: bytes, salt: bytes, client: Fido2Client | None = None
     return result.client_extension_results.hmac_get_secret.output1
 
 
-# ---------------------------------------------------------------- YuSeal adapter (docs/BUILD-FLOW.md, step 4)
+# ---------------------------------------------------------------- YuSeal adapter (docs/TESTING.md)
 import base64  # noqa: E402
 
 from cryptography.hazmat.primitives.asymmetric import ec  # noqa: E402

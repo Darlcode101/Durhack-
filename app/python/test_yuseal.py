@@ -70,7 +70,7 @@ class Device:
         self.t += 100
 
     def approve(self, model=CALM, request=REQ, veto=False, features=None, grip=True, click=True, wait_ms=100):
-        """The Linux-side flow from docs/BUILD-FLOW.md. Returns the envelope, or None if the STM32 won't arm."""
+        """The Linux-side flow from docs/HOW-IT-WORKS.md. Returns the envelope, or None if the STM32 won't arm."""
         nonce = self.verifier.new_nonce()
         core = ys.build_core(request, service=RP, approver="jonah", device="unoq-1", nonce=nonce)
         digest = ys.core_digest(core)
